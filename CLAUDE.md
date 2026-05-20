@@ -15,6 +15,8 @@ Persistent guidance for designing and developing this product. Read me before wr
 
 Fluxos: **Landing → Upload → Prompt/Análise → Dashboard**. Mais a tela de Dashboard com presets (Visão geral, Por região, Por produto, Por canal, Avançado-Pro).
 
+**Próxima fase**: integração com **Supabase Auth** (signup/login com e‑mail) + **Stripe Checkout** para ativar o plano Pro real (**R$ 49/mês**). A estrutura no front (`currentUser`, `AuthBubble`, props `onSignIn/onSignOut/onProfile`) já está plumbada — só os handlers são stubs aguardando o backend. Ver §17.
+
 ---
 
 ## 2. Stack & restrições técnicas
@@ -338,7 +340,44 @@ Quando o usuário pedir features novas, posicione no contexto deste roadmap:
 3. **Pro+ futuro**: integrações (Postgres, BigQuery, Stripe), agendamento de exportação por e-mail, alertas baseados em insights.
 4. **Plataforma**: equipes, permissões, branding white-label.
 
+### Débitos técnicos conhecidos
+
+- **`useCount` não reage a `target` pós-mount** (`landing.jsx`). Guard com `started.current` faz a animação capturar o primeiro `target` que viu e nunca re-animar. Hoje aceitável porque os KPIs do Dashboard recebem `target` estável (vem de `realAgg`, fixo após upload). Quando algum consumidor precisar de target mutável (ex.: dados ao vivo, morph entre períodos), a correção é forçar remount via `key` no consumidor — não reescrever o hook. Uma tentativa anterior de "animar do v atual" mutava ref durante render e brigava com o pipeline de commit do React 18, congelando o display em frame intermediário (commit `a1f36f1` → revertido em `3d1d9bd`).
+
 Quando algo cair fora do roadmap, **pergunte antes de implementar**.
+
+---
+
+## 17. Convenções de Auth (em implementação)
+
+`currentUser` virá do Supabase no formato:
+
+```ts
+{
+  id: uuid,
+  email: string,
+  plan: 'free' | 'pro',
+  stripe_customer_id?: string,
+  created_at: timestamp,
+}
+```
+
+Regras de uso:
+
+- **Plano efetivo** = `currentUser?.plan ?? tweaks.plan ?? 'free'`. Tweaks override existe pra testar o paywall no navegador sem mexer no DB. Em produção o tweak deve ser ignorado quando `currentUser` está presente.
+- **Anônimo** (`currentUser === null`): mostra "Entrar" no Nav/Topbar. Usuário pode usar todas as features Free localmente (upload, dashboard com mocks, export sem branding pago, etc.). Nada é persistido server-side.
+- **Logado free**: avatar com inicial do e‑mail. Dashboards continuam locais até a feature de persistência entrar; o que muda é o paywall ficar legível ("upgrade para Pro") em vez de só "experimentar".
+- **Logado pro**: idem free + tudo desbloqueado. Stripe customer já criado, `stripe_customer_id` populado.
+
+Handlers que existem no front (todos hoje fazem `console.log`):
+
+- `onSignIn` — abrirá modal de signup/login do Supabase. Vai chamar `supabase.auth.signInWithOtp({ email })` ou similar.
+- `onSignOut` — `supabase.auth.signOut()`, então `setCurrentUser(null)`.
+- `onProfile` — navega para `/perfil` (ou modal). Mostra plano atual, link "Gerenciar assinatura" → Stripe Customer Portal.
+
+Componente reutilizável: `AuthBubble` (em `landing.jsx`). Aceita `currentUser`, os 3 handlers, e `accent` (cor do avatar). Renderiza "Entrar" se anônimo, avatar+dropdown se logado. Usado tanto no `Nav` da landing quanto no `Topbar` do Dashboard.
+
+Não armazenar dados sensíveis em `localStorage` — apenas preferências de UI (período, layout, tema). Token do Supabase é gerenciado pelo SDK em cookie httpOnly quando configurado corretamente.
 
 ---
 

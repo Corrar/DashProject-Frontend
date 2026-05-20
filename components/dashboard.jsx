@@ -212,7 +212,7 @@ const DASH_SAMPLE_CSV = [
   "2026-05-19,Climatização Industrial,Marketplace,CO,Diego R.,61700,16,3856.25,0.051,75",
 ].join("\n");
 
-function Topbar({ onClose, tweaks, fileInfo }){
+function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut, onProfile }){
   const fname = fileInfo?.name || "vendas_exemplo.csv";
   return (
     <div className="topbar">
@@ -234,7 +234,7 @@ function Topbar({ onClose, tweaks, fileInfo }){
           <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose}><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Início</button>
           <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Share size={14}/> Compartilhar</button>
           <button className="btn btn-primary" style={{padding:"8px 14px"}}><Icon.Crown size={14}/> Fazer upgrade</button>
-          <div style={{width:32, height:32, borderRadius:"50%", background:"linear-gradient(135deg, #ff7849, #ff5e93)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:12}}>MA</div>
+          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
         </div>
       </div>
     </div>
@@ -1394,7 +1394,7 @@ function Insights({ tweaks, onAddChart }){
   );
 }
 
-function Dashboard({ onClose, tweaks, fileInfo }){
+function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut, onProfile }){
   const [period, setPeriod] = React.useState("90d");
   const [editing, setEditing] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
@@ -1492,10 +1492,42 @@ function Dashboard({ onClose, tweaks, fileInfo }){
     const convRaw = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) : null;
     const convAvg = convRaw == null ? null : (Math.abs(convRaw) < 1 ? convRaw * 100 : convRaw);
     const ticketMedio = filteredData.length ? totalAll/filteredData.length : 0;
+    // Seller grouping (Top vendedores chart in advanced view).
+    const vendedores = dataCols.seller
+      ? dashGroupSum(filteredData, dataCols.seller, dataCols.value).sort((a,b)=>b.v-a.v)
+      : [];
+    // Day-of-week aggregation (Mon → Sun) for the dow chart.
+    const dow = dataCols.date ? (()=>{
+      const labels = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
+      const buckets = labels.map(l => ({ l, v: 0 }));
+      for(const r of filteredData){
+        const d = r[dataCols.date]; if(!(d instanceof Date)) continue;
+        const val = r[dataCols.value]; if(typeof val !== "number") continue;
+        // JS: Sun=0..Sat=6 — shift so Mon=0..Sun=6
+        buckets[(d.getDay() + 6) % 7].v += val;
+      }
+      return buckets;
+    })() : [];
+    // Monthly aggregation for the "Evolução mensal" charts in region/channel
+    // views. Buckets by YYYY-MM and labels with pt-BR month abbreviations.
+    const monthly = dataCols.date ? (()=>{
+      const map = new Map();
+      const meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+      for(const r of filteredData){
+        const d = r[dataCols.date]; if(!(d instanceof Date)) continue;
+        const val = r[dataCols.value]; if(typeof val !== "number") continue;
+        const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        map.set(key, (map.get(key) || 0) + val);
+      }
+      return [...map.entries()].sort(([a],[b])=> a<b?-1:1).map(([k, v])=>({
+        l: meses[parseInt(k.slice(5), 10) - 1] || k.slice(5),
+        v,
+      }));
+    })() : [];
     return {
-      tendency: tend, produto: prod, regiao: reg, canal: chan, ranking,
+      tendency: tend, produto: prod, regiao: reg, canal: chan, canalRaw: chanRaw, ranking,
       totalAll, ticketMedio, pedidos: filteredData.length, convAvg,
-      totalDelta, ticketDelta, countDelta,
+      totalDelta, ticketDelta, countDelta, vendedores, dow, monthly,
       sparkSeries: tend.length ? tend.map(d=>d.v) : [0,0,0],
     };
   }, [filteredData, hasRealData, dataCols]);
@@ -1551,14 +1583,84 @@ function Dashboard({ onClose, tweaks, fileInfo }){
     ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
     : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
 
-  // Aux mock data for advanced views
-  const tendencyMensal = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
-  const vendedores = [
-    {l:"Ana P.", v:142},{l:"Bruno S.", v:128},{l:"Carla L.", v:104},
-    {l:"Diego R.", v:96},{l:"Eva M.", v:78},{l:"Felipe T.", v:62},
-  ];
-  const dowVolume = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]}));
+  // ── Per-view aggregated data ───────────────────────────────────────────
+  // tendencyMensal/dowVolume/vendedores come from realAgg when an upload is
+  // present; otherwise the mock arrays kick in so the Tweaks-only path still
+  // renders something. categoriaMix is product-based (the user's CSV rarely
+  // has a categoria column) to avoid showing fake "Móveis/Eletrônicos" labels.
+  const tendencyMensal = realAgg && realAgg.monthly.length
+    ? realAgg.monthly
+    : ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
+  const dowVolume = realAgg && realAgg.dow.length
+    ? realAgg.dow
+    : ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]}));
+  const vendedores = realAgg && realAgg.vendedores.length
+    ? realAgg.vendedores.slice(0, 6).map(s => ({ l: String(s.l), v: s.v }))
+    : [
+        {l:"Ana P.", v:142},{l:"Bruno S.", v:128},{l:"Carla L.", v:104},
+        {l:"Diego R.", v:96},{l:"Eva M.", v:78},{l:"Felipe T.", v:62},
+      ];
+  const categoriaMix = realAgg && realAgg.produto.length
+    ? realAgg.produto.slice(0, 5).map(p => ({
+        l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
+        v: p.v,
+      }))
+    : [{l:"Móveis", v:54},{l:"Eletrônicos", v:32},{l:"Acessórios", v:14}];
   const cohort = Array.from({length:8}, (_,i)=>({l:`s${i+1}`, v: 100 - i*8 - Math.sin(i)*4}));
+
+  // ── Per-view KPI props ─────────────────────────────────────────────────
+  // Each preset (region / product / channel) gets four data-driven KPIs.
+  // Mock fallbacks preserved for the Tweaks-only entry path.
+  const regionPalette = [tweaks.accent, "#7a5cff", "#0a8a4a", "#ff7849"];
+  const regionKpis = realAgg ? [
+    ...[0,1,2].map(i => {
+      const r = realAgg.regiao[i];
+      const subs = ["líder de receita","vice-líder","3º lugar"];
+      return r
+        ? { label: String(r.l), value: r.v, format:"brl", delta:"—", deltaDir:"up", sub: subs[i], data: realAgg.sparkSeries, color: regionPalette[i] }
+        : { label:"—", value:0, format:"brl", delta:"—", deltaDir:"up", sub:"sem dados no período", data: realAgg.sparkSeries, color: regionPalette[i] };
+    }),
+    { label:"Regiões ativas", value: realAgg.regiao.length, format:"int", delta:"—", deltaDir:"up", sub:"distintas no período", data: realAgg.sparkSeries, color: regionPalette[3] },
+  ] : [
+    { label:"Centro-Oeste", value:"R$ 212", delta:"22%", deltaDir:"up", sub:"líder absoluto", data:[120,140,150,170,190,200,205,212], color:tweaks.accent },
+    { label:"Nordeste", value:"R$ 192", delta:"14%", deltaDir:"up", sub:"crescimento sustentado", data:[110,120,135,150,165,178,185,192], color:"#7a5cff" },
+    { label:"Sudeste", value:"R$ 154", delta:"4%", deltaDir:"down", sub:"queda no canal site", data:[180,175,170,168,165,160,158,154], color:"#0a8a4a" },
+    { label:"Cobertura geográfica", value:96, suffix:"%", delta:"2pp", deltaDir:"up", sub:"5 regiões ativas", data:[80,82,86,88,90,92,94,96], color:"#ff7849" },
+  ];
+
+  const productKpis = realAgg ? (()=>{
+    const total = realAgg.totalAll || 1;
+    const prods = realAgg.produto;
+    const top = prods[0];
+    const top2Sum = (prods[0]?.v || 0) + (prods[1]?.v || 0);
+    const top5Sum = prods.slice(0, 5).reduce((s, p) => s + p.v, 0);
+    const longTailSum = Math.max(0, realAgg.totalAll - top5Sum);
+    const top1Label = top ? (String(top.l).length > 22 ? String(top.l).slice(0,21)+"…" : String(top.l)) : "—";
+    return [
+      { label:"SKUs ativos", value: prods.length, format:"int", delta:"—", deltaDir:"up", sub:"produtos distintos no período", data: realAgg.sparkSeries, color: tweaks.accent },
+      { label:"Top 1: "+top1Label, value: top?.v || 0, format:"brl", delta:"—", deltaDir:"up", sub:"campeão de receita", data: realAgg.sparkSeries, color:"#7a5cff" },
+      { label:"Concentração top 2", value: (top2Sum/total)*100, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"risco de dependência", data: realAgg.sparkSeries, color:"#ff7849" },
+      { label:"Long tail", value: (longTailSum/total)*100, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"itens fora do top 5", data: realAgg.sparkSeries, color:"#0a8a4a" },
+    ];
+  })() : [
+    { label:"SKUs ativos", value:18, delta:"+2", deltaDir:"up", sub:"vs trimestre anterior", data:[14,15,15,16,16,17,17,18], color:tweaks.accent },
+    { label:"Top 1: Mesa Ajustável", value:"R$ 96,4", delta:"18%", deltaDir:"up", sub:"R$ 96,4k em vendas", data:[60,68,72,78,82,88,92,96], color:"#7a5cff" },
+    { label:"Concentração top 2", value:42, suffix:"%", delta:"3pp", deltaDir:"up", sub:"risco de dependência", data:[36,37,38,39,40,41,42,42], color:"#ff7849" },
+    { label:"Long tail", value:32, suffix:"%", delta:"1pp", deltaDir:"down", sub:"itens fora do top 5", data:[40,38,37,36,35,34,33,32], color:"#0a8a4a" },
+  ];
+
+  const channelPalette = [tweaks.accent, "#0a8a4a", "#7a5cff", "#c9234a"];
+  const channelKpis = realAgg ? [0,1,2,3].map(i => {
+    const c = realAgg.canalRaw[i];
+    return c
+      ? { label: String(c.l), value: c.v, format:"brl", delta:"—", deltaDir:"up", sub: i===0?"canal líder":(i===3?"em atenção":"em volume"), data: realAgg.sparkSeries, color: channelPalette[i] }
+      : { label:"—", value:0, format:"brl", delta:"—", deltaDir:"up", sub:"sem dados", data: realAgg.sparkSeries, color: channelPalette[i] };
+  }) : [
+    { label:"Marketplace", value:"R$ 301", delta:"18%", deltaDir:"up", sub:"canal líder", data:[200,220,240,260,275,285,295,301], color:tweaks.accent },
+    { label:"Loja Física", value:"R$ 230", delta:"6%", deltaDir:"up", sub:"recuperando", data:[180,190,200,210,215,220,225,230], color:"#0a8a4a" },
+    { label:"Site", value:"R$ 190", delta:"3%", deltaDir:"down", sub:"queda em jun-jul", data:[210,205,200,198,196,193,191,190], color:"#7a5cff" },
+    { label:"Parceiros", value:"R$ 70", delta:"18%", deltaDir:"down", sub:"em atenção", data:[100,95,90,85,82,78,74,70], color:"#c9234a" },
+  ];
 
   // View presets (Dashboards avançados)
   const buildPresets = ()=>({
@@ -1582,25 +1684,25 @@ function Dashboard({ onClose, tweaks, fileInfo }){
       name: "Por região", icon: <Icon.Bars size={13}/>,
       desc: "Comparativo geográfico — vendas, participação e crescimento por estado/região.",
       blocks: [
-        { id:"v1-k1", kind:"kpi", span:3, props:{ label:"Centro-Oeste", value:"R$ 212", delta:"22%", deltaDir:"up", sub:"líder absoluto", data:[120,140,150,170,190,200,205,212], color:tweaks.accent }},
-        { id:"v1-k2", kind:"kpi", span:3, props:{ label:"Nordeste", value:"R$ 192", delta:"14%", deltaDir:"up", sub:"crescimento sustentado", data:[110,120,135,150,165,178,185,192], color:"#7a5cff" }},
-        { id:"v1-k3", kind:"kpi", span:3, props:{ label:"Sudeste", value:"R$ 154", delta:"4%", deltaDir:"down", sub:"queda no canal site", data:[180,175,170,168,165,160,158,154], color:"#0a8a4a" }},
-        { id:"v1-k4", kind:"kpi", span:3, props:{ label:"Cobertura geográfica", value:96, suffix:"%", delta:"2pp", deltaDir:"up", sub:"5 regiões ativas", data:[80,82,86,88,90,92,94,96], color:"#ff7849" }},
-        { id:"v1-c1", kind:"chart", span:8, props:{ title:"Vendas por região", sub:"Soma de valor_total por região", type:"bar", dim:"regiao", agg:"sum", color: tweaks.accent, height: 280, data: regiao }},
+        { id:"v1-k1", kind:"kpi", span:3, props: regionKpis[0] },
+        { id:"v1-k2", kind:"kpi", span:3, props: regionKpis[1] },
+        { id:"v1-k3", kind:"kpi", span:3, props: regionKpis[2] },
+        { id:"v1-k4", kind:"kpi", span:3, props: regionKpis[3] },
+        { id:"v1-c1", kind:"chart", span:8, props:{ title:"Vendas por região", sub:"Soma de receita por região", type:"bar", dim:"regiao", agg:"sum", color: tweaks.accent, height: 280, data: regiao }},
         { id:"v1-c2", kind:"chart", span:4, props:{ title:"Participação por região", sub:"% do valor total", type:"donut", dim:"regiao", agg:"sum", color: tweaks.accent, height: 280, data: regiao.map(r=>({v:r.v, l:r.l})) }},
-        { id:"v1-c3", kind:"chart", span:12, props:{ title:"Evolução mensal por região", sub:"Centro-Oeste lidera o crescimento", type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
+        { id:"v1-c3", kind:"chart", span:12, props:{ title:"Evolução mensal", sub:"Soma de receita por mês · "+periodMeta.label.toLowerCase(), type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
       ],
     },
     product: {
       name: "Por produto", icon: <Icon.Doc size={13}/>,
-      desc: "Ranking de produtos, mix por categoria e curva ABC simulada.",
+      desc: "Ranking de produtos, mix por participação e concentração de receita.",
       blocks: [
-        { id:"v2-k1", kind:"kpi", span:3, props:{ label:"SKUs ativos", value:18, delta:"+2", deltaDir:"up", sub:"vs trimestre anterior", data:[14,15,15,16,16,17,17,18], color:tweaks.accent }},
-        { id:"v2-k2", kind:"kpi", span:3, props:{ label:"Top 1: Mesa Ajustável", value:"R$ 96,4", delta:"18%", deltaDir:"up", sub:"R$ 96,4k em vendas", data:[60,68,72,78,82,88,92,96], color:"#7a5cff" }},
-        { id:"v2-k3", kind:"kpi", span:3, props:{ label:"Concentração top 2", value:42, suffix:"%", delta:"3pp", deltaDir:"up", sub:"risco de dependência", data:[36,37,38,39,40,41,42,42], color:"#ff7849" }},
-        { id:"v2-k4", kind:"kpi", span:3, props:{ label:"Long tail", value:32, suffix:"%", delta:"1pp", deltaDir:"down", sub:"itens fora do top 5", data:[40,38,37,36,35,34,33,32], color:"#0a8a4a" }},
-        { id:"v2-c1", kind:"chart", span:7, props:{ title:"Top produtos por valor", sub:"Soma de valor_total", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoria }},
-        { id:"v2-c2", kind:"chart", span:5, props:{ title:"Mix por categoria", sub:"Participação", type:"donut", dim:"categoria", agg:"sum", color: tweaks.accent, height: 280, data: [{l:"Móveis",v:54},{l:"Eletrônicos",v:32},{l:"Acessórios",v:14}] }},
+        { id:"v2-k1", kind:"kpi", span:3, props: productKpis[0] },
+        { id:"v2-k2", kind:"kpi", span:3, props: productKpis[1] },
+        { id:"v2-k3", kind:"kpi", span:3, props: productKpis[2] },
+        { id:"v2-k4", kind:"kpi", span:3, props: productKpis[3] },
+        { id:"v2-c1", kind:"chart", span:7, props:{ title:"Top produtos por valor", sub:"Soma de receita por produto", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoria }},
+        { id:"v2-c2", kind:"chart", span:5, props:{ title:"Mix por produto", sub:"Top 5 · participação no valor total", type:"donut", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoriaMix }},
         { id:"v2-rank", kind:"ranking", span:12, props:{ items: rankProduto }},
       ],
     },
@@ -1608,13 +1710,13 @@ function Dashboard({ onClose, tweaks, fileInfo }){
       name: "Por canal", icon: <Icon.Share size={13}/>,
       desc: "Performance comparada por canal de venda.",
       blocks: [
-        { id:"v3-k1", kind:"kpi", span:3, props:{ label:"Marketplace", value:"R$ 301", delta:"18%", deltaDir:"up", sub:"canal líder", data:[200,220,240,260,275,285,295,301], color:tweaks.accent }},
-        { id:"v3-k2", kind:"kpi", span:3, props:{ label:"Loja Física", value:"R$ 230", delta:"6%", deltaDir:"up", sub:"recuperando", data:[180,190,200,210,215,220,225,230], color:"#0a8a4a" }},
-        { id:"v3-k3", kind:"kpi", span:3, props:{ label:"Site", value:"R$ 190", delta:"3%", deltaDir:"down", sub:"queda em jun-jul", data:[210,205,200,198,196,193,191,190], color:"#7a5cff" }},
-        { id:"v3-k4", kind:"kpi", span:3, props:{ label:"Parceiros", value:"R$ 70", delta:"18%", deltaDir:"down", sub:"em atenção", data:[100,95,90,85,82,78,74,70], color:"#c9234a" }},
+        { id:"v3-k1", kind:"kpi", span:3, props: channelKpis[0] },
+        { id:"v3-k2", kind:"kpi", span:3, props: channelKpis[1] },
+        { id:"v3-k3", kind:"kpi", span:3, props: channelKpis[2] },
+        { id:"v3-k4", kind:"kpi", span:3, props: channelKpis[3] },
         { id:"v3-c1", kind:"chart", span:6, props:{ title:"Participação por canal", sub:"% do valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 260, data: canal }},
-        { id:"v3-c2", kind:"chart", span:6, props:{ title:"Evolução por canal", sub:"Linha mensal", type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
-        { id:"v3-c3", kind:"chart", span:12, props:{ title:"Volume por dia da semana", sub:"Soma de quantidade", type:"bar", dim:"data", agg:"sum", color: tweaks.accent, height: 240, data: dowVolume }},
+        { id:"v3-c2", kind:"chart", span:6, props:{ title:"Evolução por canal", sub:"Soma de receita por mês", type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
+        { id:"v3-c3", kind:"chart", span:12, props:{ title:"Volume por dia da semana", sub:"Soma de receita por dia da semana", type:"bar", dim:"data", agg:"sum", color: tweaks.accent, height: 240, data: dowVolume }},
       ],
     },
     advanced: {
@@ -1841,7 +1943,7 @@ function Dashboard({ onClose, tweaks, fileInfo }){
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-      <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo}/>
+      <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
       <div style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
         {/* Header */}
         <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 22, gap:24, flexWrap:"wrap"}}>
@@ -1852,7 +1954,10 @@ function Dashboard({ onClose, tweaks, fileInfo }){
               {editing && <span className="chip" style={{background:"var(--ink)", color:"white"}}><Icon.Bolt size={11}/> Modo edição</span>}
             </div>
             <h1 style={{margin:"0 0 4px", fontSize:34, fontWeight:800, letterSpacing:"-.02em"}}>Visão geral de vendas</h1>
-            <div style={{fontSize:13, color:"var(--muted)"}}>{fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas</div>
+            <div style={{fontSize:13, color:"var(--muted)"}}>
+              {fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas
+              {fileInfo?.isDemo && <span style={{marginLeft:6, fontWeight:600, color:"var(--warn)"}}>· Dados de demonstração · não são reais</span>}
+            </div>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
             <div className="seg">
@@ -2682,4 +2787,10 @@ function RankingTable({ items, accent }){
   );
 }
 
-Object.assign(window, { Dashboard, UploadView, PromptView });
+Object.assign(window, {
+  Dashboard, UploadView, PromptView,
+  // Exposed so App can drive a "Ver demonstração" flow without re-implementing
+  // the CSV pipeline.
+  dashParseCSV, dashInferSchema, dashRowsToObjects, dashResolveColumns,
+  DASH_SAMPLE_CSV,
+});

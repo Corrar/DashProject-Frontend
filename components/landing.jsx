@@ -76,7 +76,71 @@ function useCount(target, when, ms=1400){
   return v;
 }
 
-function Nav({ onOpenApp, tweaks }){
+// Reusable auth control. While unauthenticated → a "Entrar" button. Once
+// authenticated → an avatar bubble with the email's first letter that opens a
+// small menu with "Perfil" / "Sair". Both the bubble shape and the handler
+// signatures match what the Supabase Auth integration will wire up next phase
+// (see CLAUDE.md §17). For now all callbacks just console.log.
+function AuthBubble({ currentUser, onSignIn, onSignOut, onProfile, accent = "var(--brand)" }){
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(()=>{
+    if(!open) return undefined;
+    const close = (e)=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    setTimeout(()=> document.addEventListener("click", close), 0);
+    return ()=> document.removeEventListener("click", close);
+  }, [open]);
+  if(!currentUser){
+    return (
+      <button className="btn btn-ghost" onClick={onSignIn}>Entrar</button>
+    );
+  }
+  const initial = String((currentUser.email || "?")[0] || "?").toUpperCase();
+  const menuItemStyle = {
+    display:"flex", alignItems:"center", gap:10, padding:"8px 10px",
+    width:"100%", border:0, background:"transparent", borderRadius:6,
+    cursor:"pointer", fontSize:13, color:"var(--ink-2)", textAlign:"left",
+  };
+  return (
+    <div ref={ref} style={{position:"relative"}}>
+      <button onClick={(e)=>{ e.stopPropagation(); setOpen(o=>!o); }}
+        title={currentUser.email || "Conta"}
+        style={{
+          width:36, height:36, borderRadius:"50%",
+          background:`linear-gradient(135deg, ${accent}, var(--violet))`,
+          color:"white", fontWeight:700, fontSize:14,
+          border:0, cursor:"pointer",
+          display:"inline-flex", alignItems:"center", justifyContent:"center",
+        }}>{initial}</button>
+      {open && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:60,
+          minWidth:220, padding:6, background:"white",
+          border:"1px solid var(--line)", borderRadius:12,
+          boxShadow:"0 20px 40px -16px rgba(15,23,42,.25)",
+        }}>
+          <div style={{padding:"8px 10px 10px", borderBottom:"1px solid var(--line-2)", marginBottom:4}}>
+            <div style={{fontSize:11, color:"var(--muted)"}}>Conta</div>
+            <div style={{fontSize:13, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{currentUser.email}</div>
+            {currentUser.plan && <div style={{marginTop:4}}><span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:10}}>{currentUser.plan === "pro" ? "Pro" : "Free"}</span></div>}
+          </div>
+          <button onClick={()=>{ setOpen(false); onProfile && onProfile(); }} style={menuItemStyle}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <Icon.Eye size={14}/> Perfil
+          </button>
+          <button onClick={()=>{ setOpen(false); onSignOut && onSignOut(); }} style={menuItemStyle}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Sair
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignOut, onProfile }){
   const y = useScrollY();
   const scrolled = y > 20;
   return (
@@ -102,7 +166,7 @@ function Nav({ onOpenApp, tweaks }){
           <a href="#planos" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Planos</a>
         </nav>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <button className="btn btn-ghost" onClick={onOpenApp}>Entrar</button>
+          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
           <button className="btn btn-primary" onClick={onOpenApp}>Abrir app <Icon.Arrow size={14}/></button>
         </div>
       </div>
@@ -199,7 +263,7 @@ function HeroPreview({ tweaks }){
   );
 }
 
-function Hero({ onOpenApp, tweaks }){
+function Hero({ onOpenApp, onLoadDemo, tweaks }){
   const y = useScrollY();
   return (
     <section style={{position:"relative", padding:"72px 24px 96px", overflow:"hidden"}}>
@@ -223,9 +287,9 @@ function Hero({ onOpenApp, tweaks }){
           <p className="rv lede" style={{margin:"0 0 28px", maxWidth: 520}}>
             Suba um CSV, JSON ou Excel. Descreva o que quer ver. O {tweaks.brandName} monta KPIs, gráficos e análises — e você edita visualmente. Sem código.
           </p>
-          <div className="rv" style={{display:"flex", gap:12, marginBottom:24}}>
+          <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
             <button className="btn btn-primary" onClick={onOpenApp}>Começar grátis <Icon.Arrow size={14}/></button>
-            <button className="btn btn-ghost"><Icon.Play size={12}/> Ver demonstração (47s)</button>
+            <button className="btn btn-ghost" onClick={onLoadDemo}><Icon.Sparkle size={12}/> Ver demonstração com dados de exemplo</button>
           </div>
           <div className="rv" style={{display:"flex", gap:18, flexWrap:"wrap"}}>
             {["Sem cartão", "CSV · JSON · Excel", "100% no navegador", "LGPD"].map(t=>(
@@ -671,11 +735,11 @@ function Footer({ tweaks }){
   );
 }
 
-function Landing({ onOpenApp, tweaks }){
+function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignOut, onProfile }){
   return (
     <div>
-      <Nav onOpenApp={onOpenApp} tweaks={tweaks}/>
-      <Hero onOpenApp={onOpenApp} tweaks={tweaks}/>
+      <Nav onOpenApp={onOpenApp} tweaks={tweaks} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
+      <Hero onOpenApp={onOpenApp} onLoadDemo={onLoadDemo} tweaks={tweaks}/>
       <StatStrip/>
       <ChartGallery tweaks={tweaks}/>
       <Logos/>
@@ -688,4 +752,4 @@ function Landing({ onOpenApp, tweaks }){
   );
 }
 
-Object.assign(window, { Landing, useReveal, useScrollProgress, useScrollY, useCount });
+Object.assign(window, { Landing, AuthBubble, useReveal, useScrollProgress, useScrollY, useCount });
