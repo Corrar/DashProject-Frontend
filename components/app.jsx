@@ -4,7 +4,6 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "brandName": "Dash",
   "accent": "#2f6bff",
   "view": "landing",
-  "scrollEffects": true,
   "plan": "free"
 }/*EDITMODE-END*/;
 
@@ -19,7 +18,7 @@ function App(){
     document.documentElement.style.setProperty("--brand", tweaks.accent);
   }, [tweaks.accent]);
   React.useEffect(()=>{
-    window.scrollTo({top:0, behavior: "instant" in window ? "instant" : "auto"});
+    window.scrollTo({top:0, behavior:"auto"});
   }, [view]);
 
   const openApp = ()=> setView("upload");
@@ -43,8 +42,6 @@ function App(){
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Visão">
-          <TweakRadio label="Tela" value={view} onChange={setView}
-            options={[{value:"landing", label:"Landing"},{value:"dashboard", label:"Dashboard"}]}/>
           <TweakSelect label="Fluxo" value={view} onChange={setView}
             options={[{value:"landing", label:"Landing"},{value:"upload", label:"Upload"},{value:"prompt", label:"Prompt"},{value:"dashboard", label:"Dashboard"}]}/>
         </TweakSection>
