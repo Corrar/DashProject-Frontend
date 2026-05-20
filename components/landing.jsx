@@ -48,21 +48,31 @@ function useScrollY(){
   return y;
 }
 
+// Count-up animator. Previously this guarded with `started.current` so the
+// animation ran exactly once per mount — but the closure captured the FIRST
+// target value and never re-animated if `target` updated later. That made
+// dashboard KPIs "stick" at the first value they ever saw, even when realAgg
+// later produced a different number. Now we run a fresh animation per
+// (when, target) tuple, animating from the current `v` toward the new target
+// so the transition stays smooth, and we cancel any in-flight RAF on cleanup.
 function useCount(target, when, ms=1400){
   const [v, setV] = React.useState(0);
-  const started = React.useRef(false);
+  const vRef = React.useRef(0);
+  vRef.current = v;
   React.useEffect(()=>{
-    if(!when || started.current) return;
-    started.current = true;
+    if(!when) return undefined;
+    const startV = vRef.current;
     const start = performance.now();
+    let rafId = 0;
     const tick = (t)=>{
       const p = Math.min(1, (t-start)/ms);
       const eased = 1 - Math.pow(1-p, 3);
-      setV(target * eased);
-      if(p<1) requestAnimationFrame(tick);
+      setV(startV + (target - startV) * eased);
+      if(p<1) rafId = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
-  }, [when, target]);
+    rafId = requestAnimationFrame(tick);
+    return ()=> cancelAnimationFrame(rafId);
+  }, [when, target, ms]);
   return v;
 }
 

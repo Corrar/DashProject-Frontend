@@ -1,5 +1,13 @@
 /* Dashboard app — improved layout + scroll-driven reveals */
 
+// DIAGNOSTIC: temporary — flip to false (or open devtools and run
+// `window.__DASH_DEBUG__ = false; location.reload()`) once the KPI numbers are
+// verified against the CSV. Logs appear in the browser console with a
+// `[Dash debug]` prefix. Will be removed once the KPI bug is closed.
+if(typeof window !== "undefined" && window.__DASH_DEBUG__ === undefined){
+  window.__DASH_DEBUG__ = true;
+}
+
 /* ─────────────────── CSV ingestion + aggregation ───────────────────
  * Pure helpers used by UploadView (parsing) and Dashboard (aggregation).
  * No external libs — everything runs in the browser per CLAUDE.md §8.
@@ -954,6 +962,10 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
     if(abs >= 1e6)      display = "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
     else if(abs >= 1e3) display = "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
     else                display = "R$ " + Math.round(v).toLocaleString("pt-BR");
+  } else if(format === "pct"){
+    display = v.toLocaleString("pt-BR", {maximumFractionDigits:1}) + (suffix || "%");
+  } else if(format === "int"){
+    display = Math.round(v).toLocaleString("pt-BR");
   } else if(typeof value === "number"){
     display = Math.round(v).toLocaleString("pt-BR");
   } else if(typeof value === "string" && value.includes("R$")){
@@ -961,6 +973,10 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
     display = "R$ " + v.toLocaleString("pt-BR", {maximumFractionDigits:1}) + brlSuffix;
   } else {
     display = v.toFixed(1) + (suffix || "");
+  }
+  if(typeof window !== "undefined" && window.__DASH_DEBUG__){
+    // eslint-disable-next-line no-console
+    console.log("[Dash debug] KPI render", { label, value, target, vis, v, format, display });
   }
   const set = (patch)=> onChange && onChange({...kpi, ...patch});
   return (
@@ -1482,15 +1498,40 @@ function Dashboard({ onClose, tweaks, fileInfo }){
     const curAvg  = cur.length  ? curSum/cur.length   : 0;
     const ticketDelta = prevAvg ? (curAvg - prevAvg)/prevAvg * 100 : 0;
     const countDelta  = prev.length ? (cur.length - prev.length)/prev.length * 100 : 0;
-    const convAvg = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) * 100 : null;
+    // Conversion: dashAvg gives the raw column mean. CSVs may store the value
+    // as a decimal (0.216 = 21,6 %) or already as a percentage (21.6). Detect
+    // by magnitude: < 1 → multiply by 100, otherwise treat as already %.
+    const convRaw = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) : null;
+    const convAvg = convRaw == null ? null : (Math.abs(convRaw) < 1 ? convRaw * 100 : convRaw);
     const ticketMedio = filteredData.length ? totalAll/filteredData.length : 0;
-    return {
+    const out = {
       tendency: tend, produto: prod, regiao: reg, canal: chan, ranking,
       totalAll, ticketMedio, pedidos: filteredData.length, convAvg,
       totalDelta, ticketDelta, countDelta,
       sparkSeries: tend.length ? tend.map(d=>d.v) : [0,0,0],
     };
-  }, [filteredData, hasRealData, dataCols]);
+    if(typeof window !== "undefined" && window.__DASH_DEBUG__){
+      const valueKey = dataCols.value;
+      const numericRows = valueKey ? filteredData.filter(r => typeof r[valueKey] === "number").length : 0;
+      const dateKey = dataCols.date;
+      const validDateRows = dateKey ? filteredData.filter(r => r[dateKey] instanceof Date && !isNaN(r[dateKey].getTime())).length : 0;
+      // eslint-disable-next-line no-console
+      console.log("[Dash debug] realAgg", {
+        cols: dataCols,
+        datasetLength: dataset.length,
+        filteredDataLength: filteredData.length,
+        numericValueRows: numericRows,
+        validDateRows,
+        sampleRow: filteredData[0],
+        receitaSample: filteredData.slice(0, 5).map(r => ({ raw: r[valueKey], type: typeof r[valueKey] })),
+        conversaoSample: dataCols.conversion ? filteredData.slice(0, 5).map(r => ({ raw: r[dataCols.conversion], type: typeof r[dataCols.conversion] })) : null,
+        totalAll, ticketMedio, pedidos: out.pedidos, convRaw, convAvg,
+        produtoSums: prod.slice(0, 6),
+        regiaoSums: reg,
+      });
+    }
+    return out;
+  }, [filteredData, hasRealData, dataCols, dataset.length]);
 
   // Mock fallbacks — preserved so the dashboard still demos when the user
   // jumps in via Tweaks without uploading.
@@ -1537,11 +1578,11 @@ function Dashboard({ onClose, tweaks, fileInfo }){
     ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
     : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
   const k3Props = realAgg
-    ? { label:"Pedidos", value: realAgg.pedidos, delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + " registros no período", data: realAgg.sparkSeries, color:"#0a8a4a" }
-    : { label:"Pedidos", value:1284, delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
+    ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + " registros no período", data: realAgg.sparkSeries, color:"#0a8a4a" }
+    : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
   const k4Props = (realAgg && realAgg.convAvg != null)
-    ? { label:"Conversão", value: Number(realAgg.convAvg.toFixed(1)), suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
-    : { label:"Conversão", value:4.8, suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
+    ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
+    : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
 
   // Aux mock data for advanced views
   const tendencyMensal = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
