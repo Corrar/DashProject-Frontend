@@ -1,13 +1,5 @@
 /* Dashboard app — improved layout + scroll-driven reveals */
 
-// DIAGNOSTIC: temporary — flip to false (or open devtools and run
-// `window.__DASH_DEBUG__ = false; location.reload()`) once the KPI numbers are
-// verified against the CSV. Logs appear in the browser console with a
-// `[Dash debug]` prefix. Will be removed once the KPI bug is closed.
-if(typeof window !== "undefined" && window.__DASH_DEBUG__ === undefined){
-  window.__DASH_DEBUG__ = true;
-}
-
 /* ─────────────────── CSV ingestion + aggregation ───────────────────
  * Pure helpers used by UploadView (parsing) and Dashboard (aggregation).
  * No external libs — everything runs in the browser per CLAUDE.md §8.
@@ -974,10 +966,6 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
   } else {
     display = v.toFixed(1) + (suffix || "");
   }
-  if(typeof window !== "undefined" && window.__DASH_DEBUG__){
-    // eslint-disable-next-line no-console
-    console.log("[Dash debug] KPI render", { label, value, target, vis, v, format, display });
-  }
   const set = (patch)=> onChange && onChange({...kpi, ...patch});
   return (
     <div ref={ref} className="kpi-card lift" style={{
@@ -1504,34 +1492,13 @@ function Dashboard({ onClose, tweaks, fileInfo }){
     const convRaw = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) : null;
     const convAvg = convRaw == null ? null : (Math.abs(convRaw) < 1 ? convRaw * 100 : convRaw);
     const ticketMedio = filteredData.length ? totalAll/filteredData.length : 0;
-    const out = {
+    return {
       tendency: tend, produto: prod, regiao: reg, canal: chan, ranking,
       totalAll, ticketMedio, pedidos: filteredData.length, convAvg,
       totalDelta, ticketDelta, countDelta,
       sparkSeries: tend.length ? tend.map(d=>d.v) : [0,0,0],
     };
-    if(typeof window !== "undefined" && window.__DASH_DEBUG__){
-      const valueKey = dataCols.value;
-      const numericRows = valueKey ? filteredData.filter(r => typeof r[valueKey] === "number").length : 0;
-      const dateKey = dataCols.date;
-      const validDateRows = dateKey ? filteredData.filter(r => r[dateKey] instanceof Date && !isNaN(r[dateKey].getTime())).length : 0;
-      // eslint-disable-next-line no-console
-      console.log("[Dash debug] realAgg", {
-        cols: dataCols,
-        datasetLength: dataset.length,
-        filteredDataLength: filteredData.length,
-        numericValueRows: numericRows,
-        validDateRows,
-        sampleRow: filteredData[0],
-        receitaSample: filteredData.slice(0, 5).map(r => ({ raw: r[valueKey], type: typeof r[valueKey] })),
-        conversaoSample: dataCols.conversion ? filteredData.slice(0, 5).map(r => ({ raw: r[dataCols.conversion], type: typeof r[dataCols.conversion] })) : null,
-        totalAll, ticketMedio, pedidos: out.pedidos, convRaw, convAvg,
-        produtoSums: prod.slice(0, 6),
-        regiaoSums: reg,
-      });
-    }
-    return out;
-  }, [filteredData, hasRealData, dataCols, dataset.length]);
+  }, [filteredData, hasRealData, dataCols]);
 
   // Mock fallbacks — preserved so the dashboard still demos when the user
   // jumps in via Tweaks without uploading.

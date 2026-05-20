@@ -48,31 +48,31 @@ function useScrollY(){
   return y;
 }
 
-// Count-up animator. Previously this guarded with `started.current` so the
-// animation ran exactly once per mount — but the closure captured the FIRST
-// target value and never re-animated if `target` updated later. That made
-// dashboard KPIs "stick" at the first value they ever saw, even when realAgg
-// later produced a different number. Now we run a fresh animation per
-// (when, target) tuple, animating from the current `v` toward the new target
-// so the transition stays smooth, and we cancel any in-flight RAF on cleanup.
+// Count-up animator. Runs exactly once per mount: when `when` flips to true,
+// the animation starts from 0 and eases to `target` over `ms`. Guarded by a
+// ref so the closure's target stays stable across re-renders. A previous
+// rewrite tried to re-animate on target change by writing to a ref during
+// render — that fought React 18's render/commit pipeline and the visual froze
+// at intermediate frames while the underlying state actually reached the
+// target. The trade-off here: if `target` ever changes after the animation
+// kicks off, the display does NOT follow the new value. That's acceptable for
+// today's Dashboard, where the KPI target is derived from realAgg which is
+// stable from mount per visit.
 function useCount(target, when, ms=1400){
   const [v, setV] = React.useState(0);
-  const vRef = React.useRef(0);
-  vRef.current = v;
+  const started = React.useRef(false);
   React.useEffect(()=>{
-    if(!when) return undefined;
-    const startV = vRef.current;
+    if(!when || started.current) return;
+    started.current = true;
     const start = performance.now();
-    let rafId = 0;
     const tick = (t)=>{
       const p = Math.min(1, (t-start)/ms);
       const eased = 1 - Math.pow(1-p, 3);
-      setV(startV + (target - startV) * eased);
-      if(p<1) rafId = requestAnimationFrame(tick);
+      setV(target * eased);
+      if(p<1) requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
-    return ()=> cancelAnimationFrame(rafId);
-  }, [when, target, ms]);
+    requestAnimationFrame(tick);
+  }, [when, target]);
   return v;
 }
 
