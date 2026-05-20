@@ -1,5 +1,229 @@
 /* Dashboard app — improved layout + scroll-driven reveals */
 
+/* ─────────────────── CSV ingestion + aggregation ───────────────────
+ * Pure helpers used by UploadView (parsing) and Dashboard (aggregation).
+ * No external libs — everything runs in the browser per CLAUDE.md §8.
+ */
+
+function dashParseCSV(text){
+  if(!text) return { header: [], rows: [], sep: "," };
+  // Detect separator from the first non-blank line, ignoring quoted regions.
+  let probe = "";
+  for(let i=0; i<text.length && i<2048; i++){
+    const c = text[i];
+    if(c === "\n") break;
+    if(c !== "\r") probe += c;
+  }
+  const counts = { ",":0, ";":0, "\t":0 };
+  let inQ = false;
+  for(const c of probe){
+    if(c === '"') inQ = !inQ;
+    else if(!inQ && c in counts) counts[c]++;
+  }
+  const sep = counts[";"] > counts[","] && counts[";"] >= counts["\t"] ? ";" :
+              counts["\t"] > counts[","] ? "\t" : ",";
+
+  const all = [];
+  let row = [], cur = "", q = false;
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(q){
+      if(c === '"' && text[i+1] === '"'){ cur += '"'; i++; }
+      else if(c === '"'){ q = false; }
+      else cur += c;
+    } else if(c === '"' && cur === ""){ q = true; }
+    else if(c === sep){ row.push(cur); cur = ""; }
+    else if(c === '\r'){ /* skip */ }
+    else if(c === '\n'){
+      if(cur !== "" || row.length){ row.push(cur); all.push(row); }
+      cur = ""; row = [];
+    }
+    else cur += c;
+  }
+  if(cur !== "" || row.length){ row.push(cur); all.push(row); }
+  const header = (all.shift() || []).map(h => String(h).trim());
+  return { header, rows: all, sep };
+}
+
+function dashParseNumber(v){
+  if(v == null) return null;
+  let s = String(v).trim();
+  if(!s) return null;
+  s = s.replace(/R\$|US\$|\$|€|%|\s/g, "");
+  // Both `.` and `,` → assume BR thousands+decimal (1.234,56 → 1234.56)
+  if(/,/.test(s) && /\./.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+  else if(/,/.test(s)) s = s.replace(",", ".");
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function dashParseDate(v){
+  if(v == null) return null;
+  const s = String(v).trim();
+  if(!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(m){
+    const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    return new Date(y, Number(m[2])-1, Number(m[1]));
+  }
+  return null;
+}
+
+function dashInferSchema(header, rawRows){
+  const sample = rawRows.slice(0, Math.min(200, rawRows.length));
+  return header.map((name, idx)=>{
+    const all = rawRows.map(r => r[idx]);
+    const nullCount = all.filter(v => v == null || String(v).trim() === "").length;
+    const present = sample.map(r => r[idx]).filter(v => v != null && String(v).trim() !== "");
+    const examples = present.slice(0, 3).map(s => String(s));
+    const uniqCount = new Set(all.filter(v => v != null && String(v).trim() !== "")).size;
+    if(!present.length) return { name, type:"dimension", examples:[], uniqCount:0, nullCount };
+    if(present.every(v => dashParseDate(v) !== null)) return { name, type:"date", examples, uniqCount, nullCount };
+    const numCount = present.filter(v => dashParseNumber(v) !== null).length;
+    if(numCount / present.length >= 0.85) return { name, type:"measure", examples, uniqCount, nullCount };
+    return { name, type:"dimension", examples, uniqCount, nullCount };
+  });
+}
+
+function dashRowsToObjects(header, rawRows, schema){
+  return rawRows.map(r => {
+    const o = {};
+    header.forEach((h, i)=>{
+      const v = r[i];
+      const t = schema[i] && schema[i].type;
+      if(v == null || String(v).trim() === "") o[h] = null;
+      else if(t === "measure") o[h] = dashParseNumber(v);
+      else if(t === "date") o[h] = dashParseDate(v);
+      else o[h] = String(v).trim();
+    });
+    return o;
+  });
+}
+
+function dashResolveColumns(schema){
+  const lc = (s)=> String(s).toLowerCase();
+  const pick = (re, type)=>{
+    const m = schema.find(c => (!type || c.type === type) && re.test(lc(c.name)));
+    return m ? m.name : null;
+  };
+  return {
+    date:       pick(/^(data|date|dia|created|criado)/, "date") || (schema.find(c=>c.type==="date") || {}).name || null,
+    value:      pick(/^(receita|valor|valor_total|total|revenue|venda|preco|preço|faturamento)/, "measure") || (schema.find(c=>c.type==="measure") || {}).name || null,
+    product:    pick(/(produto|sku|item|product)/, "dimension"),
+    region:     pick(/(regiao|região|region|estado|^uf$|state)/, "dimension"),
+    channel:    pick(/(canal|channel|source|origem|fonte)/, "dimension"),
+    seller:     pick(/(vendedor|seller|repr)/, "dimension"),
+    category:   pick(/(categoria|category|family|tipo)/, "dimension"),
+    qty:        pick(/(quantidade|qty|qtde|^qt$)/, "measure"),
+    ticket:     pick(/(ticket|aov)/, "measure"),
+    conversion: pick(/(convers|conv_)/, "measure"),
+  };
+}
+
+function dashSum(rows, key){
+  if(!key) return 0;
+  let s = 0;
+  for(const r of rows){ const v = r[key]; if(typeof v === "number") s += v; }
+  return s;
+}
+function dashAvg(rows, key){
+  if(!key || !rows.length) return 0;
+  let s = 0, n = 0;
+  for(const r of rows){ const v = r[key]; if(typeof v === "number"){ s += v; n++; } }
+  return n ? s/n : 0;
+}
+function dashGroupSum(rows, dimKey, measureKey){
+  if(!dimKey || !measureKey) return [];
+  const map = new Map();
+  for(const r of rows){
+    const k = r[dimKey]; if(k == null) continue;
+    const v = r[measureKey]; if(typeof v !== "number") continue;
+    map.set(k, (map.get(k) || 0) + v);
+  }
+  return [...map.entries()].map(([l, v]) => ({ l, v }));
+}
+function dashTimeSeries(rows, dateKey, measureKey){
+  if(!dateKey || !measureKey) return [];
+  const map = new Map();
+  for(const r of rows){
+    const d = r[dateKey];
+    if(!(d instanceof Date) || isNaN(d.getTime())) continue;
+    const k = d.toISOString().slice(0,10);
+    const v = r[measureKey]; if(typeof v !== "number") continue;
+    map.set(k, (map.get(k) || 0) + v);
+  }
+  return [...map.entries()].sort(([a],[b]) => a<b?-1:1).map(([k, v])=>{
+    const dt = new Date(k);
+    return { l: String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"), v, date: k };
+  });
+}
+function dashFilterByPeriod(rows, dateKey, days){
+  if(!dateKey || days == null) return rows;
+  const ts = rows.map(r => r[dateKey]).filter(d => d instanceof Date && !isNaN(d.getTime())).map(d => d.getTime());
+  if(!ts.length) return rows;
+  const maxMs = Math.max.apply(null, ts);
+  const minMs = maxMs - days * 86400000;
+  return rows.filter(r => {
+    const d = r[dateKey];
+    return d instanceof Date && d.getTime() >= minMs && d.getTime() <= maxMs;
+  });
+}
+// Returns a value-string compatible with the existing KPI animator. The KPI
+// strips non-numerics to extract `target`, animates 0→target, and re-formats;
+// we leave a trailing "M"/"k" suffix in the string so the animator can append
+// it back (see KPI display, which now preserves [MK] from the source value).
+function dashFormatBRLKpi(n){
+  if(!Number.isFinite(n)) return "R$ 0";
+  const abs = Math.abs(n);
+  if(abs >= 1e6) return "R$ " + (n/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
+  if(abs >= 1e3) return "R$ " + (n/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
+  return "R$ " + Math.round(n).toLocaleString("pt-BR");
+}
+
+// Bundled sample dataset — matches the column shape CLAUDE.md references for
+// vendas_exemplo.csv (data/produto/canal/regiao/vendedor/receita/quantidade
+// /ticket_medio/conversao/nps). 35 rows, sum ≈ R$ 1,57M.
+const DASH_SAMPLE_CSV = [
+  "data,produto,canal,regiao,vendedor,receita,quantidade,ticket_medio,conversao,nps",
+  "2026-03-02,Esteira Coletora Auto,Marketplace,CO,Ana P.,52400,14,3742.86,0.048,72",
+  "2026-03-04,Sistema Pesagem,Loja Física,NE,Bruno S.,38200,8,4775.00,0.052,68",
+  "2026-03-06,Climatização Industrial,Marketplace,SE,Carla L.,61800,16,3862.50,0.051,75",
+  "2026-03-08,Bandeja Inox,Site,Sul,Diego R.,18200,42,433.33,0.044,70",
+  "2026-03-10,Esteira Coletora Auto,Loja Física,CO,Ana P.,48900,11,4445.45,0.046,73",
+  "2026-03-13,Sistema Pesagem,Marketplace,SE,Eva M.,45600,9,5066.67,0.053,69",
+  "2026-03-15,Climatização Industrial,Marketplace,NE,Bruno S.,57200,15,3813.33,0.050,74",
+  "2026-03-17,Bandeja Inox,Marketplace,CO,Felipe T.,22100,52,425.00,0.045,71",
+  "2026-03-19,Esteira Coletora Auto,Site,SE,Carla L.,46800,13,3600.00,0.047,72",
+  "2026-03-22,Sistema Pesagem,Loja Física,Sul,Diego R.,41200,9,4577.78,0.049,67",
+  "2026-03-24,Climatização Industrial,Marketplace,CO,Ana P.,64500,17,3794.12,0.052,76",
+  "2026-03-26,Bandeja Inox,Loja Física,NE,Bruno S.,19800,46,430.43,0.043,69",
+  "2026-03-28,Esteira Coletora Auto,Marketplace,SE,Eva M.,55600,15,3706.67,0.049,73",
+  "2026-03-30,Sistema Pesagem,Marketplace,Sul,Felipe T.,42800,9,4755.56,0.051,68",
+  "2026-04-02,Climatização Industrial,Site,CO,Carla L.,62300,16,3893.75,0.053,75",
+  "2026-04-04,Bandeja Inox,Marketplace,SE,Ana P.,21400,49,436.73,0.046,72",
+  "2026-04-06,Esteira Coletora Auto,Loja Física,NE,Diego R.,49800,13,3830.77,0.048,71",
+  "2026-04-09,Sistema Pesagem,Marketplace,CO,Eva M.,46200,10,4620.00,0.054,69",
+  "2026-04-11,Climatização Industrial,Marketplace,Sul,Bruno S.,58900,15,3926.67,0.050,74",
+  "2026-04-13,Bandeja Inox,Site,SE,Felipe T.,20500,47,436.17,0.044,70",
+  "2026-04-16,Esteira Coletora Auto,Marketplace,CO,Ana P.,53200,14,3800.00,0.049,73",
+  "2026-04-18,Sistema Pesagem,Loja Física,NE,Carla L.,43800,9,4866.67,0.052,68",
+  "2026-04-20,Climatização Industrial,Marketplace,SE,Diego R.,60100,16,3756.25,0.051,75",
+  "2026-04-23,Bandeja Inox,Marketplace,Sul,Eva M.,22800,53,430.19,0.045,71",
+  "2026-04-25,Esteira Coletora Auto,Site,CO,Bruno S.,50100,13,3853.85,0.047,72",
+  "2026-04-27,Sistema Pesagem,Marketplace,SE,Felipe T.,44900,10,4490.00,0.053,69",
+  "2026-05-01,Climatização Industrial,Loja Física,NE,Ana P.,59600,16,3725.00,0.050,74",
+  "2026-05-03,Bandeja Inox,Marketplace,CO,Carla L.,21900,51,429.41,0.044,70",
+  "2026-05-06,Esteira Coletora Auto,Marketplace,Sul,Diego R.,51800,14,3700.00,0.048,73",
+  "2026-05-08,Sistema Pesagem,Site,SE,Eva M.,42600,9,4733.33,0.051,68",
+  "2026-05-10,Climatização Industrial,Marketplace,CO,Bruno S.,63100,17,3711.76,0.052,76",
+  "2026-05-13,Bandeja Inox,Loja Física,NE,Felipe T.,20100,46,436.96,0.045,69",
+  "2026-05-15,Esteira Coletora Auto,Marketplace,SE,Ana P.,54300,14,3878.57,0.049,73",
+  "2026-05-17,Sistema Pesagem,Marketplace,Sul,Carla L.,45200,10,4520.00,0.053,68",
+  "2026-05-19,Climatização Industrial,Marketplace,CO,Diego R.,61700,16,3856.25,0.051,75",
+].join("\n");
+
 function Topbar({ onClose, tweaks, fileInfo }){
   const fname = fileInfo?.name || "vendas_exemplo.csv";
   return (
@@ -86,35 +310,66 @@ schema inferida automaticamente`,
   const [filename, setFilename] = React.useState(null);
   const [progress, setProgress] = React.useState(0);
   const [step, setStep] = React.useState(""); // "" | reading | parsing | analyzing | done
+  const [pasteText, setPasteText] = React.useState("");
+  const [parseError, setParseError] = React.useState(null);
   const fileInputRef = React.useRef(null);
 
+  // Parse a CSV/TSV text payload and forward the full dataset (header + typed
+  // rows + schema) via onUploaded. The progress markers below are cosmetic —
+  // the parse itself is synchronous for the file sizes we accept here, but the
+  // user sees a 4-step pipeline (reading → parsing → analyzing → done) so we
+  // sequence setStep with short timers to keep that affordance.
   const runProcessing = (file)=>{
     const name = file?.name || "dados.csv";
-    const sizeKB = file?.size ? Math.round(file.size/1024) : 86;
+    const sizeKB = file?.size ? Math.round(file.size/1024) : Math.round((file?.text?.length || 0)/1024) || 1;
+    setParseError(null);
     setFilename({ name, sizeKB, rows: 0, cols: 0 });
     setStep("reading");
-    setProgress(0);
-    const steps = [
-      { p: 30, s: "reading", ms: 420 },
-      { p: 65, s: "parsing", ms: 520 },
-      { p: 92, s: "analyzing", ms: 640 },
-      { p: 100, s: "done", ms: 380 },
-    ];
-    let i = 0;
-    const tick = ()=>{
-      if(i >= steps.length){
-        setTimeout(()=> onUploaded && onUploaded({ name, sizeKB, rows: 120, cols: 10 }), 400);
-        return;
-      }
-      const stp = steps[i++];
-      setStep(stp.s);
-      setProgress(stp.p);
-      if(stp.s === "done"){
-        setFilename(prev => ({...prev, rows: 120, cols: 10}));
-      }
-      setTimeout(tick, stp.ms);
+    setProgress(10);
+
+    const ingest = (text)=>{
+      setProgress(35); setStep("parsing");
+      setTimeout(()=>{
+        try {
+          const parsed = dashParseCSV(text);
+          if(!parsed.header.length || !parsed.rows.length){
+            setParseError("Não consegui detectar cabeçalho ou linhas no arquivo.");
+            setStep("");
+            return;
+          }
+          const schema = dashInferSchema(parsed.header, parsed.rows);
+          setProgress(70); setStep("analyzing");
+          setTimeout(()=>{
+            const data = dashRowsToObjects(parsed.header, parsed.rows, schema);
+            setProgress(100); setStep("done");
+            setFilename(prev => ({...prev, rows: data.length, cols: parsed.header.length}));
+            setTimeout(()=> onUploaded && onUploaded({
+              name, sizeKB,
+              rows: data.length,
+              cols: parsed.header.length,
+              schema, data,
+            }), 400);
+          }, 400);
+        } catch(e){
+          setParseError("Erro ao processar o arquivo: " + (e && e.message ? e.message : "formato inesperado"));
+          setStep("");
+        }
+      }, 400);
     };
-    tick();
+
+    if(file && typeof file.text === "string"){
+      ingest(file.text);
+    } else if(file instanceof Blob){
+      const reader = new FileReader();
+      reader.onload = (e)=> ingest(String(e.target?.result || ""));
+      reader.onerror = ()=>{ setParseError("Não foi possível ler o arquivo."); setStep(""); };
+      reader.readAsText(file);
+    } else {
+      // URL tab still calls this without a real payload — keep the user-facing
+      // pipeline but bail out cleanly.
+      setParseError("Fonte sem dados anexados.");
+      setStep("");
+    }
   };
 
   const onPickFile = ()=> fileInputRef.current?.click();
@@ -156,6 +411,15 @@ schema inferida automaticamente`,
       </div>
 
       {/* Main area: dropzone + format list side by side */}
+      {parseError && (
+        <div className="rv" style={{
+          marginBottom: 14, padding:"12px 16px", borderRadius:12,
+          background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a",
+          display:"flex", alignItems:"center", gap:10, fontSize:13
+        }}>
+          <Icon.Bolt size={14}/> <span>{parseError}</span>
+        </div>
+      )}
       <div style={{display:"grid", gridTemplateColumns: "1.2fr 1fr", gap: 20}}>
         {/* Left: input area */}
         <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column"}}>
@@ -206,12 +470,16 @@ schema inferida automaticamente`,
               <div style={{fontWeight:700, fontSize:15, marginBottom:6}}>Cole seus dados</div>
               <div style={{fontSize:13, color:"var(--muted)", marginBottom: 12}}>CSV, TSV ou JSON. Detectamos o formato automaticamente.</div>
               <textarea
+                value={pasteText}
+                onChange={e=>setPasteText(e.target.value)}
                 placeholder={`data,produto,regiao,valor\n2026-07-12,Mesa Ajustável,CO,2980\n2026-07-12,Notebook Pro 14,SE,8120`}
                 style={{flex:1, padding:14, border:"1px solid var(--line)", borderRadius:12, resize:"none", fontFamily:"'Geist Mono', monospace", fontSize:13, outline:"none", lineHeight:1.5, color:"var(--ink)"}}
                 onFocus={e=>e.target.style.borderColor="var(--brand)"}
                 onBlur={e=>e.target.style.borderColor="var(--line)"}
               />
-              <button className="btn btn-primary" style={{marginTop:14, justifyContent:"center"}} onClick={()=>runProcessing({name:"colado.csv", size:12000})}>
+              <button className="btn btn-primary" style={{marginTop:14, justifyContent:"center"}}
+                disabled={!pasteText.trim()}
+                onClick={()=>runProcessing({name:"colado.csv", text: pasteText})}>
                 <Icon.Sparkle size={14}/> Analisar dados colados
               </button>
             </div>
@@ -236,8 +504,11 @@ schema inferida automaticamente`,
                 ))}
               </div>
               <div style={{flex:1}}/>
-              <button className="btn btn-primary" style={{justifyContent:"center"}} onClick={()=>runProcessing({name:"dados_remotos.csv", size:50000})}>
-                <Icon.Arrow size={14}/> Buscar e analisar
+              <button className="btn btn-primary" style={{justifyContent:"center"}}
+                disabled
+                title="Disponível em breve — por enquanto use upload, colar ou amostra"
+                onClick={(e)=>e.preventDefault()}>
+                <Icon.Arrow size={14}/> Buscar e analisar (em breve)
               </button>
             </div>
           )}
@@ -251,7 +522,7 @@ schema inferida automaticamente`,
                 {n:"funil_marketing.xlsx", d:"6 abas · top of funnel → MQL → SQL", t:"Marketing", c:"#0a8a4a"},
                 {n:"financeiro_q3.csv", d:"312 linhas · DRE simplificado", t:"Finanças", c:"#ff7849"},
               ].map(s=>(
-                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, size:50000})}
+                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, text: DASH_SAMPLE_CSV})}
                   style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"white", cursor:"pointer", textAlign:"left"}}>
                   <div style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center"}}>
                     <Icon.Doc size={16}/>
@@ -425,19 +696,23 @@ function PromptView({ onGenerate, onBack, fileInfo }){
   const rows = fileInfo?.rows || 120;
   const cols = fileInfo?.cols || 10;
 
-  // Detected schema
-  const schema = [
-    { n:"data", t:"date", ex:"2026-07-12", nulls:0 },
-    { n:"produto", t:"dimension", ex:"Mesa Ajustável", nulls:0, uniq:18 },
-    { n:"categoria", t:"dimension", ex:"Móveis", nulls:0, uniq:5 },
-    { n:"regiao", t:"dimension", ex:"Centro-Oeste", nulls:0, uniq:5 },
-    { n:"vendedor", t:"dimension", ex:"Ana P.", nulls:2, uniq:24 },
-    { n:"canal", t:"dimension", ex:"Marketplace", nulls:0, uniq:4 },
-    { n:"quantidade", t:"measure", ex:"3", nulls:0 },
-    { n:"preco_unitario", t:"measure", ex:"R$ 1.480", nulls:0 },
-    { n:"desconto_pct", t:"measure", ex:"7%", nulls:14 },
-    { n:"valor_total", t:"measure", ex:"R$ 4.420", nulls:0 },
-  ];
+  // Detected schema — comes from the real parser (fileInfo.schema). When the
+  // user reaches this view via Tweaks without an upload, fall back to a small
+  // illustrative shape so the UI still demos.
+  const schema = (fileInfo?.schema && fileInfo.schema.length)
+    ? fileInfo.schema.map(c => ({
+        n: c.name,
+        t: c.type,
+        ex: (c.examples && c.examples[0]) || "—",
+        nulls: c.nullCount || 0,
+        uniq: c.uniqCount || 0,
+      }))
+    : [
+        { n:"data", t:"date", ex:"2026-07-12", nulls:0 },
+        { n:"produto", t:"dimension", ex:"Mesa Ajustável", nulls:0, uniq:18 },
+        { n:"regiao", t:"dimension", ex:"Centro-Oeste", nulls:0, uniq:5 },
+        { n:"valor_total", t:"measure", ex:"R$ 4.420", nulls:0 },
+      ];
   const typeMeta = {
     date:      { c:"#7a5cff", bg:"color-mix(in oklch, #7a5cff 14%, white)", n:"data" },
     dimension: { c:"#2f6bff", bg:"var(--brand-soft)", n:"dim" },
@@ -643,7 +918,13 @@ function PromptView({ onGenerate, onBack, fileInfo }){
           </div>
           <div style={{padding:"12px 16px", borderTop:"1px solid var(--line)", background:"#fafbfe", fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:8}}>
             <Icon.Sparkle size={12} color="var(--brand)"/>
-            A IA detectou 1 coluna de data, 5 dimensões e 4 métricas numéricas.
+            {(()=>{
+              const nd = schema.filter(c=>c.t==="date").length;
+              const ndim = schema.filter(c=>c.t==="dimension").length;
+              const nm = schema.filter(c=>c.t==="measure").length;
+              const seg = (n, sing, plur)=> `${n} ${n===1?sing:plur}`;
+              return `A IA detectou ${seg(nd,"coluna de data","colunas de data")}, ${seg(ndim,"dimensão","dimensões")} e ${seg(nm,"métrica numérica","métricas numéricas")}.`;
+            })()}
           </div>
         </div>
       </div>
@@ -663,9 +944,13 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
   },[]);
   const target = typeof value === "number" ? value : parseFloat(String(value).replace(/[^0-9.]/g,""));
   const v = useCount(target || 0, vis);
+  // Preserve a trailing "M"/"k" suffix from the source value string so callers
+  // can pass pre-scaled labels like "R$ 1,6M" and still get the count-up
+  // animation. Backwards compatible — values without the suffix render as before.
+  const brlSuffix = typeof value === "string" ? ((value.match(/[MmKk]$/) || [""])[0]) : "";
   const display = typeof value === "number" ?
     Math.round(v).toLocaleString("pt-BR") :
-    (typeof value === "string" && value.includes("R$") ? "R$ " + (v).toLocaleString("pt-BR", {maximumFractionDigits:1}) :
+    (typeof value === "string" && value.includes("R$") ? "R$ " + (v).toLocaleString("pt-BR", {maximumFractionDigits:1}) + brlSuffix :
      v.toFixed(1) + (suffix||""));
   const set = (patch)=> onChange && onChange({...kpi, ...patch});
   return (
@@ -1110,16 +1395,35 @@ function Dashboard({ onClose, tweaks, fileInfo }){
   // Auto-close editing if downgraded to free
   React.useEffect(()=>{ if(isFree && editing) setEditing(false); }, [isFree]);
 
-  // Period config
+  // Period config — `days:null` means no time window (include everything).
   const periodConfig = {
-    "7d":  { days: 7,  label:"Últimos 7 dias",  rowsPct: 0.18 },
-    "30d": { days: 30, label:"Últimos 30 dias", rowsPct: 0.55 },
-    "90d": { days: 90, label:"Últimos 90 dias", rowsPct: 1.00 },
-    "all": { days: 365,label:"Todo o período",  rowsPct: 1.00 },
+    "7d":  { days: 7,    label:"Últimos 7 dias",   rowsPct: 0.18 },
+    "30d": { days: 30,   label:"Últimos 30 dias",  rowsPct: 0.55 },
+    "90d": { days: 90,   label:"Últimos 90 dias",  rowsPct: 1.00 },
+    "all": { days: null, label:"Todo o período",   rowsPct: 1.00 },
   };
   const periodMeta = periodConfig[period] || periodConfig["90d"];
-  const totalRows = fileInfo?.rows || 120;
-  const rowsForPeriod = Math.max(8, Math.round(totalRows * periodMeta.rowsPct));
+
+  // ── Data layer ─────────────────────────────────────────────────────────
+  // Real dataset comes from UploadView via fileInfo. Columns are resolved by
+  // heuristics (dashResolveColumns) so we don't hardcode "valor_total" etc.
+  // When the user reaches this view via Tweaks without uploading, hasRealData
+  // is false and the existing mock arrays below take over.
+  const dataset = React.useMemo(()=> (fileInfo && fileInfo.data) || [], [fileInfo]);
+  const baseSchema = React.useMemo(()=> (fileInfo && fileInfo.schema) || [], [fileInfo]);
+  const dataCols = React.useMemo(()=> dashResolveColumns(baseSchema), [baseSchema]);
+  const hasRealData = dataset.length > 0 && !!dataCols.value;
+  const filteredData = React.useMemo(()=>{
+    if(!hasRealData) return [];
+    return (periodMeta.days != null && dataCols.date)
+      ? dashFilterByPeriod(dataset, dataCols.date, periodMeta.days)
+      : dataset;
+  }, [dataset, dataCols.date, dataCols.value, periodMeta.days, hasRealData]);
+
+  const totalRows = (fileInfo && fileInfo.rows) || (hasRealData ? dataset.length : 120);
+  const rowsForPeriod = hasRealData
+    ? filteredData.length
+    : Math.max(8, Math.round(totalRows * periodMeta.rowsPct));
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -1132,25 +1436,102 @@ function Dashboard({ onClose, tweaks, fileInfo }){
   const aggs = [{k:"sum", n:"Soma"}, {k:"avg", n:"Média"}, {k:"count", n:"Contagem"}, {k:"max", n:"Máx"}, {k:"min", n:"Mín"}];
   const palette = ["#2f6bff","#0a8a4a","#7a5cff","#ff7849","#ff5e93","#0b1020"];
 
-  // Mock data — slice tendency by period (days)
+  // ── Aggregations ───────────────────────────────────────────────────────
+  // realAgg is null when there's no upload. Mock arrays below act as fallback.
+  const realAgg = React.useMemo(()=>{
+    if(!hasRealData) return null;
+    const tend = dashTimeSeries(filteredData, dataCols.date, dataCols.value);
+    const prod = dataCols.product ? dashGroupSum(filteredData, dataCols.product, dataCols.value).sort((a,b)=>b.v-a.v) : [];
+    const reg  = dataCols.region  ? dashGroupSum(filteredData, dataCols.region,  dataCols.value).sort((a,b)=>b.v-a.v) : [];
+    const totalAll = dashSum(filteredData, dataCols.value);
+    const chanRaw = dataCols.channel ? dashGroupSum(filteredData, dataCols.channel, dataCols.value).sort((a,b)=>b.v-a.v) : [];
+    const chan = totalAll ? chanRaw.map(c=>({ l: c.l, v: Math.round(c.v/totalAll*100) })) : chanRaw;
+    const top = prod.slice(0, 5);
+    const maxV = (top[0] && top[0].v) || 1;
+    const ranking = top.map(p => {
+      const row = dataCols.product ? filteredData.find(r => r[dataCols.product] === p.l) : null;
+      return {
+        n: String(p.l),
+        c: (row && dataCols.category && row[dataCols.category]) || "—",
+        r: (row && dataCols.region   && row[dataCols.region])   || "—",
+        v: p.v,
+        pct: Math.round(p.v/maxV*100),
+      };
+    });
+    // Period-over-period delta: split sorted-by-date in halves.
+    const sorted = [...filteredData].sort((a,b)=>{
+      const da = a[dataCols.date] instanceof Date ? a[dataCols.date].getTime() : 0;
+      const db = b[dataCols.date] instanceof Date ? b[dataCols.date].getTime() : 0;
+      return da - db;
+    });
+    const mid = Math.floor(sorted.length/2);
+    const prev = sorted.slice(0, mid), cur = sorted.slice(mid);
+    const prevSum = dashSum(prev, dataCols.value), curSum = dashSum(cur, dataCols.value);
+    const totalDelta = prevSum ? (curSum - prevSum)/prevSum * 100 : 0;
+    const prevAvg = prev.length ? prevSum/prev.length : 0;
+    const curAvg  = cur.length  ? curSum/cur.length   : 0;
+    const ticketDelta = prevAvg ? (curAvg - prevAvg)/prevAvg * 100 : 0;
+    const countDelta  = prev.length ? (cur.length - prev.length)/prev.length * 100 : 0;
+    const convAvg = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) * 100 : null;
+    const ticketMedio = filteredData.length ? totalAll/filteredData.length : 0;
+    return {
+      tendency: tend, produto: prod, regiao: reg, canal: chan, ranking,
+      totalAll, ticketMedio, pedidos: filteredData.length, convAvg,
+      totalDelta, ticketDelta, countDelta,
+      sparkSeries: tend.length ? tend.map(d=>d.v) : [0,0,0],
+    };
+  }, [filteredData, hasRealData, dataCols]);
+
+  // Mock fallbacks — preserved so the dashboard still demos when the user
+  // jumps in via Tweaks without uploading.
   const fullTendency = Array.from({length: 90}, (_,i)=>{
     const day = i+1;
     return { l: day+"/jul", v: 12 + Math.sin(i/5)*6 + i*0.6 + (i>60? (i-60)*0.8 : 0) };
   });
-  const tendency = fullTendency.slice(-Math.min(fullTendency.length, periodMeta.days));
-  const categoria = [
-    {l:"Mesa Ajust.", v:328},{l:"Notebook", v:276},{l:"Cad. Gamer", v:84},
-    {l:"Fone BT", v:62},{l:"Mouse", v:42},{l:"Headset", v:36},
-  ];
-  const regiao = [{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}];
-  const canal = [{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}];
-  const rankProduto = [
-    { n:"Mesa Ajustável", c:"Móveis", r:"CO", v:96400, pct:74},
-    { n:"Notebook Pro 14", c:"Eletrônicos", r:"SE", v:82100, pct:62},
-    { n:"Cadeira Gamer", c:"Móveis", r:"NE", v:41500, pct:31},
-    { n:"Fone Bluetooth", c:"Eletrônicos", r:"SUL", v:24800, pct:19},
-    { n:"Mouse Sem Fio", c:"Eletrônicos", r:"CO", v:18200, pct:14},
-  ];
+  const sliceDays = periodMeta.days != null ? periodMeta.days : fullTendency.length;
+  const tendency = realAgg && realAgg.tendency.length
+    ? realAgg.tendency
+    : fullTendency.slice(-Math.min(fullTendency.length, sliceDays));
+  const categoria = realAgg && realAgg.produto.length
+    ? realAgg.produto.slice(0,6).map(p => ({
+        l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
+        v: p.v,
+      }))
+    : [
+        {l:"Mesa Ajust.", v:328},{l:"Notebook", v:276},{l:"Cad. Gamer", v:84},
+        {l:"Fone BT", v:62},{l:"Mouse", v:42},{l:"Headset", v:36},
+      ];
+  const regiao = realAgg && realAgg.regiao.length
+    ? realAgg.regiao.map(r => ({ l: String(r.l), v: r.v }))
+    : [{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}];
+  const canal = realAgg && realAgg.canal.length
+    ? realAgg.canal
+    : [{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}];
+  const rankProduto = realAgg && realAgg.ranking.length
+    ? realAgg.ranking
+    : [
+        { n:"Mesa Ajustável", c:"Móveis", r:"CO", v:96400, pct:74},
+        { n:"Notebook Pro 14", c:"Eletrônicos", r:"SE", v:82100, pct:62},
+        { n:"Cadeira Gamer", c:"Móveis", r:"NE", v:41500, pct:31},
+        { n:"Fone Bluetooth", c:"Eletrônicos", r:"SUL", v:24800, pct:19},
+        { n:"Mouse Sem Fio", c:"Eletrônicos", r:"CO", v:18200, pct:14},
+      ];
+
+  // KPI props for the overview preset. realAgg drives them; mocks remain for
+  // the no-upload demo path.
+  const fmtDelta = (n)=> Math.abs(n).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "%";
+  const k1Props = realAgg
+    ? { label:"Valor total", value: dashFormatBRLKpi(realAgg.totalAll), delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
+    : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
+  const k2Props = realAgg
+    ? { label:"Ticket médio", value: dashFormatBRLKpi(realAgg.ticketMedio), delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
+    : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
+  const k3Props = realAgg
+    ? { label:"Pedidos", value: realAgg.pedidos, delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + " registros no período", data: realAgg.sparkSeries, color:"#0a8a4a" }
+    : { label:"Pedidos", value:1284, delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
+  const k4Props = (realAgg && realAgg.convAvg != null)
+    ? { label:"Conversão", value: Number(realAgg.convAvg.toFixed(1)), suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
+    : { label:"Conversão", value:4.8, suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
 
   // Aux mock data for advanced views
   const tendencyMensal = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
@@ -1168,10 +1549,10 @@ function Dashboard({ onClose, tweaks, fileInfo }){
       desc: "KPIs principais, evolução, canais e ranking de produtos.",
       blocks: [
         { id:"v0-insights", kind:"insights", span:12 },
-        { id:"v0-k1", kind:"kpi", span:3, props:{ label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color:tweaks.accent }},
-        { id:"v0-k2", kind:"kpi", span:3, props:{ label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" }},
-        { id:"v0-k3", kind:"kpi", span:3, props:{ label:"Pedidos", value:1284, delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" }},
-        { id:"v0-k4", kind:"kpi", span:3, props:{ label:"Conversão", value:4.8, suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" }},
+        { id:"v0-k1", kind:"kpi", span:3, props: k1Props },
+        { id:"v0-k2", kind:"kpi", span:3, props: k2Props },
+        { id:"v0-k3", kind:"kpi", span:3, props: k3Props },
+        { id:"v0-k4", kind:"kpi", span:3, props: k4Props },
         { id:"v0-c1", kind:"chart", span:8, props:{ title:"Evolução diária do valor total", sub:"Tendência por dia · "+periodMeta.label.toLowerCase(), type:"area", dim:"data", agg:"sum", color: tweaks.accent, height: 280, data: tendency }},
         { id:"v0-c2", kind:"chart", span:4, props:{ title:"Canais de venda", sub:"Participação no valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 280, data: canal }},
         { id:"v0-c3", kind:"chart", span:6, props:{ title:"Vendas por categoria & produto", sub:"Top 6 produtos por valor total", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 240, data: categoria }},
@@ -1234,7 +1615,7 @@ function Dashboard({ onClose, tweaks, fileInfo }){
       ],
     },
   });
-  const presets = React.useMemo(buildPresets, [tweaks.accent, period]);
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg]);
   const [viewKey, setViewKey] = React.useState("overview");
 
   // Initial blocks — unified layout
