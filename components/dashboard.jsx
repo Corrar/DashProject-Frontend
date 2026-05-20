@@ -170,18 +170,6 @@ function dashFilterByPeriod(rows, dateKey, days){
     return d instanceof Date && d.getTime() >= minMs && d.getTime() <= maxMs;
   });
 }
-// Returns a value-string compatible with the existing KPI animator. The KPI
-// strips non-numerics to extract `target`, animates 0→target, and re-formats;
-// we leave a trailing "M"/"k" suffix in the string so the animator can append
-// it back (see KPI display, which now preserves [MK] from the source value).
-function dashFormatBRLKpi(n){
-  if(!Number.isFinite(n)) return "R$ 0";
-  const abs = Math.abs(n);
-  if(abs >= 1e6) return "R$ " + (n/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
-  if(abs >= 1e3) return "R$ " + (n/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
-  return "R$ " + Math.round(n).toLocaleString("pt-BR");
-}
-
 // Bundled sample dataset — matches the column shape CLAUDE.md references for
 // vendas_exemplo.csv (data/produto/canal/regiao/vendedor/receita/quantidade
 // /ticket_medio/conversao/nps). 35 rows, sum ≈ R$ 1,57M.
@@ -934,7 +922,7 @@ function PromptView({ onGenerate, onBack, fileInfo }){
 
 /* Mini sparklines / chart utilities for KPIs */
 function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
-  const { label, value, delta, deltaDir, sub, data, color, suffix } = kpi;
+  const { label, value, delta, deltaDir, sub, data, color, suffix, format } = kpi;
   const ref = React.useRef(null);
   const [vis, setVis] = React.useState(false);
   React.useEffect(()=>{
@@ -942,16 +930,38 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
     if(ref.current) io.observe(ref.current);
     return ()=> io.disconnect();
   },[]);
-  const target = typeof value === "number" ? value : parseFloat(String(value).replace(/[^0-9.]/g,""));
-  const v = useCount(target || 0, vis);
-  // Preserve a trailing "M"/"k" suffix from the source value string so callers
-  // can pass pre-scaled labels like "R$ 1,6M" and still get the count-up
-  // animation. Backwards compatible — values without the suffix render as before.
-  const brlSuffix = typeof value === "string" ? ((value.match(/[MmKk]$/) || [""])[0]) : "";
-  const display = typeof value === "number" ?
-    Math.round(v).toLocaleString("pt-BR") :
-    (typeof value === "string" && value.includes("R$") ? "R$ " + (v).toLocaleString("pt-BR", {maximumFractionDigits:1}) + brlSuffix :
-     v.toFixed(1) + (suffix||""));
+  // Animation target — the previous code did `parseFloat(value.replace(/[^0-9.]/g,""))`
+  // which stripped the BR decimal comma, so "R$ 1,1M" became parseFloat("11") = 11
+  // (a 10x display bug). Now we accept either a raw number (preferred — see
+  // `format:"brl"` callers) or a BR-formatted string parsed comma-aware.
+  const target = typeof value === "number" ? value : (()=>{
+    let s = String(value).replace(/[^0-9,.\-]/g, "");
+    if(/,/.test(s) && /\./.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+    else if(/,/.test(s)) s = s.replace(",", ".");
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  })();
+  const v = useCount(target, vis);
+  // Format the animated raw number into the display string. `format:"brl"` is
+  // the clean path: callers pass the underlying amount and the formatter picks
+  // the M / k / raw tier from the animated value at each frame. Legacy string
+  // callers still work via the fallback branches; we preserve a trailing
+  // "M"/"k" from the source value so pre-scaled labels like "R$ 1,1M" keep
+  // their suffix in the display.
+  let display;
+  if(format === "brl"){
+    const abs = Math.abs(v);
+    if(abs >= 1e6)      display = "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
+    else if(abs >= 1e3) display = "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
+    else                display = "R$ " + Math.round(v).toLocaleString("pt-BR");
+  } else if(typeof value === "number"){
+    display = Math.round(v).toLocaleString("pt-BR");
+  } else if(typeof value === "string" && value.includes("R$")){
+    const brlSuffix = (String(value).match(/[MmKk]$/) || [""])[0];
+    display = "R$ " + v.toLocaleString("pt-BR", {maximumFractionDigits:1}) + brlSuffix;
+  } else {
+    display = v.toFixed(1) + (suffix || "");
+  }
   const set = (patch)=> onChange && onChange({...kpi, ...patch});
   return (
     <div ref={ref} className="kpi-card lift" style={{
@@ -1521,10 +1531,10 @@ function Dashboard({ onClose, tweaks, fileInfo }){
   // the no-upload demo path.
   const fmtDelta = (n)=> Math.abs(n).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "%";
   const k1Props = realAgg
-    ? { label:"Valor total", value: dashFormatBRLKpi(realAgg.totalAll), delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
+    ? { label:"Valor total", value: realAgg.totalAll, format:"brl", delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
     : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
   const k2Props = realAgg
-    ? { label:"Ticket médio", value: dashFormatBRLKpi(realAgg.ticketMedio), delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
+    ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
     : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
   const k3Props = realAgg
     ? { label:"Pedidos", value: realAgg.pedidos, delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + " registros no período", data: realAgg.sparkSeries, color:"#0a8a4a" }
