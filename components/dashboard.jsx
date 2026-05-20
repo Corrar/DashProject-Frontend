@@ -1234,13 +1234,23 @@ function Dashboard({ onClose, tweaks, fileInfo }){
       ],
     },
   });
-  const presets = React.useMemo(buildPresets, [tweaks.accent]);
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period]);
   const [viewKey, setViewKey] = React.useState("overview");
 
   // Initial blocks — unified layout
   const initialBlocks = React.useMemo(()=> presets.overview.blocks.concat([{ id:"b-cta", kind:"cta", span:12 }]), [presets]);
 
   const [blocks, setBlocks] = React.useState(initialBlocks);
+
+  // When the period changes, re-hydrate blocks from the active preset so chart
+  // data follows. Mirrors the view-switch behavior: changing the data window
+  // discards in-place edits, which is the expected trade-off.
+  const periodInitRef = React.useRef(true);
+  React.useEffect(()=>{
+    if(periodInitRef.current){ periodInitRef.current = false; return; }
+    const preset = presets[viewKey];
+    if(preset) setBlocks([...preset.blocks, { id:"b-cta", kind:"cta", span:12 }]);
+  }, [period]);
 
   const switchView = (key)=>{
     const preset = presets[key];

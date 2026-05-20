@@ -42,18 +42,18 @@ function App(){
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={tweaks} fileInfo={fileInfo}/>}
 
       <TweaksPanel title="Tweaks">
-        <TweakSection title="Visão">
+        <TweakSection label="Visão">
           <TweakRadio label="Tela" value={view} onChange={setView}
             options={[{value:"landing", label:"Landing"},{value:"dashboard", label:"Dashboard"}]}/>
           <TweakSelect label="Fluxo" value={view} onChange={setView}
             options={[{value:"landing", label:"Landing"},{value:"upload", label:"Upload"},{value:"prompt", label:"Prompt"},{value:"dashboard", label:"Dashboard"}]}/>
         </TweakSection>
-        <TweakSection title="Marca">
+        <TweakSection label="Marca">
           <TweakText label="Nome" value={tweaks.brandName} onChange={v=>setTweak("brandName", v)}/>
           <TweakColor label="Cor de destaque" value={tweaks.accent} onChange={v=>setTweak("accent", v)}
             options={["#2f6bff","#0a8a4a","#7a5cff","#ff5e93","#ff7849","#0b1020"]}/>
         </TweakSection>
-        <TweakSection title="Plano">
+        <TweakSection label="Plano">
           <TweakRadio label="Tier" value={tweaks.plan} onChange={v=>setTweak("plan", v)}
             options={[{value:"free", label:"Free"},{value:"pro", label:"Pro"}]}/>
         </TweakSection>
