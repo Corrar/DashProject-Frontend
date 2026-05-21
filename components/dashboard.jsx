@@ -233,7 +233,7 @@ function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, on
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose}><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Início</button>
           <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Share size={14}/> Compartilhar</button>
-          <button className="btn btn-primary" style={{padding:"8px 14px"}}><Icon.Crown size={14}/> Fazer upgrade</button>
+          <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashUpgrade?.()}><Icon.Crown size={14}/> Fazer upgrade</button>
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
         </div>
       </div>

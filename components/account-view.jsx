@@ -435,13 +435,16 @@ function SelectField({ label, value, onChange, options }){
 function BillingSection({ tweaks, setTweak }){
   const isPro = tweaks.plan === "pro";
 
-  const invoices = [
+  // Free users have no real billing history yet — showing fake "Pro · Mensal"
+  // rows here would be misleading. The empty-state below kicks in when the
+  // list is empty. When Stripe lands, populate from the real invoice API.
+  const invoices = isPro ? [
     { id:"INV-2026-005", date:"01/mai/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
     { id:"INV-2026-004", date:"01/abr/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
     { id:"INV-2026-003", date:"01/mar/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
     { id:"INV-2026-002", date:"01/fev/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
     { id:"INV-2026-001", date:"15/jan/2026", amount:0.00, st:"paid", desc:"Pro · Trial" },
-  ];
+  ] : [];
 
   const usage = [
     { l:"Dashboards", v: isPro ? 14 : 3, max: isPro ? "ilimitado" : 5, pct: isPro ? 18 : 60, c: tweaks.accent },
@@ -557,26 +560,45 @@ function BillingSection({ tweaks, setTweak }){
       {/* Invoices */}
       <SettingsCard title="Notas fiscais"
         sub="Histórico das últimas cobranças."
-        action={<button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}}><Icon.Download size={12}/> Baixar tudo</button>}>
-        <div>
-          <div style={{display:"grid", gridTemplateColumns:"1.4fr 1fr 1.2fr .9fr .8fr", gap:12, padding:"8px 4px", borderBottom:"1px solid var(--line-2)"}}>
-            {["Fatura","Data","Descrição","Valor","Status"].map(h=>(
-              <div key={h} className="mono" style={{fontSize:10, color:"var(--muted)", fontWeight:700, letterSpacing:".06em", textTransform:"uppercase"}}>{h}</div>
+        action={invoices.length > 0 && <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}}><Icon.Download size={12}/> Baixar tudo</button>}>
+        {invoices.length === 0 ? (
+          <div style={{
+            padding:"32px 24px", border:"1px dashed var(--line)", borderRadius:12,
+            background:"#fafbfe", textAlign:"center"
+          }}>
+            <div style={{
+              width:44, height:44, margin:"0 auto 12px", borderRadius:11,
+              background:"var(--line-2)", color:"var(--muted)",
+              display:"flex", alignItems:"center", justifyContent:"center"
+            }}>
+              <Icon.Doc size={20}/>
+            </div>
+            <div style={{fontWeight:700, fontSize:14, marginBottom:6}}>Sem faturas ainda</div>
+            <div style={{fontSize:12.5, color:"var(--muted)", lineHeight:1.5, maxWidth:340, margin:"0 auto"}}>
+              Suas cobranças aparecerão aqui quando você ativar o Pro.
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{display:"grid", gridTemplateColumns:"1.4fr 1fr 1.2fr .9fr .8fr", gap:12, padding:"8px 4px", borderBottom:"1px solid var(--line-2)"}}>
+              {["Fatura","Data","Descrição","Valor","Status"].map(h=>(
+                <div key={h} className="mono" style={{fontSize:10, color:"var(--muted)", fontWeight:700, letterSpacing:".06em", textTransform:"uppercase"}}>{h}</div>
+              ))}
+            </div>
+            {invoices.map((inv,i)=>(
+              <div key={inv.id} style={{display:"grid", gridTemplateColumns:"1.4fr 1fr 1.2fr .9fr .8fr", gap:12, alignItems:"center", padding:"12px 4px", borderTop: i===0?"none":"1px solid var(--line-2)"}}>
+                <div className="mono" style={{fontSize:13, fontWeight:600}}>{inv.id}</div>
+                <div className="mono" style={{fontSize:12, color:"var(--muted)"}}>{inv.date}</div>
+                <div style={{fontSize:13}}>{inv.desc}</div>
+                <div className="mono" style={{fontSize:13, fontWeight:600, fontVariantNumeric:"tabular-nums"}}>R$ {inv.amount.toFixed(2).replace(".",",")}</div>
+                <div style={{display:"flex", alignItems:"center", gap:6}}>
+                  <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", padding:"2px 8px"}}>Pago</span>
+                  <button style={{padding:"4px 6px", background:"transparent", border:0, color:"var(--muted)", cursor:"pointer"}} title="Baixar PDF"><Icon.Download size={13}/></button>
+                </div>
+              </div>
             ))}
           </div>
-          {invoices.map((inv,i)=>(
-            <div key={inv.id} style={{display:"grid", gridTemplateColumns:"1.4fr 1fr 1.2fr .9fr .8fr", gap:12, alignItems:"center", padding:"12px 4px", borderTop: i===0?"none":"1px solid var(--line-2)"}}>
-              <div className="mono" style={{fontSize:13, fontWeight:600}}>{inv.id}</div>
-              <div className="mono" style={{fontSize:12, color:"var(--muted)"}}>{inv.date}</div>
-              <div style={{fontSize:13}}>{inv.desc}</div>
-              <div className="mono" style={{fontSize:13, fontWeight:600, fontVariantNumeric:"tabular-nums"}}>R$ {inv.amount.toFixed(2).replace(".",",")}</div>
-              <div style={{display:"flex", alignItems:"center", gap:6}}>
-                <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", padding:"2px 8px"}}>Pago</span>
-                <button style={{padding:"4px 6px", background:"transparent", border:0, color:"var(--muted)", cursor:"pointer"}} title="Baixar PDF"><Icon.Download size={13}/></button>
-              </div>
-            </div>
-          ))}
-        </div>
+        )}
       </SettingsCard>
     </div>
   );
@@ -600,6 +622,33 @@ function HistorySection({ tweaks }){
   ];
 
   const filtered = events.filter(e => filter==="all" || (filter==="ai" && e.kind==="ai") || (filter==="mine" && e.kind==="mine"));
+
+  // Defensive empty state — fires once the demo `events` array is replaced by
+  // a real data source that may legitimately be empty (brand-new user, or all
+  // events filtered out).
+  if(events.length === 0){
+    return (
+      <div>
+        <SectionHeader title="Histórico de análises" sub="Linha do tempo de tudo que a IA e sua equipe fizeram."/>
+        <div style={{
+          padding:"48px 24px", border:"1px dashed var(--line)", borderRadius:14,
+          background:"#fafbfe", textAlign:"center"
+        }}>
+          <div style={{
+            width:48, height:48, margin:"0 auto 14px", borderRadius:12,
+            background:"var(--line-2)", color:"var(--muted)",
+            display:"flex", alignItems:"center", justifyContent:"center"
+          }}>
+            <Icon.Refresh size={20}/>
+          </div>
+          <div style={{fontWeight:700, fontSize:15, marginBottom:6}}>Nada por aqui ainda</div>
+          <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.55, maxWidth:360, margin:"0 auto"}}>
+            Suas atividades recentes aparecerão aqui assim que você usar a IA, editar um dashboard ou exportar um arquivo.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Free users see only the most recent event clearly; everything else is blurred/locked.
   const visibleEvents = isFree ? filtered.slice(0, 1) : filtered;

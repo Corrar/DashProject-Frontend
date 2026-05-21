@@ -193,7 +193,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
         </nav>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>
+          <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>
             {currentUser ? <>Abrir app <Icon.Arrow size={14}/></> : <>Começar grátis <Icon.Arrow size={14}/></>}
           </button>
         </div>
@@ -316,7 +316,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
             Suba um CSV, JSON ou Excel. Descreva o que quer ver. O {tweaks.brandName} monta KPIs, gráficos e análises — e você edita visualmente. Sem código.
           </p>
           <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
-            <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Começar grátis <Icon.Arrow size={14}/></button>
+            <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>Começar grátis <Icon.Arrow size={14}/></button>
             <button className="btn btn-ghost" onClick={onLoadDemo}><Icon.Sparkle size={12}/> Ver demonstração com dados de exemplo</button>
           </div>
           <div className="rv" style={{display:"flex", gap:18, flexWrap:"wrap"}}>
@@ -690,7 +690,7 @@ function Pricing({ onOpenApp }){
                 </li>
               ))}
             </ul>
-            <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashUpgrade?.()}>Começar grátis</button>
+            <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashEnterApp?.()}>Começar grátis</button>
           </div>
           <div className="rv card soft-shadow" style={{padding:32, border:"1.5px solid var(--brand)", position:"relative", background: "linear-gradient(180deg, #f5f8ff, white)"}}>
             <span className="chip" style={{position:"absolute", top:24, right:24, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>
@@ -724,7 +724,7 @@ function CTA({ onOpenApp }){
           <h2 className="h-section" style={{margin:"14px 0 10px", color:"white"}}>Pronto para ver seus dados<br/>de outro jeito?</h2>
           <p style={{maxWidth:520, color:"rgba(255,255,255,.85)", margin:0}}>Suba sua primeira planilha agora. Em segundos, um dashboard interativo.</p>
           <div style={{display:"flex", gap:10, marginTop:24}}>
-            <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> window.__dashUpgrade?.()}>Abrir o app <Icon.Arrow size={14}/></button>
+            <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> window.__dashEnterApp?.()}>Abrir o app <Icon.Arrow size={14}/></button>
             <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}}>Ver exemplos</button>
           </div>
           <svg style={{position:"absolute", right:-40, bottom:-40, opacity:.15}} width="320" height="320" viewBox="0 0 200 200">

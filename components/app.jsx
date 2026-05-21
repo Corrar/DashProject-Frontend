@@ -168,17 +168,34 @@ function App(){
   // Dashboard paywall, AuthBubble dropdown) can route without prop-drilling
   // every level. Always call with `?.()` at the call site so a missing
   // global is a silent no-op (e.g., on initial mount or during HMR).
+  //
+  // Intent split — keep `enterApp` and `upgrade` separate even though they
+  // share the anon branch:
+  //   enterApp  = "use the product" — logged users land on upload, anon
+  //               funnels into signup so they can use it.
+  //   upgrade   = "buy / explore Pro" — anon → signup, free → Plans, pro
+  //               users already have Pro, so we send them to upload too.
   React.useEffect(()=>{
-    const upgrade = ()=>{ if(currentUser){ openPlans(); } else { openAuth("signup"); } };
+    const enterApp = ()=>{
+      if(currentUser){ setView("upload"); }
+      else { openAuth("signup"); }
+    };
+    const upgrade = ()=>{
+      if(!currentUser){ openAuth("signup"); }
+      else if(currentUser.plan === "pro"){ setView("upload"); }
+      else { openPlans(); }
+    };
     window.__dashOpenAuth    = (mode)=> openAuth(mode === "signup" ? "signup" : "login");
     window.__dashOpenPlans   = ()=> openPlans();
     window.__dashOpenAccount = (section)=> openAccount(section || "account");
+    window.__dashEnterApp    = enterApp;
     window.__dashUpgrade     = upgrade;
     window.__dashOpenLanding = ()=> setView("landing");
     return ()=>{
       delete window.__dashOpenAuth;
       delete window.__dashOpenPlans;
       delete window.__dashOpenAccount;
+      delete window.__dashEnterApp;
       delete window.__dashUpgrade;
       delete window.__dashOpenLanding;
     };
