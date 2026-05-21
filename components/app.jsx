@@ -9,7 +9,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [view, setView] = React.useState("landing"); // landing -> upload -> prompt -> dashboard
+  const [view, setView] = React.useState("landing"); // landing -> upload -> prompt -> dashboard -> plans -> account (auth view lands in commit 3)
   const [fileInfo, setFileInfo] = React.useState(null);
   // currentUser is hydrated from Supabase Auth + profiles. null while
   // anonymous; populated as { id, email, plan, fullName, stripeCustomerId }
@@ -17,6 +17,11 @@ function App(){
   const [currentUser, setCurrentUser] = React.useState(null);
   const [authModal, setAuthModal] = React.useState({ open: false, tab: "signin" });
   const [profileOpen, setProfileOpen] = React.useState(false);
+  // Navigation memory for the secondary views (plans / account). returnView
+  // is the screen the user came from so the back button restores it.
+  // accountSection picks the AccountView sidebar tab to show on entry.
+  const [accountSection, setAccountSection] = React.useState("account");
+  const [returnView, setReturnView] = React.useState("landing");
   useScrollProgress();
   useReveal(view);
 
@@ -133,6 +138,20 @@ function App(){
   };
   const onProfile = ()=> setProfileOpen(true);
 
+  // Secondary-view navigation. Remember where the user came from so the
+  // back button on PlansView/AccountView restores that view instead of
+  // dumping people on the landing.
+  const openPlans = ()=>{
+    setReturnView(view==="plans" || view==="account" ? returnView : view);
+    setView("plans");
+  };
+  const openAccount = (section="account")=>{
+    setReturnView(view==="plans" || view==="account" ? returnView : view);
+    setAccountSection(section);
+    setView("account");
+  };
+  const closeSecondary = ()=> setView(returnView || "landing");
+
   return (
     <>
       {view==="landing" && <Landing onOpenApp={openApp} onLoadDemo={loadDemo} tweaks={effectiveTweaks} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
@@ -149,6 +168,19 @@ function App(){
         </div>
       )}
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
+      {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
+        onSelectPro={()=>{
+          // Stripe Checkout lands in a future sprint (CLAUDE.md §15).
+          // For now: anonymous users get bounced into signup, logged-in users
+          // see a placeholder. Plan flips happen server-side via webhook —
+          // never mutate currentUser.plan from the client.
+          if(!currentUser) return onSignUp();
+          window.alert("Checkout do Stripe em breve.");
+        }}
+        onClose={closeSecondary}/>}
+      {view==="account" && <AccountView tweaks={effectiveTweaks} setTweak={setTweak} currentUser={currentUser}
+        section={accountSection} onSection={setAccountSection}
+        onClose={closeSecondary}/>}
 
       <AuthModal open={authModal.open} initialTab={authModal.tab}
         onClose={()=> setAuthModal({ open: false, tab: authModal.tab })}
@@ -160,7 +192,14 @@ function App(){
       <TweaksPanel title="Tweaks">
         <TweakSection label="Visão">
           <TweakSelect label="Fluxo" value={view} onChange={setView}
-            options={[{value:"landing", label:"Landing"},{value:"upload", label:"Upload"},{value:"prompt", label:"Prompt"},{value:"dashboard", label:"Dashboard"}]}/>
+            options={[
+              {value:"landing", label:"Landing"},
+              {value:"upload", label:"Upload"},
+              {value:"prompt", label:"Prompt"},
+              {value:"dashboard", label:"Dashboard"},
+              {value:"plans", label:"Planos"},
+              {value:"account", label:"Conta"},
+            ]}/>
         </TweakSection>
         <TweakSection label="Marca">
           <TweakText label="Nome" value={tweaks.brandName} onChange={v=>setTweak("brandName", v)}/>

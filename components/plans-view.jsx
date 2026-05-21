@@ -1,6 +1,6 @@
 /* Plans / pricing view — shown to logged-in users who click "Experimentar Pro". */
 
-function PlansView({ tweaks, onSelectPro, onClose }){
+function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
   const [cycle, setCycle] = React.useState("monthly"); // monthly | yearly
 
   const monthly = { free: 0, pro: 29 };
@@ -89,7 +89,7 @@ function PlansView({ tweaks, onSelectPro, onClose }){
             </div>
           </button>
           <div style={{display:"flex", alignItems:"center", gap:10}}>
-            {tweaks.authed && (
+            {!!currentUser && (
               <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}>
                 Sessão ativa · plano {tweaks.plan === "pro" ? "Pro" : "Free"}
               </span>

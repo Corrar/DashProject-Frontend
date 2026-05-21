@@ -1,7 +1,23 @@
 /* Account / Workspace / Billing / History / Referral pages */
 
-function AccountView({ tweaks, setTweak, section, onSection, onClose }){
+function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClose }){
+  // Authenticated-only screen. The only entry points (tweaks panel, future
+  // AuthBubble menu) shouldn't expose this without a session, but guard
+  // defensively so an unexpected hop doesn't blow up reading currentUser.email.
+  if(!currentUser){
+    return (
+      <div style={{minHeight:"100vh", display:"grid", placeItems:"center", padding:24, background:"var(--bg)"}}>
+        <div style={{textAlign:"center", maxWidth:360}}>
+          <div style={{fontWeight:700, fontSize:18, marginBottom:6}}>Faça login para acessar a Conta</div>
+          <div style={{fontSize:13, color:"var(--muted)", marginBottom:18}}>Esta área mostra seus dados, faturamento e histórico — só fica disponível quando você está logado.</div>
+          <button className="btn btn-ghost" onClick={onClose}><Icon.Arrow size={13} style={{transform:"rotate(180deg)"}}/> Voltar</button>
+        </div>
+      </div>
+    );
+  }
   const isFree = tweaks.plan === "free";
+  const displayName = currentUser.fullName || currentUser.email || "Conta";
+  const avatarChar = String((displayName[0] || "?")).toUpperCase();
   const sections = [
     { k:"account",   n:"Conta",                i:<Icon.User size={14}/>,    d:"Perfil e segurança" },
     { k:"billing",   n:"Faturamento",          i:<Icon.Doc size={14}/>,     d:"Plano, pagamento e notas" },
@@ -43,12 +59,12 @@ function AccountView({ tweaks, setTweak, section, onSection, onClose }){
           <div style={{padding:"14px 16px", background:"white", border:"1px solid var(--line)", borderRadius:14, display:"flex", gap:10, alignItems:"center"}}>
             <div style={{
               width:36, height:36, borderRadius:"50%", flexShrink:0,
-              background:"linear-gradient(135deg, #ff7849, #ff5e93)", color:"white",
+              background:`linear-gradient(135deg, ${tweaks.accent}, var(--violet))`, color:"white",
               display:"flex", alignItems:"center", justifyContent:"center",
-              fontWeight:700, fontSize:13
-            }}>MA</div>
+              fontWeight:700, fontSize:14
+            }}>{avatarChar}</div>
             <div style={{minWidth:0, flex:1}}>
-              <div style={{fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>Maria Andrade</div>
+              <div style={{fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{displayName}</div>
               <div style={{fontSize:11, color:"var(--muted)"}}>{tweaks.plan === "pro" ? "Plano Pro" : "Plano Free"}</div>
             </div>
           </div>
@@ -105,7 +121,7 @@ function AccountView({ tweaks, setTweak, section, onSection, onClose }){
 
         {/* Main */}
         <main>
-          {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} onClose={onClose}/>}
+          {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser} onClose={onClose}/>}
           {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak}/>}
           {section === "history"   && <HistorySection tweaks={tweaks}/>}
           {section === "referral"  && <ReferralSection tweaks={tweaks}/>}
@@ -268,10 +284,14 @@ function SaveBar({ onSave, onDiscard, dirty }){
 
 /* — 1. CONTA — */
 
-function AccountSection({ tweaks, setTweak, onClose }){
-  const [name, setName] = React.useState("Maria Andrade");
-  const [email, setEmail] = React.useState("maria@northstar.co");
-  const [role, setRole] = React.useState("Head of Data");
+function AccountSection({ tweaks, setTweak, currentUser, onClose }){
+  // Initial values come from the Supabase profile. Email is read-only (auth
+  // identity); name/role are editable but persistence is wired in a later
+  // sprint — for now the Save bar is UI-only. Role isn't stored in profiles
+  // yet, so it defaults to empty.
+  const [name, setName] = React.useState(currentUser?.fullName || "");
+  const [email, setEmail] = React.useState(currentUser?.email || "");
+  const [role, setRole] = React.useState("");
   const [lang, setLang] = React.useState("pt-BR");
   const [tz, setTz] = React.useState("America/Sao_Paulo");
   const [fmt, setFmt] = React.useState("brl");
