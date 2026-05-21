@@ -18,8 +18,13 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
   const isFree = tweaks.plan === "free";
   const displayName = currentUser.fullName || currentUser.email || "Conta";
   const avatarChar = String((displayName[0] || "?")).toUpperCase();
+  // Workspace stays locked until the Team plan ships — we leave the entry
+  // in the sidebar (with a lock chip) so the IA matches the original design
+  // and existing users can see what's coming. Click routes to a teaser
+  // ("em breve") rather than the full WorkspaceSection preview.
   const sections = [
     { k:"account",   n:"Conta",                i:<Icon.User size={14}/>,    d:"Perfil e segurança" },
+    { k:"workspace", n:"Workspace",            i:<Icon.Grid size={14}/>,    d:"Equipe e permissões", lockReason:"team" },
     { k:"billing",   n:"Faturamento",          i:<Icon.Doc size={14}/>,     d:"Plano, pagamento e notas" },
     { k:"history",   n:"Histórico de análises",i:<Icon.Refresh size={14}/>, d:"Linha do tempo da IA" },
     { k:"referral",  n:"Indique e ganhe",      i:<Icon.Sparkle size={14}/>, d:"Ganhe 30 dias Pro" },
@@ -65,7 +70,16 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
             }}>{avatarChar}</div>
             <div style={{minWidth:0, flex:1}}>
               <div style={{fontWeight:600, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{displayName}</div>
-              <div style={{fontSize:11, color:"var(--muted)"}}>{tweaks.plan === "pro" ? "Plano Pro" : "Plano Free"}</div>
+              <div style={{marginTop:4}}>
+                <span className="chip" style={{
+                  padding:"1px 8px",
+                  background: tweaks.plan === "pro" ? "#e7f7ef" : "var(--line-2)",
+                  color: tweaks.plan === "pro" ? "#0a5a30" : "var(--ink-2)",
+                  fontSize:10, fontWeight:700, gap:4,
+                }}>
+                  {tweaks.plan === "pro" ? <><Icon.Crown size={10}/> Pro</> : "Free"}
+                </span>
+              </div>
             </div>
           </div>
           <nav style={{display:"flex", flexDirection:"column", gap:2}}>
@@ -122,10 +136,80 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
         {/* Main */}
         <main>
           {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser} onClose={onClose}/>}
+          {section === "workspace" && <WorkspaceComingSoon tweaks={tweaks}/>}
           {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak}/>}
           {section === "history"   && <HistorySection tweaks={tweaks}/>}
           {section === "referral"  && <ReferralSection tweaks={tweaks}/>}
         </main>
+      </div>
+    </div>
+  );
+}
+
+// Workspace teaser — the Team plan (workspaces, roles, SSO, audit log) isn't
+// shipping yet. Until it is, the Workspace tab shows a coming-soon card with
+// an interest-capture button so we can build a wait-list. Replace this with
+// the real <WorkspaceSection/> when the Team plan lands.
+function WorkspaceComingSoon({ tweaks }){
+  const [notified, setNotified] = React.useState(false);
+  const accent = (tweaks && tweaks.accent) || "var(--brand)";
+  const features = [
+    "Workspaces compartilhados",
+    "Convites e permissões (Owner / Admin / Editor / Viewer)",
+    "SSO (Google, Microsoft, SAML)",
+    "Audit log + retenção estendida",
+    "Branding white-label",
+    "Suporte prioritário",
+  ];
+  return (
+    <div>
+      <SectionHeader title="Workspace" sub="Identidade, equipe e permissões do seu workspace."/>
+      <div style={{
+        padding:"36px 32px", borderRadius:18,
+        background:"linear-gradient(180deg, #fafbfe, white)",
+        border:"1px solid var(--line)", textAlign:"center",
+        position:"relative", overflow:"hidden"
+      }}>
+        <div style={{
+          width:64, height:64, margin:"0 auto 16px", borderRadius:16,
+          background:`linear-gradient(135deg, ${accent}, var(--violet))`,
+          color:"white", display:"flex", alignItems:"center", justifyContent:"center",
+          boxShadow:`0 16px 32px -10px ${accent}`
+        }}>
+          <Icon.Grid size={26}/>
+        </div>
+        <div style={{display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px", borderRadius:99, background:"var(--ink)", color:"white", fontSize:11, fontWeight:700, marginBottom:10}}>
+          <Icon.Lock size={10}/> Plano Team · em breve
+        </div>
+        <h2 style={{margin:"0 0 10px", fontSize:22, fontWeight:800, letterSpacing:"-.02em"}}>
+          Workspace está disponível no plano Team
+        </h2>
+        <p style={{margin:"0 auto 22px", fontSize:13.5, color:"var(--muted)", lineHeight:1.55, maxWidth: 460}}>
+          Pré-cadastre seu interesse para receber novidades. Avisamos assim que o Team estiver disponível.
+        </p>
+        <ul style={{listStyle:"none", padding:0, margin:"0 auto 24px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, textAlign:"left", maxWidth: 540}}>
+          {features.map(f=>(
+            <li key={f} style={{display:"flex", gap:8, alignItems:"flex-start", fontSize:12.5, color:"var(--ink-2)"}}>
+              <span style={{
+                width:18, height:18, borderRadius:6, flexShrink:0, marginTop:1,
+                background:`color-mix(in oklch, ${accent} 14%, white)`, color: accent,
+                display:"inline-flex", alignItems:"center", justifyContent:"center"
+              }}>
+                <Icon.Check size={11} stroke={3}/>
+              </span>
+              {f}
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={()=> setNotified(true)}
+          disabled={notified}
+          className={notified ? "btn btn-ghost" : "btn btn-primary"}
+          style={{padding:"11px 18px", opacity: notified ? 1 : undefined}}>
+          {notified
+            ? <><Icon.Check size={13} stroke={3} color="#0a8a4a"/> Te avisaremos!</>
+            : <><Icon.Sparkle size={13}/> Notificar quando estiver disponível</>}
+        </button>
       </div>
     </div>
   );
