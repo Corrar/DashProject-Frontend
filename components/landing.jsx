@@ -76,11 +76,11 @@ function useCount(target, when, ms=1400){
   return v;
 }
 
-// Reusable auth control. While unauthenticated → a "Entrar" button. Once
-// authenticated → an avatar bubble with the email's first letter that opens a
-// small menu with "Perfil" / "Sair". Both the bubble shape and the handler
-// signatures match what the Supabase Auth integration will wire up next phase
-// (see CLAUDE.md §17). For now all callbacks just console.log.
+// Reusable auth control. While unauthenticated → "Entrar" / "Criar conta"
+// buttons that route to the AuthView via window.__dashOpenAuth. Once
+// authenticated → an avatar bubble with the email's first letter that opens
+// a small menu with shortcuts to AccountView, PlansView, and signOut. See
+// CLAUDE.md §17 for the currentUser shape.
 function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, accent = "var(--brand)" }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
@@ -144,11 +144,17 @@ function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, acc
               </div>
             )}
           </div>
-          <button onClick={()=>{ setOpen(false); onProfile && onProfile(); }} style={menuItemStyle}
+          <button onClick={()=>{ setOpen(false); window.__dashOpenAccount?.(); }} style={menuItemStyle}
             onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
             onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <Icon.Eye size={14}/> Meu perfil
+            <Icon.Wand size={14}/> Configurações
           </button>
+          <button onClick={()=>{ setOpen(false); window.__dashOpenPlans?.(); }} style={menuItemStyle}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <Icon.Crown size={14}/> Planos
+          </button>
+          <hr style={{border:0, borderTop:"1px solid var(--line-2)", margin:"4px 0"}}/>
           <button onClick={()=>{ setOpen(false); onSignOut && onSignOut(); }} style={menuItemStyle}
             onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
             onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -187,7 +193,9 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
         </nav>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-          <button className="btn btn-primary" onClick={onOpenApp}>Abrir app <Icon.Arrow size={14}/></button>
+          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>
+            {currentUser ? <>Abrir app <Icon.Arrow size={14}/></> : <>Começar grátis <Icon.Arrow size={14}/></>}
+          </button>
         </div>
       </div>
     </div>
@@ -308,7 +316,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
             Suba um CSV, JSON ou Excel. Descreva o que quer ver. O {tweaks.brandName} monta KPIs, gráficos e análises — e você edita visualmente. Sem código.
           </p>
           <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
-            <button className="btn btn-primary" onClick={onOpenApp}>Começar grátis <Icon.Arrow size={14}/></button>
+            <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Começar grátis <Icon.Arrow size={14}/></button>
             <button className="btn btn-ghost" onClick={onLoadDemo}><Icon.Sparkle size={12}/> Ver demonstração com dados de exemplo</button>
           </div>
           <div className="rv" style={{display:"flex", gap:18, flexWrap:"wrap"}}>
@@ -682,7 +690,7 @@ function Pricing({ onOpenApp }){
                 </li>
               ))}
             </ul>
-            <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center"}} onClick={onOpenApp}>Começar grátis</button>
+            <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashUpgrade?.()}>Começar grátis</button>
           </div>
           <div className="rv card soft-shadow" style={{padding:32, border:"1.5px solid var(--brand)", position:"relative", background: "linear-gradient(180deg, #f5f8ff, white)"}}>
             <span className="chip" style={{position:"absolute", top:24, right:24, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>
@@ -699,7 +707,7 @@ function Pricing({ onOpenApp }){
                 </li>
               ))}
             </ul>
-            <button className="btn btn-primary" style={{width:"100%", justifyContent:"center"}} onClick={onOpenApp}><Icon.Crown size={14}/> Experimentar Pro</button>
+            <button className="btn btn-primary" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashUpgrade?.()}><Icon.Crown size={14}/> Experimentar Pro</button>
           </div>
         </div>
       </div>
@@ -716,7 +724,7 @@ function CTA({ onOpenApp }){
           <h2 className="h-section" style={{margin:"14px 0 10px", color:"white"}}>Pronto para ver seus dados<br/>de outro jeito?</h2>
           <p style={{maxWidth:520, color:"rgba(255,255,255,.85)", margin:0}}>Suba sua primeira planilha agora. Em segundos, um dashboard interativo.</p>
           <div style={{display:"flex", gap:10, marginTop:24}}>
-            <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={onOpenApp}>Abrir o app <Icon.Arrow size={14}/></button>
+            <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> window.__dashUpgrade?.()}>Abrir o app <Icon.Arrow size={14}/></button>
             <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}}>Ver exemplos</button>
           </div>
           <svg style={{position:"absolute", right:-40, bottom:-40, opacity:.15}} width="320" height="320" viewBox="0 0 200 200">

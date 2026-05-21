@@ -131,17 +131,6 @@ function App(){
     }
   };
 
-  // Auth UI handlers wired into AuthBubble / Topbar.
-  const onSignIn = ()=> setAuthModal({ open: true, tab: "signin" });
-  const onSignUp = ()=> setAuthModal({ open: true, tab: "signup" });
-  const onSignOut = async ()=>{
-    const supa = window.supabaseClient;
-    if(supa && supa.auth){ await supa.auth.signOut(); }
-    setCurrentUser(null);
-    setProfileOpen(false);
-  };
-  const onProfile = ()=> setProfileOpen(true);
-
   // Secondary-view navigation. Remember where the user came from so the
   // back button on AuthView/PlansView/AccountView restores that view instead
   // of dumping people on the landing.
@@ -160,6 +149,42 @@ function App(){
     setView("account");
   };
   const closeSecondary = ()=> setView(returnView || "landing");
+
+  // Auth UI handlers wired into AuthBubble / Topbar. Sign-in / sign-up now
+  // route to the full-screen AuthView; the AuthModal stays mounted as a
+  // fallback surface (paywall flows that prefer a popover instead of a route
+  // change) but is no longer the primary entry.
+  const onSignIn = ()=> openAuth("login");
+  const onSignUp = ()=> openAuth("signup");
+  const onSignOut = async ()=>{
+    const supa = window.supabaseClient;
+    if(supa && supa.auth){ await supa.auth.signOut(); }
+    setCurrentUser(null);
+    setProfileOpen(false);
+  };
+  const onProfile = ()=> setProfileOpen(true);
+
+  // Expose navigation helpers on `window` so deep children (Landing CTAs,
+  // Dashboard paywall, AuthBubble dropdown) can route without prop-drilling
+  // every level. Always call with `?.()` at the call site so a missing
+  // global is a silent no-op (e.g., on initial mount or during HMR).
+  React.useEffect(()=>{
+    const upgrade = ()=>{ if(currentUser){ openPlans(); } else { openAuth("signup"); } };
+    window.__dashOpenAuth    = (mode)=> openAuth(mode === "signup" ? "signup" : "login");
+    window.__dashOpenPlans   = ()=> openPlans();
+    window.__dashOpenAccount = (section)=> openAccount(section || "account");
+    window.__dashUpgrade     = upgrade;
+    window.__dashOpenLanding = ()=> setView("landing");
+    return ()=>{
+      delete window.__dashOpenAuth;
+      delete window.__dashOpenPlans;
+      delete window.__dashOpenAccount;
+      delete window.__dashUpgrade;
+      delete window.__dashOpenLanding;
+    };
+    // The closures capture current view/returnView/currentUser via the
+    // existing helpers, so re-run whenever any of those change.
+  }, [view, returnView, currentUser]);
 
   return (
     <>

@@ -1930,7 +1930,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               <div style={{fontSize:13, color:"var(--muted)"}}>Ative o Pro · 7 dias grátis</div>
             </div>
           </div>
-          <button className="btn btn-primary">Experimentar Pro <Icon.Arrow size={14}/></button>
+          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Experimentar Pro <Icon.Arrow size={14}/></button>
         </div>
       </BlockShell>;
     }
@@ -2208,7 +2208,8 @@ function PaywallModal({ reason, onClose, tweaks }){
             </div>
           </div>
           <div style={{display:"flex", gap:8}}>
-            <button className="btn btn-primary" style={{flex:1, justifyContent:"center", padding:"14px"}}>
+            <button className="btn btn-primary" style={{flex:1, justifyContent:"center", padding:"14px"}}
+              onClick={()=>{ onClose(); window.__dashUpgrade?.(); }}>
               <Icon.Crown size={14}/> Começar teste grátis
             </button>
             <button className="btn btn-ghost" style={{padding:"14px 16px"}} onClick={onClose}>Agora não</button>
