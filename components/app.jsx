@@ -9,19 +9,23 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [view, setView] = React.useState("landing"); // landing -> upload -> prompt -> dashboard -> plans -> account (auth view lands in commit 3)
+  const [view, setView] = React.useState("landing"); // landing | upload | prompt | dashboard | auth | plans | account
   const [fileInfo, setFileInfo] = React.useState(null);
   // currentUser is hydrated from Supabase Auth + profiles. null while
   // anonymous; populated as { id, email, plan, fullName, stripeCustomerId }
   // once the user signs in. See CLAUDE.md §17.
   const [currentUser, setCurrentUser] = React.useState(null);
+  // AuthModal stays as a fallback surface (paywall/inline flows). Primary
+  // entry into auth is now the routed AuthView (view==="auth").
   const [authModal, setAuthModal] = React.useState({ open: false, tab: "signin" });
+  const [authMode, setAuthMode] = React.useState("login"); // login | signup — drives AuthView tab
   const [profileOpen, setProfileOpen] = React.useState(false);
-  // Navigation memory for the secondary views (plans / account). returnView
-  // is the screen the user came from so the back button restores it.
-  // accountSection picks the AccountView sidebar tab to show on entry.
+  // Navigation memory for the secondary views (auth / plans / account).
+  // returnView is the screen the user came from so the back button restores
+  // it. accountSection picks the AccountView sidebar tab to show on entry.
   const [accountSection, setAccountSection] = React.useState("account");
   const [returnView, setReturnView] = React.useState("landing");
+  const isSecondaryView = (v)=> v==="plans" || v==="account" || v==="auth";
   useScrollProgress();
   useReveal(view);
 
@@ -139,14 +143,19 @@ function App(){
   const onProfile = ()=> setProfileOpen(true);
 
   // Secondary-view navigation. Remember where the user came from so the
-  // back button on PlansView/AccountView restores that view instead of
-  // dumping people on the landing.
+  // back button on AuthView/PlansView/AccountView restores that view instead
+  // of dumping people on the landing.
+  const openAuth = (mode="login")=>{
+    setReturnView(isSecondaryView(view) ? returnView : view);
+    setAuthMode(mode === "signup" ? "signup" : "login");
+    setView("auth");
+  };
   const openPlans = ()=>{
-    setReturnView(view==="plans" || view==="account" ? returnView : view);
+    setReturnView(isSecondaryView(view) ? returnView : view);
     setView("plans");
   };
   const openAccount = (section="account")=>{
-    setReturnView(view==="plans" || view==="account" ? returnView : view);
+    setReturnView(isSecondaryView(view) ? returnView : view);
     setAccountSection(section);
     setView("account");
   };
@@ -168,6 +177,10 @@ function App(){
         </div>
       )}
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
+      {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
+        tweaks={effectiveTweaks}
+        onSuccess={()=> setView(returnView || "landing")}
+        onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
         onSelectPro={()=>{
           // Stripe Checkout lands in a future sprint (CLAUDE.md §15).
@@ -197,6 +210,7 @@ function App(){
               {value:"upload", label:"Upload"},
               {value:"prompt", label:"Prompt"},
               {value:"dashboard", label:"Dashboard"},
+              {value:"auth", label:"Auth"},
               {value:"plans", label:"Planos"},
               {value:"account", label:"Conta"},
             ]}/>
