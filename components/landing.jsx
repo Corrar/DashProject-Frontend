@@ -122,12 +122,24 @@ function AuthBubble({ currentUser, onSignIn, onSignOut, onProfile, accent = "var
           <div style={{padding:"8px 10px 10px", borderBottom:"1px solid var(--line-2)", marginBottom:4}}>
             <div style={{fontSize:11, color:"var(--muted)"}}>Conta</div>
             <div style={{fontSize:13, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{currentUser.email}</div>
-            {currentUser.plan && <div style={{marginTop:4}}><span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:10}}>{currentUser.plan === "pro" ? "Pro" : "Free"}</span></div>}
+            {currentUser.plan && (
+              <div style={{marginTop:6}}>
+                <span className="chip" style={{
+                  background: currentUser.plan === "pro" ? "#e7f7ef" : "var(--line-2)",
+                  color: currentUser.plan === "pro" ? "#0a5a30" : "var(--ink-2)",
+                  fontSize:10, fontWeight:700, gap:4,
+                }}>
+                  {currentUser.plan === "pro"
+                    ? <><Icon.Crown size={10}/> Plano: Pro</>
+                    : <>Plano: Free</>}
+                </span>
+              </div>
+            )}
           </div>
           <button onClick={()=>{ setOpen(false); onProfile && onProfile(); }} style={menuItemStyle}
             onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
             onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <Icon.Eye size={14}/> Perfil
+            <Icon.Eye size={14}/> Meu perfil
           </button>
           <button onClick={()=>{ setOpen(false); onSignOut && onSignOut(); }} style={menuItemStyle}
             onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}

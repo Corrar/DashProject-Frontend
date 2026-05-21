@@ -348,9 +348,9 @@ Quando algo cair fora do roadmap, **pergunte antes de implementar**.
 
 ---
 
-## 17. Convenções de Auth (em implementação)
+## 17. Convenções de Auth (implementado com Supabase)
 
-`currentUser` virá do Supabase no formato:
+`currentUser` é hidratado do Supabase Auth + tabela `profiles` no formato:
 
 ```ts
 {
@@ -364,20 +364,58 @@ Quando algo cair fora do roadmap, **pergunte antes de implementar**.
 
 Regras de uso:
 
-- **Plano efetivo** = `currentUser?.plan ?? tweaks.plan ?? 'free'`. Tweaks override existe pra testar o paywall no navegador sem mexer no DB. Em produção o tweak deve ser ignorado quando `currentUser` está presente.
-- **Anônimo** (`currentUser === null`): mostra "Entrar" no Nav/Topbar. Usuário pode usar todas as features Free localmente (upload, dashboard com mocks, export sem branding pago, etc.). Nada é persistido server-side.
-- **Logado free**: avatar com inicial do e‑mail. Dashboards continuam locais até a feature de persistência entrar; o que muda é o paywall ficar legível ("upgrade para Pro") em vez de só "experimentar".
-- **Logado pro**: idem free + tudo desbloqueado. Stripe customer já criado, `stripe_customer_id` populado.
+- **Plano efetivo** = `currentUser?.plan ?? 'free'`. Anônimo é sempre Free — sem login, nada de Pro, mesmo que o tweaks panel tente dizer o contrário. O toggle "Plano" do tweaks continua na UI como relíquia de dev, mas não afeta o paywall em produção. Para testar Pro localmente, ver §18.
+- **Anônimo** (`currentUser === null`): mostra "Entrar" no Nav/Topbar. Usuário pode usar todas as features Free localmente (upload, dashboard, export sem branding pago). Nada é persistido server-side.
+- **Logado free**: avatar com inicial do e‑mail + dropdown (e‑mail, badge "Free", "Meu perfil", "Sair"). Dashboards continuam locais até a feature de persistência entrar; o que muda é o paywall ficar legível ("upgrade para Pro") em vez de só "experimentar".
+- **Logado pro**: idem free + tudo desbloqueado, badge "Pro" no dropdown. `stripe_customer_id` populado quando a integração Stripe entrar.
 
-Handlers que existem no front (todos hoje fazem `console.log`):
+Handlers (implementados em `app.jsx`):
 
-- `onSignIn` — abrirá modal de signup/login do Supabase. Vai chamar `supabase.auth.signInWithOtp({ email })` ou similar.
-- `onSignOut` — `supabase.auth.signOut()`, então `setCurrentUser(null)`.
-- `onProfile` — navega para `/perfil` (ou modal). Mostra plano atual, link "Gerenciar assinatura" → Stripe Customer Portal.
+- `onSignIn` — abre `<AuthModal initialTab="signin"/>`. Submit chama `supabaseClient.auth.signInWithPassword({email, password})`.
+- `onSignOut` — `supabaseClient.auth.signOut()`, depois `setCurrentUser(null)`.
+- `onProfile` — abre `<ProfileModal/>` com e‑mail, plano, e botão Sair.
 
-Componente reutilizável: `AuthBubble` (em `landing.jsx`). Aceita `currentUser`, os 3 handlers, e `accent` (cor do avatar). Renderiza "Entrar" se anônimo, avatar+dropdown se logado. Usado tanto no `Nav` da landing quanto no `Topbar` do Dashboard.
+Bootstrap da sessão (em `app.jsx`):
 
-Não armazenar dados sensíveis em `localStorage` — apenas preferências de UI (período, layout, tema). Token do Supabase é gerenciado pelo SDK em cookie httpOnly quando configurado corretamente.
+```js
+React.useEffect(() => {
+  supabaseClient.auth.getSession().then(({data:{session}}) => {
+    if (session) loadUserProfile(session.user.id);
+  });
+  const sub = supabaseClient.auth.onAuthStateChange((_e, session) => {
+    if (session) loadUserProfile(session.user.id);
+    else setCurrentUser(null);
+  });
+  return () => sub.data.subscription.unsubscribe();
+}, []);
+```
+
+`loadUserProfile` faz `SELECT id,email,plan,full_name,stripe_customer_id FROM profiles WHERE id = uid` — RLS impede leitura cruzada.
+
+Componentes:
+
+- `AuthBubble` (`landing.jsx`) — entrada visual. Anônimo: botão "Entrar". Logado: avatar + dropdown. Usado em Nav (landing) e Topbar (dashboard).
+- `AuthModal` (`auth-modal.jsx`) — formulários de sign-in / sign-up / reset. ESC fecha, backdrop fecha, focus inicial, body lock. Mensagem de erro inline, mensagem "Confirme seu e-mail" pós-signup.
+- `ProfileModal` (inline em `app.jsx`) — info da conta + botão Sair.
+
+Não armazenar dados sensíveis em `localStorage` — apenas preferências de UI. O token do Supabase é gerenciado pelo SDK (localStorage por padrão; httpOnly cookie quando configurado server-side).
+
+**Anon key**: pública por design (RLS é quem protege). Vai hardcoded em `Dash.html`. **Nunca** colocar `service_role` no frontend.
+
+---
+
+## 18. Como testar plano Pro localmente
+
+Como o paywall agora obedece `currentUser.plan` (e ignora qualquer override do tweaks panel quando anônimo), a forma oficial de testar a experiência Pro é editar o banco direto:
+
+1. Criar uma conta no app (Entrar → tab "Criar conta", informar e‑mail + senha).
+2. Confirmar o e‑mail (Supabase manda um link).
+3. Voltar pro app e fazer login com a mesma conta.
+4. Abrir o Supabase Dashboard → **Table Editor** → tabela `profiles`.
+5. Localizar a linha do seu user e editar a coluna `plan` de `'free'` para `'pro'`.
+6. Refresh do Dash → o `loadUserProfile` re-hidrata o `currentUser` com `plan='pro'` e tudo (edição do dashboard, análises da IA, "Avançado", "Adicionar bloco") fica desbloqueado.
+
+Para voltar ao modo Free: idem, editar `plan` de volta pra `'free'` e dar refresh.
 
 ---
 

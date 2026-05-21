@@ -10,6 +10,17 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // Supabase client — initialized once, exposed via window.supabaseClient so
+  // any script can grab the same singleton. Anon key is public-by-design
+  // (Row Level Security is what protects the data). NEVER paste the
+  // service_role key here.
+  window.supabaseClient = window.supabase.createClient(
+    "https://ylukkykovcyyvjfdlnwr.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsdWtreWtvdmN5eXZqZmRsbndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMDA5NTksImV4cCI6MjA5NDg3Njk1OX0.bygukdGg4mz3Pwx0L4TM5ZZUE4nAkDHZ4H2_9GzXNMc"
+  );
+</script>
 <style>
   :root{
     --bg: #f6f7fb;
@@ -309,6 +320,7 @@
   <script type="text/babel" src="components/charts.jsx"></script>
   <script type="text/babel" src="components/landing.jsx"></script>
   <script type="text/babel" src="components/dashboard.jsx"></script>
+  <script type="text/babel" src="components/auth-modal.jsx"></script>
   <script type="text/babel" src="components/app.jsx"></script>
 </body>
 </html>

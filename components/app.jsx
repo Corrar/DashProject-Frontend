@@ -1,4 +1,4 @@
-/* App root — view switcher + tweaks */
+/* App root — view switcher + tweaks + Supabase auth glue. */
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "brandName": "Dash",
@@ -11,10 +11,12 @@ function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [view, setView] = React.useState("landing"); // landing -> upload -> prompt -> dashboard
   const [fileInfo, setFileInfo] = React.useState(null);
-  // currentUser is a scaffold for the upcoming Supabase Auth integration. Stays
-  // null while the user is anonymous; once auth lands it will hold the row
-  // shape described in CLAUDE.md §17 ({ id, email, plan, stripe_customer_id?, created_at }).
+  // currentUser is hydrated from Supabase Auth + profiles. null while
+  // anonymous; populated as { id, email, plan, fullName, stripeCustomerId }
+  // once the user signs in. See CLAUDE.md §17.
   const [currentUser, setCurrentUser] = React.useState(null);
+  const [authModal, setAuthModal] = React.useState({ open: false, tab: "signin" });
+  const [profileOpen, setProfileOpen] = React.useState(false);
   useScrollProgress();
   useReveal(view);
 
@@ -25,18 +27,81 @@ function App(){
     window.scrollTo({top:0, behavior:"auto"});
   }, [view]);
 
-  // Effective plan: authenticated user's plan wins, then the Tweaks override
-  // (useful for testing the paywall in the browser), then "free" as the floor.
-  const userPlan = currentUser?.plan ?? tweaks.plan ?? "free";
-  // Mirror userPlan back into the tweaks shape so existing consumers
-  // (Dashboard's isFree check, paywall logic) keep working unchanged.
+  // Read the `profiles` row for the signed-in user and shape it into the
+  // local currentUser model. RLS keeps this scoped to the user's own row.
+  const loadUserProfile = React.useCallback(async (userId)=>{
+    const supa = window.supabaseClient;
+    if(!supa) return;
+    try {
+      const { data, error } = await supa
+        .from("profiles")
+        .select("id, email, plan, full_name, stripe_customer_id")
+        .eq("id", userId)
+        .single();
+      if(error){
+        // eslint-disable-next-line no-console
+        console.error("[Auth] loadUserProfile:", error.message);
+        return;
+      }
+      if(data){
+        setCurrentUser({
+          id: data.id,
+          email: data.email,
+          plan: data.plan || "free",
+          fullName: data.full_name,
+          stripeCustomerId: data.stripe_customer_id,
+        });
+      }
+    } catch(e){
+      // eslint-disable-next-line no-console
+      console.error("[Auth] loadUserProfile threw:", e);
+    }
+  }, []);
+
+  // Bootstrap: pick up an existing session on mount and subscribe to auth
+  // events. Signed-in → hydrate currentUser from profiles. Signed-out →
+  // clear currentUser. Subscription is cleaned up on unmount.
+  React.useEffect(()=>{
+    const supa = window.supabaseClient;
+    if(!supa){
+      // eslint-disable-next-line no-console
+      console.warn("[Auth] window.supabaseClient ausente — verifique o init em Dash.html.");
+      return undefined;
+    }
+    supa.auth.getSession().then(({ data })=>{
+      const session = data && data.session;
+      if(session && session.user){ loadUserProfile(session.user.id); }
+    }).catch((e)=>{
+      // eslint-disable-next-line no-console
+      console.error("[Auth] getSession threw:", e);
+    });
+    const sub = supa.auth.onAuthStateChange((_event, session)=>{
+      if(session && session.user){
+        loadUserProfile(session.user.id);
+        // Close the auth modal if it was open — sign-in just succeeded.
+        setAuthModal((m)=> m.open ? { ...m, open: false } : m);
+      } else {
+        setCurrentUser(null);
+      }
+    });
+    return ()=>{
+      const subscription = sub && sub.data && sub.data.subscription;
+      if(subscription && subscription.unsubscribe){ subscription.unsubscribe(); }
+    };
+  }, [loadUserProfile]);
+
+  // Plan resolution: anonymous visitors are always "free" — the tweaks
+  // panel's plan toggle no longer affects the paywall (security spec, see
+  // CLAUDE.md §17). The toggle stays in the UI as a dev-only relic; to test
+  // Pro behavior end-to-end, edit profiles.plan in the Supabase dashboard
+  // (CLAUDE.md §18).
+  const userPlan = (currentUser && currentUser.plan) || "free";
   const effectiveTweaks = { ...tweaks, plan: userPlan };
 
   const openApp = ()=> setView("upload");
 
   // "Ver demonstração": parses the bundled CSV, hydrates fileInfo with
   // isDemo:true and jumps straight to the dashboard, bypassing upload+prompt.
-  // Uses the same parser/inferer the real upload path uses.
   const loadDemo = ()=>{
     try {
       const parsed = dashParseCSV(DASH_SAMPLE_CSV);
@@ -52,30 +117,20 @@ function App(){
       });
       setView("dashboard");
     } catch(e){
-      // Surface in console only — the demo path is best-effort and shouldn't
-      // break the landing if the bundled CSV ever becomes malformed.
       // eslint-disable-next-line no-console
       console.error("Falha ao carregar dados de demonstração:", e);
     }
   };
 
-  // Auth scaffolding — stubs for the Supabase Auth integration that's queued
-  // up for the next phase. The buttons in the Topbar / Nav fire these, which
-  // currently just log. When Supabase lands, swap the bodies for actual auth
-  // calls and have onSignedIn flip setCurrentUser.
-  const onSignIn = ()=>{
-    // eslint-disable-next-line no-console
-    console.log("[Auth] Entrar — stub. Supabase Auth chega na próxima fase.");
-  };
-  const onSignOut = ()=>{
-    // eslint-disable-next-line no-console
-    console.log("[Auth] Sair — stub. Limpar sessão Supabase quando integrar.");
+  // Auth UI handlers wired into AuthBubble / Topbar.
+  const onSignIn = ()=> setAuthModal({ open: true, tab: "signin" });
+  const onSignOut = async ()=>{
+    const supa = window.supabaseClient;
+    if(supa && supa.auth){ await supa.auth.signOut(); }
     setCurrentUser(null);
+    setProfileOpen(false);
   };
-  const onProfile = ()=>{
-    // eslint-disable-next-line no-console
-    console.log("[Auth] Perfil — stub. Abrirá página /perfil quando integrar.");
-  };
+  const onProfile = ()=> setProfileOpen(true);
 
   return (
     <>
@@ -94,6 +149,13 @@ function App(){
       )}
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>}
 
+      <AuthModal open={authModal.open} initialTab={authModal.tab}
+        onClose={()=> setAuthModal({ open: false, tab: authModal.tab })}
+        tweaks={effectiveTweaks}/>
+
+      <ProfileModal open={profileOpen} currentUser={currentUser}
+        onClose={()=> setProfileOpen(false)} onSignOut={onSignOut} tweaks={effectiveTweaks}/>
+
       <TweaksPanel title="Tweaks">
         <TweakSection label="Visão">
           <TweakSelect label="Fluxo" value={view} onChange={setView}
@@ -104,12 +166,96 @@ function App(){
           <TweakColor label="Cor de destaque" value={tweaks.accent} onChange={v=>setTweak("accent", v)}
             options={["#2f6bff","#0a8a4a","#7a5cff","#ff5e93","#ff7849","#0b1020"]}/>
         </TweakSection>
-        <TweakSection label="Plano">
+        <TweakSection label="Plano (override de testes — só efeito sem auth)">
           <TweakRadio label="Tier" value={tweaks.plan} onChange={v=>setTweak("plan", v)}
             options={[{value:"free", label:"Free"},{value:"pro", label:"Pro"}]}/>
         </TweakSection>
       </TweaksPanel>
     </>
+  );
+}
+
+// Minimal account info modal. Triggered by AuthBubble's "Meu perfil" item.
+// Shows the user's email, plan, and a Sair button. Future iteration: link to
+// Stripe Customer Portal for plan management, delete-account flow (LGPD).
+function ProfileModal({ open, currentUser, onClose, onSignOut, tweaks }){
+  React.useEffect(()=>{
+    if(!open) return undefined;
+    const onKey = (e)=>{ if(e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return ()=>{
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [open, onClose]);
+  if(!open || !currentUser) return null;
+  const accent = (tweaks && tweaks.accent) || "var(--brand)";
+  const isPro = currentUser.plan === "pro";
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, zIndex:125,
+      background:"rgba(11,16,32,.55)", backdropFilter:"blur(8px)",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
+    }}>
+      <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+        style={{
+          width:"min(420px, 100%)", background:"white", borderRadius:18,
+          boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)", overflow:"hidden",
+        }}>
+        <div style={{padding:"22px 24px 18px", borderBottom:"1px solid var(--line-2)", position:"relative"}}>
+          <button onClick={onClose} aria-label="Fechar" style={{
+            position:"absolute", top:14, right:14, width:30, height:30, borderRadius:8,
+            background:"transparent", color:"var(--muted)", border:0, cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center"
+          }}><Icon.X size={16}/></button>
+          <div style={{display:"flex", alignItems:"center", gap:12}}>
+            <div style={{
+              width:44, height:44, borderRadius:"50%",
+              background:`linear-gradient(135deg, ${accent}, var(--violet))`,
+              color:"white", fontWeight:700, fontSize:18,
+              display:"inline-flex", alignItems:"center", justifyContent:"center",
+            }}>{String((currentUser.email || "?")[0]).toUpperCase()}</div>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:11, color:"var(--muted)", fontWeight:600, letterSpacing:".05em", textTransform:"uppercase"}}>Conta</div>
+              <div style={{fontSize:15, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                {currentUser.fullName || currentUser.email}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{padding:"18px 24px"}}>
+          <div style={{display:"flex", flexDirection:"column", gap:10, marginBottom:18}}>
+            <ProfileRow label="E-mail" value={currentUser.email || "—"}/>
+            <ProfileRow label="Plano" value={
+              <span className="chip" style={{
+                background: isPro ? "#e7f7ef" : "var(--line-2)",
+                color: isPro ? "#0a5a30" : "var(--ink-2)",
+                fontSize:11, fontWeight:700,
+              }}>
+                {isPro ? <><Icon.Crown size={11}/> Pro</> : "Free"}
+              </span>
+            }/>
+            {currentUser.stripeCustomerId && (
+              <ProfileRow label="Stripe ID" value={<span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{currentUser.stripeCustomerId}</span>}/>
+            )}
+          </div>
+          <button onClick={onSignOut} className="btn btn-ghost"
+            style={{width:"100%", justifyContent:"center", padding:"10px"}}>
+            <Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileRow({ label, value }){
+  return (
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"6px 0"}}>
+      <span style={{fontSize:12, color:"var(--muted)", fontWeight:600}}>{label}</span>
+      <span style={{fontSize:13, color:"var(--ink-2)"}}>{value}</span>
+    </div>
   );
 }
 
