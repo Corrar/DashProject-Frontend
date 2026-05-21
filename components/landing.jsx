@@ -81,7 +81,7 @@ function useCount(target, when, ms=1400){
 // small menu with "Perfil" / "Sair". Both the bubble shape and the handler
 // signatures match what the Supabase Auth integration will wire up next phase
 // (see CLAUDE.md §17). For now all callbacks just console.log.
-function AuthBubble({ currentUser, onSignIn, onSignOut, onProfile, accent = "var(--brand)" }){
+function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, accent = "var(--brand)" }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(()=>{
@@ -92,7 +92,15 @@ function AuthBubble({ currentUser, onSignIn, onSignOut, onProfile, accent = "var
   }, [open]);
   if(!currentUser){
     return (
-      <button className="btn btn-ghost" onClick={onSignIn}>Entrar</button>
+      <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <button className="btn btn-ghost" onClick={onSignIn}>Entrar</button>
+        {onSignUp && (
+          <button className="btn btn-ghost" onClick={onSignUp}
+            style={{color:"var(--ink)", fontWeight:600}}>
+            Criar conta
+          </button>
+        )}
+      </div>
     );
   }
   const initial = String((currentUser.email || "?")[0] || "?").toUpperCase();
@@ -152,7 +160,7 @@ function AuthBubble({ currentUser, onSignIn, onSignOut, onProfile, accent = "var
   );
 }
 
-function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignOut, onProfile }){
+function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
   const y = useScrollY();
   const scrolled = y > 20;
   return (
@@ -178,7 +186,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignOut, onProfile })
           <a href="#planos" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Planos</a>
         </nav>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
+          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
           <button className="btn btn-primary" onClick={onOpenApp}>Abrir app <Icon.Arrow size={14}/></button>
         </div>
       </div>
@@ -747,10 +755,10 @@ function Footer({ tweaks }){
   );
 }
 
-function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignOut, onProfile }){
+function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
   return (
     <div>
-      <Nav onOpenApp={onOpenApp} tweaks={tweaks} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
+      <Nav onOpenApp={onOpenApp} tweaks={tweaks} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
       <Hero onOpenApp={onOpenApp} onLoadDemo={onLoadDemo} tweaks={tweaks}/>
       <StatStrip/>
       <ChartGallery tweaks={tweaks}/>

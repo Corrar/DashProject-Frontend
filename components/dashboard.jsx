@@ -212,7 +212,7 @@ const DASH_SAMPLE_CSV = [
   "2026-05-19,Climatização Industrial,Marketplace,CO,Diego R.,61700,16,3856.25,0.051,75",
 ].join("\n");
 
-function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut, onProfile }){
+function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
   const fname = fileInfo?.name || "vendas_exemplo.csv";
   return (
     <div className="topbar">
@@ -234,7 +234,7 @@ function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut, o
           <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose}><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Início</button>
           <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Share size={14}/> Compartilhar</button>
           <button className="btn btn-primary" style={{padding:"8px 14px"}}><Icon.Crown size={14}/> Fazer upgrade</button>
-          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
+          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
         </div>
       </div>
     </div>
@@ -1394,7 +1394,7 @@ function Insights({ tweaks, onAddChart }){
   );
 }
 
-function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut, onProfile }){
+function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
   const [period, setPeriod] = React.useState("90d");
   const [editing, setEditing] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
@@ -1943,7 +1943,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignOut
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-      <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
+      <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
       <div style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
         {/* Header */}
         <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 22, gap:24, flexWrap:"wrap"}}>

@@ -124,6 +124,7 @@ function App(){
 
   // Auth UI handlers wired into AuthBubble / Topbar.
   const onSignIn = ()=> setAuthModal({ open: true, tab: "signin" });
+  const onSignUp = ()=> setAuthModal({ open: true, tab: "signup" });
   const onSignOut = async ()=>{
     const supa = window.supabaseClient;
     if(supa && supa.auth){ await supa.auth.signOut(); }
@@ -134,20 +135,20 @@ function App(){
 
   return (
     <>
-      {view==="landing" && <Landing onOpenApp={openApp} onLoadDemo={loadDemo} tweaks={effectiveTweaks} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>}
+      {view==="landing" && <Landing onOpenApp={openApp} onLoadDemo={loadDemo} tweaks={effectiveTweaks} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="upload" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
+          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
           <UploadView onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}/>
         </div>
       )}
       {view==="prompt" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>
+          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
           <PromptView onGenerate={()=>setView("dashboard")} onBack={()=>setView("upload")} fileInfo={fileInfo}/>
         </div>
       )}
-      {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignOut={onSignOut} onProfile={onProfile}/>}
+      {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
 
       <AuthModal open={authModal.open} initialTab={authModal.tab}
         onClose={()=> setAuthModal({ open: false, tab: authModal.tab })}
