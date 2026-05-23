@@ -48,15 +48,21 @@ Regras inegociáveis:
 ## 3. Estrutura do projeto
 
 ```
-Dash.html                  # entry point — head, estilos globais, ordem de imports
-tweaks-panel.jsx           # painel de ajustes em runtime (TweakPanel, useTweaks, etc.)
+Dash.html                  # entry point — head, estilos globais, ordem de imports, init do supabaseClient
+tweaks-panel.jsx           # shell genérico do painel (TweaksPanel, useTweaks, TweakRadio, TweakColor, …)
 components/
-  icons.jsx                # Icon.{Logo, Sparkle, Wand, Upload, …} — SVG inline
+  icons.jsx                # Icon.{Logo, Sparkle, …, User} — SVG inline. Lista canônica em §23.
   charts.jsx               # LineChart, BarChart, Donut, Sparkline (SVG)
-  landing.jsx              # Landing page com scroll choreography
+  landing.jsx              # Landing page + AuthBubble (Nav/Topbar dropdown da conta)
   dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, ExportModal, MiniBlock, PaywallModal, …
-  app.jsx                  # App root: roteamento de views (landing/upload/prompt/dashboard) + tweaks
+  auth-modal.jsx           # AuthModal (popover) — fallback para fluxos que preferem modal
+  auth-view.jsx            # AuthView (rota auth) — sign-in / sign-up / reset, full-screen
+  plans-view.jsx           # PlansView (rota plans) — pricing + comparativo
+  account-view.jsx         # AccountView (rota account) — Conta · Workspace · Faturamento · Histórico · Indique + AccountErrorBoundary
+  app.jsx                  # App root: roteamento de views, bootstrap Supabase, tweaks, expõe window.__dash* (ver §19)
 ```
+
+A pasta `design-v2/` continha mocks da iteração de design (account/plans/auth/app-novo); foi integrada em `components/` e removida. Está em `.gitignore` para não voltar.
 
 Convenções:
 
@@ -416,6 +422,88 @@ Como o paywall agora obedece `currentUser.plan` (e ignora qualquer override do t
 6. Refresh do Dash → o `loadUserProfile` re-hidrata o `currentUser` com `plan='pro'` e tudo (edição do dashboard, análises da IA, "Avançado", "Adicionar bloco") fica desbloqueado.
 
 Para voltar ao modo Free: idem, editar `plan` de volta pra `'free'` e dar refresh.
+
+---
+
+## 19. Matriz de helpers `window.__dash*`
+
+`app.jsx` registra 6 helpers globais durante a vida do componente `App` (montados em `useEffect`, deletados no cleanup). Sempre chame com `?.()` no call site — `?.` evita crash durante mount inicial ou HMR antes do effect rodar.
+
+| Helper | Anônimo | Free logado | Pro logado | Intenção |
+| --- | --- | --- | --- | --- |
+| `__dashEnterApp()` | → AuthView (signup) | → UploadView | → UploadView | "Usar o produto" — CTA primário da Landing. |
+| `__dashUpgrade()` | → AuthView (signup) | → PlansView | → UploadView | "Comprar / explorar Pro" — paywalls e CTAs secundárias. |
+| `__dashOpenAuth(mode)` | → AuthView | → AuthView | → AuthView | Login/signup explícito (`mode` = `"login"` ou `"signup"`). |
+| `__dashOpenPlans()` | → PlansView | → PlansView | → PlansView | Ver tabela de planos. |
+| `__dashOpenAccount(section)` | → AccountView (guard interno pede login) | → AccountView | → AccountView | Configurações (`section` opcional: `"account"\|"workspace"\|"billing"\|"history"\|"referral"`). |
+| `__dashOpenLanding()` | → Landing | → Landing | → Landing | Voltar pra home. |
+
+**Por que separar `enterApp` e `upgrade`?** Eles colidem no caminho anônimo (ambos → signup), mas divergem para logged-free: `enterApp` quer que a pessoa **use** (Upload), `upgrade` quer que ela **compre** (Plans). Um único helper esconderia essa diferença e levaria a CTAs ambíguas. Mantenha-os separados (commit `532ee82`).
+
+Helpers de navegação secundária (`openAuth`, `openPlans`, `openAccount`) gravam `returnView` antes de trocar — o botão "Voltar" da view restaura de onde a pessoa veio (Landing, Dashboard, etc.) em vez de despejar todo mundo na home.
+
+---
+
+## 20. TODO produção (Auth & Stripe)
+
+Antes de soltar pra usuários reais:
+
+- **Confirm email**: Supabase Dashboard → Authentication → Settings → ligar "Confirm email". Hoje em dev fica off pra fluxo rápido — a UX no `AuthView` já mostra a mensagem "Confirme seu e-mail", então só ligar a flag basta.
+- **SMTP custom (Resend)**: o SMTP padrão do Supabase tem rate-limit baixo (3-4 emails/h) e geralmente cai em spam. Configurar Resend em Settings → SMTP. Templates de "Confirme seu e-mail" / "Resetar senha" em PT-BR — copy alinhado com o tom do produto.
+- **Redirect URLs**: adicionar o domínio de produção em Authentication → URL Configuration → Site URL + Additional Redirect URLs. Sem isso, o link de confirmação volta pra `localhost`.
+- **Stripe Checkout**: criar produto `Pro · R$ 49/mês`, capturar `stripe_customer_id` no webhook `customer.subscription.created` e gravar em `profiles.stripe_customer_id`. Webhook deve atualizar `profiles.plan` em `subscription.updated` / `.deleted` (downgrade para `'free'` em cancelamento).
+- **Customer Portal**: adicionar link no `ProfileModal` e em `BillingSection` apontando pro Stripe Customer Portal (gerenciar cartão, cancelar, baixar invoices reais — substitui o mock atual de `INV-2026-00x`).
+- **RLS audit**: rodar `SELECT * FROM profiles WHERE id <> auth.uid()` autenticado — deve voltar vazio. Repetir pra qualquer tabela nova (ex.: `workspace_waitlist` em §22).
+
+---
+
+## 21. Como reusar `PlanGate` para features Pro/Team
+
+`PlanGate` (em `components/account-view.jsx`) é o padrão para envelopar **uma section inteira** que precisa de upgrade — preview borrado + card central com features e CTA. Use quando "esconder" não dá (a pessoa precisa ver pra desejar).
+
+```jsx
+<PlanGate
+  tier="pro"            // "pro" ou "team" — muda cor de destaque e texto do CTA
+  title="…"
+  desc="…"
+  features={["…","…"]}  // até 6, vira grid 2x3
+  preview={<RealSection/>}  // renderizado embaixo, borrado, pointer-events:none
+/>
+```
+
+Quando usar `PlanGate` vs `<PaywallModal>` (em `dashboard.jsx`):
+
+- **`PlanGate`** → tela cheia / seção de página. A pessoa **veio** aqui (ex.: aba Workspace, view Advanced do dashboard). Mostra o que existe e o que falta.
+- **`PaywallModal`** → ação pontual. A pessoa **tentou fazer** algo (ex.: clicar Editar, Adicionar bloco). Modal interrompe e oferece upgrade.
+
+Não criar um terceiro padrão. Se o caso não cabe nesses dois, abra discussão antes — é provável que o caso esteja mal definido, não que falte componente.
+
+---
+
+## 22. Wait-list de Workspace (TODO sprint futuro)
+
+Hoje o botão "Notificar quando estiver disponível" em `WorkspaceComingSoon` só seta `notified=true` em estado local — perde no refresh. Quando o Team plan entrar no roadmap ativo:
+
+1. Criar tabela `workspace_waitlist (user_id uuid PK references auth.users, created_at timestamptz default now(), source text)` com RLS `auth.uid() = user_id` para insert e leitura própria.
+2. Trocar o `setNotified(true)` por `await supabase.from('workspace_waitlist').insert({ source:'account_view' })`.
+3. Reconciliação no mount: se já existe linha pro user, renderizar o botão como "Te avisaremos!" direto (sem precisar clicar de novo).
+4. Quando a feature shippar, query simples manda email em massa via Resend pra todos os `user_id`s da tabela.
+
+Por enquanto a UI **só promete em sessão**. Não vendamos como "te avisaremos" sem o backend — o copy atual está OK porque é claramente coming-soon, mas qualquer evolução no texto precisa garantir que o backend exista antes (senão é dark pattern).
+
+---
+
+## 23. Defensive coding — ícones + Error Boundary
+
+Lição do bug `9887c25` → `2a1078a`: a `AccountView` inteira foi pra tela branca porque `Icon.User` foi referenciado mas nunca declarado em `icons.jsx`. React renderizou `undefined` dentro da sidebar (`aside > nav > button > span > [undefined]`) e a árvore inteira morreu — sem error boundary, sem fallback, console com `Element type is invalid`.
+
+**Antes de referenciar `Icon.X` em qualquer arquivo:**
+
+1. Confira que `X` existe em `components/icons.jsx`. Lista canônica atual: `Logo, Sparkle, Wand, Upload, Chart, Bars, Line, Pie, Lock, Check, Arrow, Play, Filter, Plus, Download, Refresh, Grid, Cols, Rows, More, Spark, Idea, Eye, X, Crown, Caret, Doc, Bolt, Share, User`.
+2. Se faltar, adicione o SVG inline em `icons.jsx` **antes** de usar. Mantenha a linguagem geométrica (linhas, sem fills — exceções: `Logo`, `Play`).
+3. **Nunca** referencie um ícone como "TODO adiciono depois" — o crash é total, não graceful.
+
+**Error Boundary por feature de tela:** views que compõem múltiplas seções (`AccountView` com 5 abas, futuro `DashboardView` com presets) devem envolver o conteúdo dinâmico num `class XErrorBoundary extends React.Component` local — com `getDerivedStateFromError` + reset por `resetKey` quando a aba/preset muda. Referência: `AccountErrorBoundary` em `account-view.jsx`. Boundary global no `App` não basta: ele bloqueia *toda* a app quando um sub-componente quebra, em vez de só a seção afetada.
 
 ---
 
