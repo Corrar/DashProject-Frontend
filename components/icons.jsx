@@ -47,6 +47,7 @@ const Icon = {
   Doc: (p) => <I {...p}><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h8M9 17h5"/></I>,
   Bolt: (p) => <I {...p}><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></I>,
   Share: (p) => <I {...p}><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 11l8-4M8 13l8 4"/></I>,
+  User: (p) => <I {...p}><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></I>,
 };
 
 Object.assign(window, { I, Icon });

@@ -1,5 +1,28 @@
 /* Account / Workspace / Billing / History / Referral pages */
 
+// Local boundary so a render error in one section (e.g. a missing icon, a bad
+// prop from a half-wired backend) doesn't blank the whole page. Resets when
+// the user switches section.
+class AccountErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err){ return { err }; }
+  componentDidUpdate(prev){ if(prev.resetKey !== this.props.resetKey && this.state.err) this.setState({ err: null }); }
+  render(){
+    if(this.state.err){
+      return (
+        <div style={{padding:"32px 28px", border:"1px dashed var(--line)", borderRadius:14, background:"#fff7f9", textAlign:"center"}}>
+          <div style={{fontWeight:700, fontSize:15, marginBottom:6, color:"#c9234a"}}>Não foi possível carregar esta seção</div>
+          <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.55, marginBottom:14, maxWidth:380, margin:"0 auto 14px"}}>
+            Algo deu errado ao renderizar este conteúdo. Tente trocar de aba ou recarregar a página.
+          </div>
+          <button onClick={()=> this.setState({ err: null })} className="btn btn-ghost" style={{padding:"8px 14px", fontSize:13}}>Tentar de novo</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClose }){
   // Authenticated-only screen. The only entry points (tweaks panel, future
   // AuthBubble menu) shouldn't expose this without a session, but guard
@@ -135,11 +158,13 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
 
         {/* Main */}
         <main>
-          {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser} onClose={onClose}/>}
-          {section === "workspace" && <WorkspaceComingSoon tweaks={tweaks}/>}
-          {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak}/>}
-          {section === "history"   && <HistorySection tweaks={tweaks}/>}
-          {section === "referral"  && <ReferralSection tweaks={tweaks}/>}
+          <AccountErrorBoundary resetKey={section}>
+            {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser} onClose={onClose}/>}
+            {section === "workspace" && <WorkspaceComingSoon tweaks={tweaks}/>}
+            {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak}/>}
+            {section === "history"   && <HistorySection tweaks={tweaks}/>}
+            {section === "referral"  && <ReferralSection tweaks={tweaks}/>}
+          </AccountErrorBoundary>
         </main>
       </div>
     </div>
