@@ -1,5 +1,27 @@
 /* Account / Workspace / Billing / History / Referral pages */
 
+// Decoration for sections whose persistence isn't wired to Supabase yet
+// (profile save, password change, plan management buttons, social share).
+// Blurs the wrapped content + blocks pointer events + drops an "Em breve"
+// badge at the top corner. Cheaper than gating each control individually,
+// and lets us keep the visual design intact while the backend lands.
+function ComingSoonOverlay({ children, label = "Em breve", side = "right" }){
+  return (
+    <div style={{position:"relative"}}>
+      <div style={{filter:"blur(2px)", opacity:0.5, pointerEvents:"none", userSelect:"none"}}>
+        {children}
+      </div>
+      <div style={{
+        position:"absolute", top:12, [side]:12,
+        background:"var(--accent)", color:"white",
+        padding:"4px 12px", borderRadius:999,
+        fontSize:12, fontWeight:600, zIndex:2,
+        boxShadow:"0 4px 12px -4px rgba(10,138,74,.4)"
+      }}>{label}</div>
+    </div>
+  );
+}
+
 // Local boundary so a render error in one section (e.g. a missing icon, a bad
 // prop from a half-wired backend) doesn't blank the whole page. Resets when
 // the user switches section.
@@ -408,6 +430,11 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
   const [twofa, setTwofa] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const set = (fn)=> { fn(); setDirty(true); };
+  // Every editable card in this tab is wrapped in <ComingSoonOverlay> (Supabase
+  // persistence isn't wired yet), so the inputs are inert and there is nothing
+  // to save — keep the SaveBar hidden. Flip to false / drop the overlays when
+  // the backend lands.
+  const sectionsLocked = true;
 
   const sessions = [
     { device:"Chrome · macOS", loc:"São Paulo, BR", ip:"177.43.•••.42", last:"agora", current:true },
@@ -422,6 +449,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
         sub="Gerencie seu perfil, preferências e segurança."
       />
 
+      <ComingSoonOverlay>
       <SettingsCard title="Perfil" sub="Como você aparece para sua equipe.">
         <div style={{display:"grid", gridTemplateColumns:"96px 1fr", gap:24, alignItems:"flex-start"}}>
           <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:8}}>
@@ -455,7 +483,9 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
           </div>
         </div>
       </SettingsCard>
+      </ComingSoonOverlay>
 
+      <ComingSoonOverlay>
       <SettingsCard title="Preferências" sub="Formatos, idioma e fuso horário.">
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
           <SelectField label="Idioma" value={lang} onChange={v=>set(()=>setLang(v))}
@@ -466,7 +496,9 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
             options={[{v:"brl", n:"1.234,56 · R$"},{v:"us", n:"1,234.56 · US$"},{v:"eu", n:"1.234,56 · €"}]}/>
         </div>
       </SettingsCard>
+      </ComingSoonOverlay>
 
+      <ComingSoonOverlay>
       <SettingsCard title="Segurança" sub="Senha, autenticação em 2 fatores e dispositivos conectados.">
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:18}}>
           <TextField label="Senha" value="••••••••••••" readOnly hint="Atualizada há 32 dias"/>
@@ -505,7 +537,9 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
           </div>
         </div>
       </SettingsCard>
+      </ComingSoonOverlay>
 
+      <ComingSoonOverlay>
       <SettingsCard title="Zona de perigo" sub="Ações irreversíveis." action={null}>
         <div style={{padding:16, border:"1px solid #ffd2dd", background:"#fff7f9", borderRadius:12, display:"flex", justifyContent:"space-between", alignItems:"center", gap:18, flexWrap:"wrap"}}>
           <div>
@@ -515,8 +549,9 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
           <button style={{padding:"8px 14px", background:"white", border:"1px solid #c9234a", color:"#c9234a", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Excluir conta</button>
         </div>
       </SettingsCard>
+      </ComingSoonOverlay>
 
-      <SaveBar dirty={dirty} onSave={()=>setDirty(false)} onDiscard={()=>setDirty(false)}/>
+      {!sectionsLocked && <SaveBar dirty={dirty} onSave={()=>setDirty(false)} onDiscard={()=>setDirty(false)}/>}
     </div>
   );
 }
@@ -594,10 +629,15 @@ function BillingSection({ tweaks, setTweak }){
           </div>
           <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
             {isPro ? (
-              <>
-                <button style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
-                <button onClick={()=>setTweak({plan:"free"})} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar Pro</button>
-              </>
+              // Subscription management ("Gerenciar assinatura") — not wired to
+              // Stripe yet, so it's gated as "Em breve". The plan card itself
+              // (price, status, próxima cobrança) stays readable above.
+              <ComingSoonOverlay>
+                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
+                  <button onClick={()=>setTweak({plan:"free"})} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar Pro</button>
+                </div>
+              </ComingSoonOverlay>
             ) : (
               <button onClick={()=> window.__dashUpgrade && window.__dashUpgrade()} className="btn btn-primary" style={{padding:"10px 16px"}}>
                 <Icon.Crown size={14}/> Fazer upgrade
@@ -631,7 +671,7 @@ function BillingSection({ tweaks, setTweak }){
       {/* Payment method */}
       <SettingsCard title="Método de pagamento"
         sub={isPro ? "Cartão usado para a assinatura." : "Cadastre quando fizer upgrade."}
-        action={isPro && <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}}>Atualizar</button>}>
+        action={isPro && <ComingSoonOverlay><button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}}>Atualizar</button></ComingSoonOverlay>}>
         {isPro ? (
           <div style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
             <div style={{
@@ -998,6 +1038,10 @@ function ReferralSection({ tweaks }){
             {copied ? <><Icon.Check size={13} stroke={3} color="#0a8a4a"/> Copiado!</> : <><Icon.Share size={13}/> Copiar link</>}
           </button>
         </div>
+        {/* Social share ("Compartilhar") — deep links not wired yet, so gated
+            as "Em breve". The "Copiar link" button above stays functional so
+            users can still share manually. */}
+        <ComingSoonOverlay label="Em breve" side="left">
         <div style={{display:"flex", gap:12, marginTop:18, flexWrap:"wrap"}}>
           <button style={{padding:"8px 14px", background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.25)", borderRadius:99, fontSize:12, fontWeight:600, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6}}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M22 5.8a8 8 0 0 1-2.4.7 4 4 0 0 0 1.8-2.3c-.8.5-1.7.8-2.6 1A4 4 0 0 0 11.9 9a11.4 11.4 0 0 1-8.3-4.2 4 4 0 0 0 1.3 5.4 4 4 0 0 1-1.8-.5v.1a4 4 0 0 0 3.2 4 4 4 0 0 1-1.8.1 4 4 0 0 0 3.7 2.8A8.1 8.1 0 0 1 2 18.5 11.4 11.4 0 0 0 8.1 20c7.4 0 11.5-6.1 11.5-11.5v-.5A8.2 8.2 0 0 0 22 5.8z"/></svg>
@@ -1012,6 +1056,7 @@ function ReferralSection({ tweaks }){
             Email
           </button>
         </div>
+        </ComingSoonOverlay>
       </div>
 
       {/* Stats */}
