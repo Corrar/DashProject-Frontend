@@ -49,12 +49,40 @@ function dashParseNumber(v){
   if(v == null) return null;
   let s = String(v).trim();
   if(!s) return null;
-  s = s.replace(/R\$|US\$|\$|€|%|\s/g, "");
-  // Both `.` and `,` → assume BR thousands+decimal (1.234,56 → 1234.56)
-  if(/,/.test(s) && /\./.test(s)) s = s.replace(/\./g, "").replace(",", ".");
-  else if(/,/.test(s)) s = s.replace(",", ".");
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : null;
+  // Strip currency symbols, percent and whitespace (incl. nbsp).
+  s = s.replace(/R\$|US\$|\$|€|£|¥|%/g, "").replace(/\s| /g, "");
+  // Capture sign: leading "-" or accounting parens "(123)".
+  const negative = /^-/.test(s) || /^\(.*\)$/.test(s);
+  s = s.replace(/[()]/g, "").replace(/^[+\-]/, "");
+  if(!s) return null;
+  // Strict guard (BUG: parseFloat("01/01/2025") === 1). After stripping known
+  // decorations only digits and the two separators may remain — a stray "/"
+  // (dates), "-" (ISO dates) or letter means this is NOT a number, so bail to
+  // null instead of letting parseFloat return a partial read.
+  if(!/^[\d.,]+$/.test(s)) return null;
+  const hasDot = s.includes("."), hasComma = s.includes(",");
+  let norm;
+  if(hasDot && hasComma){
+    // Decimal marker is whichever separator appears last.
+    norm = s.lastIndexOf(",") > s.lastIndexOf(".")
+      ? s.replace(/\./g, "").replace(",", ".")   // BR 1.234,56 → 1234.56
+      : s.replace(/,/g, "");                       // US 1,234.56 → 1234.56
+  } else if(hasComma){
+    const parts = s.split(",");
+    // One comma + 1-2 trailing digits → decimal (1,5 / 1,50); a 3-digit group
+    // or several groups → thousands (1,500 / 1,234,567 → 1234567).
+    norm = (parts.length === 2 && parts[1].length <= 2) ? s.replace(",", ".") : s.replace(/,/g, "");
+  } else if(hasDot){
+    const parts = s.split(".");
+    // Mirror the comma rule: single dot + 1-2 digits → US decimal (1500.50);
+    // a 3-digit group or several → BR thousands ("R$ 1.500" → 1500, not 1.5).
+    norm = (parts.length === 2 && parts[1].length <= 2) ? s : s.replace(/\./g, "");
+  } else {
+    norm = s;
+  }
+  const n = parseFloat(norm);
+  if(!Number.isFinite(n)) return null;
+  return negative ? -n : n;
 }
 
 function dashParseDate(v){
@@ -80,7 +108,11 @@ function dashInferSchema(header, rawRows){
     const examples = present.slice(0, 3).map(s => String(s));
     const uniqCount = new Set(all.filter(v => v != null && String(v).trim() !== "")).size;
     if(!present.length) return { name, type:"dimension", examples:[], uniqCount:0, nullCount };
-    if(present.every(v => dashParseDate(v) !== null)) return { name, type:"date", examples, uniqCount, nullCount };
+    // Date BEFORE number, and a 0.85 threshold instead of every(): a single
+    // "-"/"N/A" cell used to flip a whole date column to "measure", where the
+    // strict parser then nulls every date. Same tolerance numbers already had.
+    const dateCount = present.filter(v => dashParseDate(v) !== null).length;
+    if(dateCount / present.length >= 0.85) return { name, type:"date", examples, uniqCount, nullCount };
     const numCount = present.filter(v => dashParseNumber(v) !== null).length;
     if(numCount / present.length >= 0.85) return { name, type:"measure", examples, uniqCount, nullCount };
     return { name, type:"dimension", examples, uniqCount, nullCount };
@@ -108,9 +140,41 @@ function dashResolveColumns(schema){
     const m = schema.find(c => (!type || c.type === type) && re.test(lc(c.name)));
     return m ? m.name : null;
   };
+  // Names that must never be chosen as the headline "value": counts and order
+  // identifiers. Excluding them stops "Quantidade"/"num_venda" from being read
+  // as revenue just because they're the first numeric column (BUG 5).
+  const isQtyName   = (n)=> /(qtd|qtde|qty|quantidade|unidades|volume|count|^num$|^qt$|^n$)/.test(n);
+  const isOrderName = (n)=> /(pedido|order|num_venda|venda_id|cod_venda|numero_pedido|nota_fiscal|^nf$|^id$|order_id)/.test(n);
+  // Revenue terms, ranked: a prefix match beats a substring match so the regex
+  // no longer needs a "^" anchor (BUG 6) — "ValorBruto" (prefix) outranks
+  // "Vlr_Total" (substring of "total"), both now match instead of neither.
+  const valueTerms = ["receita","valor","faturamento","revenue","gmv","montante","venda","total","preco","preço"];
+  const scoreValue = (name)=>{
+    const n = lc(name);
+    if(isQtyName(n) || isOrderName(n)) return -1;
+    let best = 0;
+    for(const t of valueTerms){
+      if(n.startsWith(t)) best = Math.max(best, 3);
+      else if(n.includes(t)) best = Math.max(best, 2);
+    }
+    return best;
+  };
+  const measures = schema.filter(c => c.type === "measure");
+  let value = null, bestScore = 0;
+  for(const c of measures){ const sc = scoreValue(c.name); if(sc > bestScore){ bestScore = sc; value = c.name; } }
+  if(!value){
+    // No name matched: prefer a measure that isn't a qty/order id; only fall
+    // back to the first raw measure as a last resort.
+    const neutral = measures.find(c => scoreValue(c.name) === 0);
+    value = (neutral && neutral.name) || (measures[0] && measures[0].name) || null;
+  }
+  // Order identifier (any type — IDs may be numeric or text). Drives the
+  // unique-order denominator for Ticket Médio (BUG 4).
+  const order = (schema.find(c => isOrderName(lc(c.name))) || {}).name || null;
   return {
     date:       pick(/^(data|date|dia|created|criado)/, "date") || (schema.find(c=>c.type==="date") || {}).name || null,
-    value:      pick(/^(receita|valor|valor_total|total|revenue|venda|preco|preço|faturamento)/, "measure") || (schema.find(c=>c.type==="measure") || {}).name || null,
+    value,
+    order,
     product:    pick(/(produto|sku|item|product)/, "dimension"),
     region:     pick(/(regiao|região|region|estado|^uf$|state)/, "dimension"),
     channel:    pick(/(canal|channel|source|origem|fonte)/, "dimension"),
@@ -1482,16 +1546,26 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     const prev = sorted.slice(0, mid), cur = sorted.slice(mid);
     const prevSum = dashSum(prev, dataCols.value), curSum = dashSum(cur, dataCols.value);
     const totalDelta = prevSum ? (curSum - prevSum)/prevSum * 100 : 0;
-    const prevAvg = prev.length ? prevSum/prev.length : 0;
-    const curAvg  = cur.length  ? curSum/cur.length   : 0;
+    // Ticket Médio denominator = distinct orders, not row count. When the CSV is
+    // one row per *item* (multi-item orders), dividing by rows gives the per-item
+    // average; dividing by distinct order IDs gives "receita média por pedido" —
+    // the business-relevant metric. With no order column (one row = one order)
+    // this collapses back to the row count, so order-level data is unchanged.
+    const countOrders = (rows)=> dataCols.order
+      ? new Set(rows.map(r => r[dataCols.order]).filter(v => v != null && v !== "")).size
+      : rows.length;
+    const uniqueOrders = countOrders(filteredData);
+    const prevOrders = countOrders(prev), curOrders = countOrders(cur);
+    const prevAvg = prevOrders ? prevSum/prevOrders : 0;
+    const curAvg  = curOrders  ? curSum/curOrders   : 0;
     const ticketDelta = prevAvg ? (curAvg - prevAvg)/prevAvg * 100 : 0;
-    const countDelta  = prev.length ? (cur.length - prev.length)/prev.length * 100 : 0;
+    const countDelta  = prevOrders ? (curOrders - prevOrders)/prevOrders * 100 : 0;
     // Conversion: dashAvg gives the raw column mean. CSVs may store the value
     // as a decimal (0.216 = 21,6 %) or already as a percentage (21.6). Detect
     // by magnitude: < 1 → multiply by 100, otherwise treat as already %.
     const convRaw = dataCols.conversion ? dashAvg(filteredData, dataCols.conversion) : null;
     const convAvg = convRaw == null ? null : (Math.abs(convRaw) < 1 ? convRaw * 100 : convRaw);
-    const ticketMedio = filteredData.length ? totalAll/filteredData.length : 0;
+    const ticketMedio = uniqueOrders ? totalAll/uniqueOrders : 0;
     // Seller grouping (Top vendedores chart in advanced view).
     const vendedores = dataCols.seller
       ? dashGroupSum(filteredData, dataCols.seller, dataCols.value).sort((a,b)=>b.v-a.v)
@@ -1526,7 +1600,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     })() : [];
     return {
       tendency: tend, produto: prod, regiao: reg, canal: chan, canalRaw: chanRaw, ranking,
-      totalAll, ticketMedio, pedidos: filteredData.length, convAvg,
+      totalAll, ticketMedio, pedidos: uniqueOrders, convAvg,
       totalDelta, ticketDelta, countDelta, vendedores, dow, monthly,
       sparkSeries: tend.length ? tend.map(d=>d.v) : [0,0,0],
     };
@@ -1577,7 +1651,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
     : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
   const k3Props = realAgg
-    ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + " registros no período", data: realAgg.sparkSeries, color:"#0a8a4a" }
+    ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + (dataCols.order ? " pedidos no período" : " registros no período"), data: realAgg.sparkSeries, color:"#0a8a4a" }
     : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
   const k4Props = (realAgg && realAgg.convAvg != null)
     ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
@@ -2792,6 +2866,6 @@ Object.assign(window, {
   Dashboard, UploadView, PromptView,
   // Exposed so App can drive a "Ver demonstração" flow without re-implementing
   // the CSV pipeline.
-  dashParseCSV, dashInferSchema, dashRowsToObjects, dashResolveColumns,
+  dashParseCSV, dashParseNumber, dashParseDate, dashInferSchema, dashRowsToObjects, dashResolveColumns,
   DASH_SAMPLE_CSV,
 });
