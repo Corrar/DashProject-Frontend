@@ -328,7 +328,12 @@ function dashGenerateBlocks(profiles, metrics, rows){
   const dt = (profiles || []).find(p => p.pattern === "datetime");
   const kpis = [], charts = [], usedCols = {};
   let nKpi = 0, nChart = 0;
-  const track = (col)=> { if(col) usedCols[col] = 1; };
+  // Confidence is priority-weighted: a high-priority metric on a well-typed
+  // column matters more than a low-priority one. This keeps a plain sheet
+  // (id + value) above the 0.7 gate while a sheet we can't read stays below.
+  const confBy = {}; (profiles || []).forEach(p => { confBy[p.name] = p.confidence; });
+  let wSum = 0, pSum = 0;
+  const track = (col, prio)=> { if(col){ usedCols[col] = 1; if(prio){ wSum += (confBy[col] || 0)*prio; pSum += prio; } } };
 
   (metrics || []).forEach(m => {
     const col = m.columns.primary;
@@ -347,7 +352,7 @@ function dashGenerateBlocks(profiles, metrics, rows){
         format: m.format === "currency" ? "brl" : m.format === "percent" ? "pct" : m.format === "scale" ? "scale" : "int",
         delta:"—", deltaDir:"up", sub: _kpiSub(m.kind), data: spark, color: PAL[nKpi % PAL.length]
       }});
-      nKpi++; track(col);
+      nKpi++; track(col, m.priority);
     } else if(m.kind === "trend"){
       if(nChart >= 6 || !dt) return;
       const data = _monthly(rows, col, dt.name);
@@ -356,7 +361,7 @@ function dashGenerateBlocks(profiles, metrics, rows){
         title: m.label, sub:"Evolução por mês", type:"area", dim: dt.name, agg:"sum",
         color: PAL[0], height:280, data: data
       }});
-      nChart++; track(col); track(dt.name);
+      nChart++; track(col, m.priority); track(dt.name);
     } else if(m.kind === "top_n"){
       if(nChart >= 6) return;
       const g = _groupCount(rows, col).slice(0, 8);
@@ -365,7 +370,7 @@ function dashGenerateBlocks(profiles, metrics, rows){
         title: m.label, sub:"Por frequência de registros", type:"bar", dim: col, agg:"count",
         color: PAL[1], height:260, data: g.map(d => ({ l:_short(d.l), v:d.v }))
       }});
-      nChart++; track(col);
+      nChart++; track(col, m.priority);
     } else if(m.kind === "distribution"){
       if(nChart >= 6) return;
       const gd = _groupCount(rows, col).slice(0, 6);
@@ -374,7 +379,7 @@ function dashGenerateBlocks(profiles, metrics, rows){
         title: m.label, sub:"Participação", type:"donut", dim: col, agg:"count",
         color: PAL[2], height:260, data: gd.map(d => ({ l:_short(d.l), v:d.v }))
       }});
-      nChart++; track(col);
+      nChart++; track(col, m.priority);
     } else if(m.kind === "frequency_by_item"){
       if(nChart >= 6) return;
       const fi = _freqItems(rows, col).slice(0, 8);
@@ -383,14 +388,12 @@ function dashGenerateBlocks(profiles, metrics, rows){
         title: m.label, sub:"Itens mais citados", type:"bar", dim: col, agg:"count",
         color: PAL[3], height:260, data: fi.map(d => ({ l:_short(d.l), v:d.v }))
       }});
-      nChart++; track(col);
+      nChart++; track(col, m.priority);
     }
   });
 
   const insights = _genInsights(profiles, rows);
-  const confs = [];
-  (profiles || []).forEach(p => { if(usedCols[p.name]) confs.push(p.confidence); });
-  const overallConfidence = confs.length ? _round2(confs.reduce((a,b)=>a+b, 0)/confs.length) : 0;
+  const overallConfidence = pSum ? _round2(wSum/pSum) : 0;
 
   return { overallConfidence: overallConfidence, kpis: kpis, charts: charts, insights: insights };
 }

@@ -116,12 +116,13 @@ function App(){
       const parsed = dashParseCSV(DASH_SAMPLE_CSV);
       const schema = dashInferSchema(parsed.header, parsed.rows);
       const data = dashRowsToObjects(parsed.header, parsed.rows, schema);
+      const profiles = window.dashProfileColumns ? window.dashProfileColumns(parsed.header, parsed.rows) : [];
       setFileInfo({
         name: "dados_demonstracao.csv",
         sizeKB: Math.max(1, Math.round(DASH_SAMPLE_CSV.length / 1024)),
         rows: data.length,
         cols: parsed.header.length,
-        schema, data,
+        schema, data, profiles,
         isDemo: true,
       });
       setView("dashboard");

@@ -393,13 +393,16 @@ schema inferida automaticamente`,
           setProgress(70); setStep("analyzing");
           setTimeout(()=>{
             const data = dashRowsToObjects(parsed.header, parsed.rows, schema);
+            // Profile on the RAW rows (parsed.rows) — currency/percent symbols
+            // are still intact here; dashRowsToObjects would have stripped them.
+            const profiles = window.dashProfileColumns ? window.dashProfileColumns(parsed.header, parsed.rows) : [];
             setProgress(100); setStep("done");
             setFilename(prev => ({...prev, rows: data.length, cols: parsed.header.length}));
             setTimeout(()=> onUploaded && onUploaded({
               name, sizeKB,
               rows: data.length,
               cols: parsed.header.length,
-              schema, data,
+              schema, data, profiles,
             }), 400);
           }, 400);
         } catch(e){
@@ -771,8 +774,13 @@ function PromptView({ onGenerate, onBack, fileInfo }){
     measure:   { c:"#0a8a4a", bg:"#e7f7ef", n:"métrica" },
   };
 
-  // AI-suggested metrics, organized
-  const groups = [
+  // AI-suggested metrics — real ones from the profiler when an upload exists,
+  // otherwise the illustrative demo set (Tweaks-only entry path).
+  const realMetrics = (fileInfo && fileInfo.profiles && fileInfo.profiles.length && window.dashSuggestMetrics)
+    ? window.dashSuggestMetrics(fileInfo.profiles, fileInfo.data || [])
+    : null;
+
+  const demoGroups = [
     { k:"kpi", n:"KPIs principais", i:<Icon.Sparkle size={14}/>, c:"var(--brand)",
       items: [
         { id:"k1", n:"Valor total", d:"SOMA(valor_total)", conf:98 },
@@ -802,8 +810,32 @@ function PromptView({ onGenerate, onBack, fileInfo }){
       ]},
   ];
 
+  const groups = realMetrics ? (()=>{
+    const kindDesc = { sum:"SOMA", avg:"MÉDIA", count:"CONTAGEM", count_unique:"CONTAGEM DISTINTA",
+      percent_positive:"% POSITIVO", trend:"evolução por período", top_n:"ranking",
+      distribution:"distribuição", frequency_by_item:"frequência por item" };
+    const famOf = (kind)=> (["sum","avg","count","count_unique","percent_positive"].indexOf(kind) >= 0) ? "kpi"
+      : kind === "trend" ? "trend" : "dim";
+    const meta = {
+      kpi:   { k:"kpi",   n:"KPIs principais",     i:<Icon.Sparkle size={14}/>, c:"var(--brand)" },
+      trend: { k:"trend", n:"Tendências no tempo",  i:<Icon.Line size={14}/>,    c:"#7a5cff" },
+      dim:   { k:"dim",   n:"Quebras por dimensão", i:<Icon.Bars size={14}/>,    c:"#0a8a4a" },
+    };
+    const buckets = { kpi:[], trend:[], dim:[] };
+    realMetrics.forEach((m, idx)=>{
+      const fam = famOf(m.kind);
+      buckets[fam].push({
+        id: m.kind + "-" + (m.columns.primary || "all") + "-" + idx,
+        n: m.label,
+        d: (kindDesc[m.kind] || m.kind) + (m.columns.primary ? " · " + m.columns.primary : ""),
+        conf: Math.min(99, m.priority),
+      });
+    });
+    return ["kpi","trend","dim"].filter(f => buckets[f].length).map(f => ({ ...meta[f], items: buckets[f] }));
+  })() : demoGroups;
+
   const allIds = groups.flatMap(g=>g.items.map(i=>i.id));
-  const defaultPick = new Set(["k1","k2","t1","d1","d2","d3"]);
+  const defaultPick = new Set(realMetrics ? allIds.slice(0, 6) : ["k1","k2","t1","d1","d2","d3"]);
   const [picked, setPicked] = React.useState(defaultPick);
   const [val, setVal] = React.useState("Resumo geral de vendas: total, ticket médio, evolução ao longo do tempo e quebras por região, produto e canal.");
 
@@ -1020,6 +1052,8 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
     else                display = "R$ " + Math.round(v).toLocaleString("pt-BR");
   } else if(format === "pct"){
     display = v.toLocaleString("pt-BR", {maximumFractionDigits:1}) + (suffix || "%");
+  } else if(format === "scale"){
+    display = v.toLocaleString("pt-BR", {maximumFractionDigits:1}) + (suffix || "");
   } else if(format === "int"){
     display = Math.round(v).toLocaleString("pt-BR");
   } else if(typeof value === "number"){
@@ -1304,7 +1338,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
   );
 }
 
-function Insights({ tweaks, onAddChart }){
+function Insights({ tweaks, onAddChart, generated }){
   const [tab, setTab] = React.useState("insights");
 
   const highlights = [
@@ -1341,7 +1375,22 @@ function Insights({ tweaks, onAddChart }){
     action:     { i:<Icon.Sparkle size={13}/>, c:"#7a5cff", n:"Ação" },
   };
 
-  const cur = tabs[tab];
+  // Data-driven mode: when the dashboard passes `generated` (the insight items
+  // from dashGenerateBlocks), build the strip + tabs + summary from real data
+  // instead of the hardcoded sales demo. Falls back to the demo otherwise.
+  const isGen = Array.isArray(generated) && generated.length > 0;
+  const catColor = (c)=> ({ comparison:"var(--brand)", trend:"#0a8a4a", outlier:"#ff7849", risk:"#c9234a", action:"#7a5cff" }[c] || "var(--brand)");
+  const genTabs = isGen ? {
+    insights: generated.filter(it => it.cat === "comparison" || it.cat === "trend" || it.cat === "outlier"),
+    risks:    generated.filter(it => it.cat === "risk" || it.risk),
+    recs:     generated.filter(it => it.cat === "action"),
+  } : null;
+  const tabsData = isGen ? genTabs : tabs;
+  const hlUse = isGen
+    ? generated.slice(0, 4).map(it => ({ l: it.tag, v: it.ev, s: String(it.t).length > 26 ? String(it.t).slice(0,25)+"…" : it.t, c: catColor(it.cat) }))
+    : highlights;
+  const genSummary = isGen ? ("Painel gerado automaticamente a partir dos seus dados: " + generated.slice(0,3).map(it => it.t).join("; ") + ".") : null;
+  const cur = (tabsData[tab]) || [];
 
   return (
     <div className="card soft-shadow" style={{padding:24, marginBottom: 20}}>
@@ -1356,7 +1405,7 @@ function Insights({ tweaks, onAddChart }){
               <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini 2.5</span>
               <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>confiança 89%</span>
             </div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>{tabs.insights.length + tabs.risks.length + tabs.recs.length} insights · gerados há 2 min</div>
+            <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>{tabsData.insights.length + tabsData.risks.length + tabsData.recs.length} insights · gerados há 2 min</div>
           </div>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1369,12 +1418,16 @@ function Insights({ tweaks, onAddChart }){
       <div style={{display:"grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 14}}>
         <div style={{padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO EXECUTIVO</div>
-          <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>
-            Panorama saudável de vendas com forte expressão em <b>Móveis</b> e <b>Eletrônicos</b>, dominância do canal <b>Marketplace</b> e crescimento sustentado em <b>Centro-Oeste</b>. Há sinal de alerta no <b>ticket médio</b>, que recuou 23%, e dependência de poucos SKUs no topo.
-          </p>
+          {isGen ? (
+            <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>{genSummary}</p>
+          ) : (
+            <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>
+              Panorama saudável de vendas com forte expressão em <b>Móveis</b> e <b>Eletrônicos</b>, dominância do canal <b>Marketplace</b> e crescimento sustentado em <b>Centro-Oeste</b>. Há sinal de alerta no <b>ticket médio</b>, que recuou 23%, e dependência de poucos SKUs no topo.
+            </p>
+          )}
         </div>
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-          {highlights.map(h=>(
+          {hlUse.map(h=>(
             <div key={h.l} style={{padding:"10px 12px", border:"1px solid var(--line)", borderRadius:10, background:"white"}}>
               <div style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".05em", textTransform:"uppercase"}}>{h.l}</div>
               <div style={{fontVariantNumeric:"tabular-nums", fontSize:18, fontWeight:800, color:h.c, marginTop:2}}>{h.v}</div>
@@ -1387,9 +1440,9 @@ function Insights({ tweaks, onAddChart }){
       {/* Tabs */}
       <div style={{display:"flex", gap:0, borderBottom:"1px solid var(--line)", marginBottom:14, overflowX:"auto"}}>
         {[
-          {k:"insights", n:"Insights", c: tabs.insights.length},
-          {k:"risks", n:"Riscos & Atenção", c: tabs.risks.length},
-          {k:"recs", n:"Recomendações", c: tabs.recs.length},
+          {k:"insights", n:"Insights", c: tabsData.insights.length},
+          {k:"risks", n:"Riscos & Atenção", c: tabsData.risks.length},
+          {k:"recs", n:"Recomendações", c: tabsData.recs.length},
         ].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k)} style={{
             padding:"10px 16px", border:0, background:"transparent", cursor:"pointer",
@@ -1405,6 +1458,11 @@ function Insights({ tweaks, onAddChart }){
       </div>
 
       {/* Insights grid */}
+      {cur.length === 0 && (
+        <div style={{padding:"18px", textAlign:"center", color:"var(--muted)", fontSize:13, border:"1px dashed var(--line-2)", borderRadius:12}}>
+          Nenhum item nesta categoria para os dados atuais.
+        </div>
+      )}
       <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:10}}>
         {cur.map((it,i)=>{
           const m = catMeta[it.cat] || catMeta.comparison;
@@ -1502,6 +1560,26 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const rowsForPeriod = hasRealData
     ? filteredData.length
     : Math.max(8, Math.round(totalRows * periodMeta.rowsPct));
+
+  // ── Data-driven discovery layer ─────────────────────────────────────────
+  // Profiles come from the upload (computed on raw rows). The new pipeline
+  // (profile → suggest → generate) drives the "Descoberta" view when it is
+  // confident AND the data isn't a classic sales shape. Sales/sample CSVs and
+  // low-confidence data keep the existing realAgg/mock presets (no regression).
+  const profiles = React.useMemo(()=> (fileInfo && fileInfo.profiles) || [], [fileInfo]);
+  const presetCompat = React.useMemo(()=> window.dashPresetCompat ? window.dashPresetCompat(profiles) : { salesShape:false }, [profiles]);
+  const suggestedMetrics = React.useMemo(()=>
+    (profiles.length && window.dashSuggestMetrics) ? window.dashSuggestMetrics(profiles, dataset) : [],
+    [profiles, dataset]);
+  const generated = React.useMemo(()=>
+    (profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, suggestedMetrics, filteredData) : null,
+    [profiles, suggestedMetrics, filteredData]);
+  const useGenerated = !!(generated && generated.overallConfidence > 0.7 && (generated.kpis.length || generated.charts.length));
+  const salesShape = !!presetCompat.salesShape;
+  const hasDatetimeProfile = profiles.some(p => p.pattern === "datetime");
+  // Descoberta leads only when generated AND not a sales shape; sales data keeps
+  // its tailored presets so the sample CSV stays byte-for-byte the same.
+  const dataDrivenMode = useGenerated && !salesShape;
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -1737,7 +1815,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   ];
 
   // View presets (Dashboards avançados)
-  const buildPresets = ()=>({
+  const buildPresets = ()=>{ const all = {
     overview: {
       name: "Visão geral", icon: <Icon.Grid size={13}/>,
       desc: "KPIs principais, evolução, canais e ranking de produtos.",
@@ -1808,12 +1886,35 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v4-insights", kind:"insights", span:12 },
       ],
     },
-  });
-  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg]);
-  const [viewKey, setViewKey] = React.useState("overview");
+  };
+    // Data-driven mode: only "Descoberta" (+ "Avançado" when a date column
+    // exists, so seasonality still makes sense). Otherwise the full sales suite.
+    if(dataDrivenMode && generated){
+      const discovery = {
+        name: "Descoberta", icon: <Icon.Sparkle size={13}/>,
+        desc: "Métricas detectadas automaticamente nos seus dados — sem assumir um tipo de planilha.",
+        blocks: [
+          { id:"disc-insights", kind:"insights", span:12, props:{ generated: generated.insights } },
+          ...generated.kpis,
+          ...generated.charts,
+        ],
+      };
+      const out = { discovery: discovery };
+      if(hasDatetimeProfile) out.advanced = all.advanced;
+      return out;
+    }
+    return all;
+  };
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile]);
+  const defaultViewKey = dataDrivenMode ? "discovery" : "overview";
+  const [viewKey, setViewKey] = React.useState(defaultViewKey);
 
-  // Initial blocks — unified layout
-  const initialBlocks = React.useMemo(()=> presets.overview.blocks.concat([{ id:"b-cta", kind:"cta", span:12 }]), [presets]);
+  // Initial blocks — unified layout. Falls back to the first available preset
+  // so it never assumes "overview" exists (Descoberta mode has no overview).
+  const initialBlocks = React.useMemo(()=>{
+    const base = presets[defaultViewKey] || presets[Object.keys(presets)[0]];
+    return ((base && base.blocks) || []).concat([{ id:"b-cta", kind:"cta", span:12 }]);
+  }, [presets, defaultViewKey]);
 
   const [blocks, setBlocks] = React.useState(initialBlocks);
 
@@ -1949,7 +2050,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     if(b.kind === "insights"){
       const content = (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
-          <Insights tweaks={tweaks} onAddChart={addChartFromInsight}/>
+          <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>
         </BlockShell>
       );
       if(isFree){
@@ -2027,7 +2128,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}><span style={{width:6, height:6, borderRadius:"50%", background:"#0a8a4a"}}/> Atualizado</span>
               {editing && <span className="chip" style={{background:"var(--ink)", color:"white"}}><Icon.Bolt size={11}/> Modo edição</span>}
             </div>
-            <h1 style={{margin:"0 0 4px", fontSize:34, fontWeight:800, letterSpacing:"-.02em"}}>Visão geral de vendas</h1>
+            <h1 style={{margin:"0 0 4px", fontSize:34, fontWeight:800, letterSpacing:"-.02em"}}>{dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas"}</h1>
             <div style={{fontSize:13, color:"var(--muted)"}}>
               {fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas
               {fileInfo?.isDemo && <span style={{marginLeft:6, fontWeight:600, color:"var(--warn)"}}>· Dados de demonstração · não são reais</span>}
@@ -2690,6 +2791,17 @@ function MiniBlock({ block, accent, contentW }){
     );
   }
   if(block.kind === "insights"){
+    // Mirror the generated insights when present so the export preview matches
+    // the real block (CLAUDE.md §5); otherwise show the sales demo strip.
+    const gen = block.props && block.props.generated;
+    const items = (Array.isArray(gen) && gen.length)
+      ? gen.slice(0, 4).map(it => ({ t: it.t, d: it.ev || it.tag, risk: it.risk }))
+      : [
+          {t:"Móveis e Eletrônicos lideram", d:"42% do valor total"},
+          {t:"Centro-Oeste em alta", d:"R$ 212k · ↑22%"},
+          {t:"Marketplace dominante", d:"38% das vendas"},
+          {t:"Ticket caiu 23%", d:"alerta de receita", risk:true},
+        ];
     return (
       <div style={{
         padding:"6px 8px", background:"linear-gradient(135deg, var(--brand-soft), white)",
@@ -2702,12 +2814,7 @@ function MiniBlock({ block, accent, contentW }){
           <span className="chip" style={{padding:"0 4px", fontSize:6.5, background:"#e7f7ef", color:"#0a8a4a"}}>89%</span>
         </div>
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4, flex:1, minHeight:0}}>
-          {[
-            {t:"Móveis e Eletrônicos lideram", d:"42% do valor total"},
-            {t:"Centro-Oeste em alta", d:"R$ 212k · ↑22%"},
-            {t:"Marketplace dominante", d:"38% das vendas"},
-            {t:"Ticket caiu 23%", d:"alerta de receita", risk:true},
-          ].map((it,i)=>(
+          {items.map((it,i)=>(
             <div key={i} style={{
               padding:"4px 6px", borderRadius:4, background: it.risk?"#fff7f9":"white",
               border:`1px solid ${it.risk?"#ffd2dd":"var(--line-2)"}`, minHeight: 0

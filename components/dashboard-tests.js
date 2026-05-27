@@ -214,6 +214,7 @@
     t("genérico · sempre tem count de registros", mets.some(function(m){ return m.kind === "count"; }), true);
     var blk = dashGenerateBlocks(profs, mets, objs(header, rows));
     t("genérico · gera ao menos 1 KPI", blk.kpis.length > 0, true);
+    t("genérico · confidence > 0.7 (entra no novo pipeline)", blk.overallConfidence > 0.7, true);
   })();
 
   console.log("=== dashSuggestMetrics (ordenação por priority) ===");
