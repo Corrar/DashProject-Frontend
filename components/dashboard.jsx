@@ -234,6 +234,30 @@ function dashFilterByPeriod(rows, dateKey, days){
     return d instanceof Date && d.getTime() >= minMs && d.getTime() <= maxMs;
   });
 }
+
+/* Fetch a real AI narrative from the gemini-narrative Supabase Edge Function.
+ * Uses supabaseClient.functions.invoke so the SDK attaches the apikey +
+ * Authorization headers (the logged-in session JWT when present, else the
+ * public anon key) that the function verifies — a bare fetch without them 401s
+ * when JWT verification is on. Resolves to the function payload
+ * ({ narrative, insights, recommendations, rawText }) or null on any failure,
+ * so callers render a friendly error instead of crashing. Only a bounded sample
+ * (≤20 rows) + column metadata leaves the browser, and only for Pro users who
+ * opted into the analysis. */
+async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
+  try {
+    const { data, error } = await window.supabaseClient.functions.invoke("gemini-narrative", {
+      body: { profiles, metrics, sampleRows, datasetName }
+    });
+    if(error) throw error;
+    return data;
+  } catch(err){
+    // Network/CORS/HTTP/JSON failure — surfaced to the user as the error state.
+    console.error("Narrative fetch failed:", err);
+    return null;
+  }
+}
+
 // Bundled sample dataset — matches the column shape CLAUDE.md references for
 // vendas_exemplo.csv (data/produto/canal/regiao/vendedor/receita/quantidade
 // /ticket_medio/conversao/nps). 35 rows, sum ≈ R$ 1,57M.
@@ -1338,6 +1362,184 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
   );
 }
 
+/* Live AI narrative card — renders the real Gemini analysis returned by the
+ * gemini-narrative Edge Function. `live` is { data, loading, error, onReload }
+ * driven by the Dashboard. Mirrors the visual language of <Insights> (the card
+ * it replaces for Pro users with a real upload) so the section stays familiar:
+ * executive summary + insight cards + numbered recommendations. The Edge
+ * Function may return list items as plain strings OR objects, so we normalize
+ * both — never assume a shape that could render `undefined` into the tree. */
+function AINarrative({ tweaks, live }){
+  const accent = tweaks.accent;
+  const data = (live && live.data) || null;
+  const loading = !!(live && live.loading);
+  const error = !!(live && live.error);
+  const reload = ()=> { if(live && live.onReload) live.onReload(); };
+
+  const norm = (arr)=> (Array.isArray(arr) ? arr : []).map(it => {
+    if(typeof it === "string") return { title:null, detail:it };
+    if(it && typeof it === "object") return {
+      title: it.title || it.titulo || it.label || it.name || it.heading || null,
+      detail: it.detail || it.description || it.descricao || it.text || it.texto || it.body ||
+              (typeof it.value === "string" ? it.value : "") || ""
+    };
+    return { title:null, detail:String(it) };
+  }).filter(x => (x.title && String(x.title).trim()) || (x.detail && String(x.detail).trim()));
+
+  const summary  = data ? (data.narrative || data.resumo || data.summary || data.rawText || "") : "";
+  const insights = data ? norm(data.insights) : [];
+  const recs     = data ? norm(data.recommendations || data.recomendacoes || data.recs) : [];
+
+  const Header = (
+    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:12}}>
+      <div style={{display:"flex", alignItems:"center", gap:12}}>
+        <div style={{width:40, height:40, borderRadius:10, background:`linear-gradient(135deg, ${accent}, var(--violet))`, display:"flex", alignItems:"center", justifyContent:"center", color:"white"}}>
+          <Icon.Sparkle size={20}/>
+        </div>
+        <div>
+          <div style={{display:"flex", alignItems:"center", gap:8}}>
+            <span style={{fontWeight:700, fontSize:16}}>Análise por IA</span>
+            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
+          </div>
+          <div style={{fontSize:12, color:"var(--muted)", marginTop:2, display:"inline-flex", alignItems:"center", gap:5}}>
+            <Icon.Sparkle size={10}/> Análise gerada por IA
+          </div>
+        </div>
+      </div>
+      <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
+        onClick={reload} title="Gerar uma nova análise com a IA">
+        <Icon.Refresh size={12}/> {loading ? "Gerando…" : "Recarregar análise"}
+      </button>
+    </div>
+  );
+
+  // Loading skeleton — only when there's nothing to show yet. A reload with
+  // existing data keeps the previous content visible (button shows "Gerando…").
+  if(loading && !data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{display:"flex", alignItems:"center", gap:10, color:"var(--muted)", fontSize:13, marginBottom:14}}>
+          <span style={{width:16, height:16, borderRadius:"50%", border:"2px solid var(--line)", borderTopColor:accent, display:"inline-block", animation:"narrSpin 1s linear infinite"}}/>
+          Gerando análise…
+          <style>{`@keyframes narrSpin{ to{ transform: rotate(360deg); } } @keyframes narrShimmer{ 0%,100%{ opacity:.45; } 50%{ opacity:1; } }`}</style>
+        </div>
+        <div style={{display:"flex", flexDirection:"column", gap:10}}>
+          {[92, 82, 70].map((w,i)=>(
+            <div key={i} style={{height:14, width:w+"%", borderRadius:7, background:"var(--line-2)", animation:"narrShimmer 1.4s ease-in-out infinite", animationDelay:(i*0.15)+"s"}}/>
+          ))}
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:8}}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{height:62, borderRadius:12, background:"var(--line-2)", animation:"narrShimmer 1.4s ease-in-out infinite", animationDelay:(i*0.12)+"s"}}/>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state — friendly message + retry, never a blank card.
+  if(error && !data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{padding:"18px 20px", borderRadius:12, background:"#fff7f9", border:"1px solid #ffd2dd", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
+          <div style={{width:36, height:36, borderRadius:9, background:"#ffe3ea", color:"#c9234a", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+            <Icon.Bolt size={16}/>
+          </div>
+          <div style={{flex:1, minWidth:200}}>
+            <div style={{fontWeight:700, fontSize:14, color:"#c9234a"}}>Não foi possível gerar a análise agora</div>
+            <div style={{fontSize:13, color:"var(--ink-2)", marginTop:2}}>Verifique sua conexão e tente novamente em instantes.</div>
+          </div>
+          <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={reload}>
+            <Icon.Refresh size={13}/> Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // No data yet (not loading, not error) — defensive idle state.
+  if(!data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{padding:18, textAlign:"center", color:"var(--muted)", fontSize:13, border:"1px dashed var(--line-2)", borderRadius:12}}>
+          Clique em “Recarregar análise” para gerar os insights da IA a partir dos seus dados.
+        </div>
+      </div>
+    );
+  }
+
+  // Success.
+  return (
+    <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+      {Header}
+
+      {summary && (
+        <div style={{padding:"16px 18px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
+          <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO</div>
+          <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.6, whiteSpace:"pre-wrap"}}>{summary}</p>
+        </div>
+      )}
+
+      {insights.length > 0 && (
+        <div style={{marginBottom: recs.length ? 16 : 0}}>
+          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
+            <Icon.Idea size={14} color={accent}/>
+            <span style={{fontWeight:700, fontSize:14}}>Insights</span>
+            <span className="chip mono" style={{padding:"0 6px", fontSize:10, background:"var(--brand-soft)", color:"var(--brand-2)"}}>{insights.length}</span>
+          </div>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:10}}>
+            {insights.map((it,i)=>(
+              <div key={i} style={{padding:"14px 16px", borderRadius:12, border:"1px solid var(--line)", background:"white", display:"flex", gap:12, alignItems:"flex-start"}}>
+                <div style={{width:28, height:28, borderRadius:8, flexShrink:0, background:`color-mix(in oklch, ${accent} 14%, white)`, color:accent, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                  <Icon.Sparkle size={13}/>
+                </div>
+                <div style={{flex:1, minWidth:0}}>
+                  {it.title && <div style={{fontWeight:700, fontSize:14, marginBottom:3}}>{it.title}</div>}
+                  {it.detail && <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5}}>{it.detail}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recs.length > 0 && (
+        <div>
+          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
+            <Icon.Check size={14} stroke={2.6} color="#0a8a4a"/>
+            <span style={{fontWeight:700, fontSize:14}}>Recomendações</span>
+            <span className="chip mono" style={{padding:"0 6px", fontSize:10, background:"#e7f7ef", color:"#0a8a4a"}}>{recs.length}</span>
+          </div>
+          <ol style={{listStyle:"none", padding:0, margin:0, display:"flex", flexDirection:"column", gap:8}}>
+            {recs.map((it,i)=>(
+              <li key={i} style={{display:"flex", gap:12, alignItems:"flex-start", padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+                <span style={{width:24, height:24, borderRadius:7, flexShrink:0, background:"var(--ink)", color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700}}>{i+1}</span>
+                <div style={{flex:1, minWidth:0}}>
+                  {it.title && <div style={{fontWeight:700, fontSize:14, marginBottom:2}}>{it.title}</div>}
+                  {it.detail && <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5}}>{it.detail}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {!summary && !insights.length && !recs.length && (
+        <div style={{padding:18, textAlign:"center", color:"var(--muted)", fontSize:13, border:"1px dashed var(--line-2)", borderRadius:12}}>
+          A IA não retornou conteúdo para esta base. Tente recarregar a análise.
+        </div>
+      )}
+
+      <div style={{display:"flex", alignItems:"center", gap:6, marginTop:14, paddingTop:12, borderTop:"1px dashed var(--line-2)", fontSize:11, color:"var(--muted)"}}>
+        <Icon.Sparkle size={11}/> Conteúdo gerado por inteligência artificial · pode conter imprecisões.
+      </div>
+    </div>
+  );
+}
+
 function Insights({ tweaks, onAddChart, generated }){
   const [tab, setTab] = React.useState("insights");
 
@@ -1580,6 +1782,52 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // Descoberta leads only when generated AND not a sales shape; sales data keeps
   // its tailored presets so the sample CSV stays byte-for-byte the same.
   const dataDrivenMode = useGenerated && !salesShape;
+
+  // ── AI narrative (Gemini Edge Function) ─────────────────────────────────
+  // The real narrative replaces the mock "Análises da IA" for Pro users with a
+  // real upload. We only call the function for Pro: free users see the paywall,
+  // and not calling keeps their data in the browser. Cached by the profile
+  // shape (column name + pattern) so it doesn't refire when the period changes;
+  // the "Recarregar análise" button forces a fresh call.
+  const [narrative, setNarrative] = React.useState(null);
+  const [narrativeLoading, setNarrativeLoading] = React.useState(false);
+  const [narrativeError, setNarrativeError] = React.useState(false);
+  const narrativeKeyRef = React.useRef(null); // profile shape of the cached result
+  const narrativeReqRef = React.useRef(0);    // guards against stale responses
+  const narrativeKey = React.useMemo(()=>{
+    if(!hasRealData || !profiles.length) return null;
+    return ((fileInfo && fileInfo.name) || "dados") + "::" + profiles.map(p => p.name + ":" + p.pattern).join("|");
+  }, [hasRealData, profiles, fileInfo]);
+
+  const loadNarrative = React.useCallback((force)=>{
+    if(!narrativeKey) return;
+    if(!force && narrativeKeyRef.current === narrativeKey) return; // same data → keep cache
+    const reqId = ++narrativeReqRef.current;
+    setNarrativeLoading(true); setNarrativeError(false);
+    // Real KPI values give the model concrete numbers to narrate; sampleRows is
+    // a small, representative slice (period-independent so the cache stays warm).
+    const metricsPayload = (generated && Array.isArray(generated.kpis) ? generated.kpis : [])
+      .map(k => ({ label: k.props.label, value: k.props.value, format: k.props.format }));
+    const sampleRows = dataset.slice(0, 20);
+    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados")
+      .then(result => {
+        if(reqId !== narrativeReqRef.current) return; // a newer request superseded this one
+        const ok = result && (result.narrative || result.rawText ||
+          (Array.isArray(result.insights) && result.insights.length) ||
+          (Array.isArray(result.recommendations) && result.recommendations.length));
+        if(ok){ narrativeKeyRef.current = narrativeKey; setNarrative(result); setNarrativeError(false); }
+        else { setNarrativeError(true); }
+        setNarrativeLoading(false);
+      })
+      .catch(()=>{ // dashFetchNarrative already swallows errors, but stay defensive
+        if(reqId === narrativeReqRef.current){ setNarrativeError(true); setNarrativeLoading(false); }
+      });
+  }, [narrativeKey, profiles, dataset, generated, fileInfo]);
+
+  React.useEffect(()=>{
+    if(isFree || !narrativeKey) return; // Pro-only; free path renders the paywall
+    loadNarrative(false);
+  }, [narrativeKey, isFree, loadNarrative]);
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -2048,26 +2296,28 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)}/>;
     }
     if(b.kind === "insights"){
-      const content = (
-        <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
-          <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>
-        </BlockShell>
-      );
+      // Free: blurred demo/generated Insights behind the paywall (an enticing
+      // preview). We never call the AI for free users — their data stays local.
       if(isFree){
+        const backdrop = (
+          <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
+            <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>
+          </BlockShell>
+        );
         return (
           <div className="paywall-blur">
-            <div className="pw-content">{content}</div>
+            <div className="pw-content">{backdrop}</div>
             <div className="pw-overlay">
               <div className="pw-card">
                 <div style={{width:48, height:48, margin:"0 auto 12px", borderRadius:12, background:`linear-gradient(135deg, ${tweaks.accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center"}}>
                   <Icon.Sparkle size={22}/>
                 </div>
-                <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Análises da IA</div>
+                <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
                 <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:16}}>
-                  Resumo executivo, insights, riscos e recomendações geradas pela IA estão disponíveis apenas no plano Pro.
+                  Resumo executivo, insights e recomendações gerados por IA a partir dos seus dados estão disponíveis no plano Pro.
                 </div>
                 <div style={{display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap"}}>
-                  <button className="btn btn-primary" onClick={()=>setPaywallReason("insights")}><Icon.Crown size={14}/> Experimentar Pro</button>
+                  <button className="btn btn-primary" onClick={()=>setPaywallReason("insights")}><Icon.Crown size={14}/> Desbloquear análise por IA</button>
                   <button className="btn btn-ghost" onClick={()=>setPaywallReason("insights")}>Saber mais</button>
                 </div>
                 <div style={{display:"flex", justifyContent:"center", gap:14, marginTop:14, paddingTop:14, borderTop:"1px dashed var(--line-2)"}}>
@@ -2075,7 +2325,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                     <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Resumo executivo
                   </span>
                   <span style={{display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--muted)"}}>
-                    <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Riscos & recomendações
+                    <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Insights & recomendações
                   </span>
                   <span style={{display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--muted)"}}>
                     <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Reanálise sob demanda
@@ -2086,7 +2336,16 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           </div>
         );
       }
-      return content;
+      // Pro: real Gemini narrative when there's an upload to analyze; otherwise
+      // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
+      const inner = hasRealData
+        ? <AINarrative tweaks={tweaks} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, onReload: ()=>loadNarrative(true) }}/>
+        : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
+      return (
+        <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
+          {inner}
+        </BlockShell>
+      );
     }
     if(b.kind === "ranking"){
       return <BlockShell editing={editing} kind="Ranking / Tabela" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2974,5 +3233,6 @@ Object.assign(window, {
   // Exposed so App can drive a "Ver demonstração" flow without re-implementing
   // the CSV pipeline.
   dashParseCSV, dashParseNumber, dashParseDate, dashInferSchema, dashRowsToObjects, dashResolveColumns,
+  dashFetchNarrative, AINarrative,
   DASH_SAMPLE_CSV,
 });
