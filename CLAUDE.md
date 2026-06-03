@@ -237,7 +237,14 @@ Antes de fazer merge de qualquer mudança grande, validar visualmente em:
 Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 
 - **Processar arquivos via FileReader / Blob no client.** Nunca subir para servidor sem consentimento explícito.
-- Quando a IA precisar de contexto, enviar **apenas metadados de esquema** (nomes de colunas, tipos, exemplo amostrado de 1-3 linhas anonimizadas) — não a planilha inteira.
+- **Sampling para IA** (decisão [DECISION 2026-06-03], substitui a regra antiga de "1-3 linhas anonimizadas"):
+  - **20 linhas cruas (sem anonimização)** são enviadas para o Gemini (via Edge Function `gemini-narrative`), junto com perfis de coluna + KPIs computados.
+  - **Decisão**: priorizar qualidade da análise sobre minimização de dados. Insights mais ricos e específicos compensam o trade-off.
+  - **Free não envia nenhum dado** — o paywall bloqueia antes da chamada (a IA só roda para Pro).
+  - **TODO pré-lançamento** (bloqueia ir a usuários reais):
+    - Adicionar aviso visual antes do primeiro uso da IA.
+    - Atualizar Termos de Uso citando o Google como processador de dados.
+    - Política de Privacidade explicando o fluxo de dados (navegador → Edge Function → Gemini).
 - Quando aceitar URL pública (Importar de URL), validar contra `data:`, `javascript:`, hosts de loopback; só permitir `https://`.
 - `<input type="file">` com `accept` restrito (`.csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls,.parquet`).
 - Sanitizar nomes de arquivo antes de mostrar.
