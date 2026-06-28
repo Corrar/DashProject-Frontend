@@ -134,7 +134,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
         )}
 
         {/* Plan cards */}
-        <div className="rv" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
+        <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
           {planList.map(p=>{
             const isCurrent = p.k === tweaks.plan; // free | essencial | pro
             const hl = p.highlight;
@@ -254,7 +254,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
         </div>
 
         {/* Logos / trust */}
-        <div className="rv" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:16, marginBottom: 48}}>
+        <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:16, marginBottom: 48}}>
           {[
             {i:<Icon.Lock size={16}/>, t:"100% no navegador", d:"Seus dados não saem do seu dispositivo durante a análise."},
             {i:<Icon.Check size={16} stroke={3}/>, t:"LGPD & SOC 2", d:"Conformidade e auditoria contínua."},

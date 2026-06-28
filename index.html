@@ -306,6 +306,18 @@
     background: radial-gradient(closest-side, rgba(47,107,255,.15), transparent 70%);
     filter: blur(8px);
   }
+
+  /* Responsividade do funil de conversão (Landing · Auth · Plans).
+     Colapsa grids multi-coluna para 1 coluna no mobile. !important é
+     necessário porque as colunas vêm de estilo inline nos .jsx — só
+     author !important sobrescreve inline. Escopo restrito a estas classes,
+     que só existem nessas 3 telas; Dashboard e Account não as usam. */
+  @media (max-width: 760px){
+    .resp-collapse{ grid-template-columns: 1fr !important; }
+    .strip{ grid-template-columns: 1fr 1fr !important; }
+    .auth-grid{ grid-template-columns: 1fr !important; }
+    .auth-grid > :last-child{ display: none !important; }
+  }
 </style>
 </head>
 <body>

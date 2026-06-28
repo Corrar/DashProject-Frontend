@@ -147,7 +147,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
         </button>
       </div>
 
-      <div style={{flex:1, display:"grid", gridTemplateColumns:"1fr 1.05fr", maxWidth:1400, margin:"0 auto", width:"100%", padding:"0 24px 24px", gap:48, alignItems:"center"}}>
+      <div className="auth-grid" style={{flex:1, display:"grid", gridTemplateColumns:"1fr 1.05fr", maxWidth:1400, margin:"0 auto", width:"100%", padding:"0 24px 24px", gap:48, alignItems:"center"}}>
         {/* LEFT — form */}
         <div style={{maxWidth: 460, width:"100%", margin:"0 auto", padding:"40px 0"}}>
           {state === "success" ? (

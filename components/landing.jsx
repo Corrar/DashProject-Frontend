@@ -300,7 +300,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
         <div className="hero-blob" style={{width:520, height:520, background: tweaks.accent, top: -120, right: -80, transform: `translateY(${y*0.15}px)`}}/>
         <div className="hero-blob" style={{width:380, height:380, background: "var(--violet)", top: 220, left: -120, opacity:.35, transform: `translateY(${y*0.08}px)`}}/>
       </div>
-      <div className="wrap" style={{position:"relative", display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:60, alignItems:"center"}}>
+      <div className="wrap resp-collapse" style={{position:"relative", display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:60, alignItems:"center"}}>
         <div>
           <div className="rv eyebrow" style={{marginBottom:18}}>
             <span className="dot"/> v2.6 · agora com narrativa por IA
@@ -391,7 +391,7 @@ function PinnedSteps({ tweaks }){
   return (
     <section className="pin-wrap" id="como" ref={wrapRef} style={{height: "320vh"}}>
       <div className="pin-stage">
-        <div className="wrap" style={{display:"grid", gridTemplateColumns: "1fr 1.1fr", gap: 64, alignItems:"center", padding:"0 24px"}}>
+        <div className="wrap resp-collapse" style={{display:"grid", gridTemplateColumns: "1fr 1.1fr", gap: 64, alignItems:"center", padding:"0 24px"}}>
           <div>
             <span className="eyebrow"><span className="dot"/> Como funciona</span>
             <h2 className="h-section" style={{margin:"18px 0 14px"}}>Três passos.<br/>Zero fricção.</h2>
@@ -550,7 +550,7 @@ function ChartGallery({ tweaks }){
           <h2 className="rv h-section" style={{margin:"16px auto 8px"}}>Gráficos com qualidade de produto.</h2>
           <p className="rv lede" style={{margin:"0 auto", maxWidth: 560}}>Tipografia limpa, cores acessíveis, animações suaves. Tudo ajustável no Pro.</p>
         </div>
-        <div style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr", gap:18}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr", gap:18}}>
           <div className="rv card soft-shadow lift" style={{padding:22}}>
             <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
               <div>
@@ -618,7 +618,7 @@ function Features({ tweaks }){
   return (
     <section id="recursos" className="pad" style={{paddingTop: 80}}>
       <div className="wrap">
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:64, alignItems:"end", marginBottom: 48}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:64, alignItems:"end", marginBottom: 48}}>
           <div>
             <span className="rv eyebrow"><span className="dot"/> Recursos</span>
             <h2 className="rv h-section" style={{margin:"16px 0 0"}}>Tudo que você precisa<br/>para entender seus dados.</h2>
@@ -627,7 +627,7 @@ function Features({ tweaks }){
             Da ingestão à narrativa visual, sem fricção e sem código. Cada recurso pensado para reduzir o tempo entre "tenho um CSV" e "tenho uma resposta".
           </p>
         </div>
-        <div style={{display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:18}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:18}}>
           {feats.map((f, i)=>(
             <div key={i} className="rv feat" style={{transitionDelay: (i*0.06)+"s"}}>
               <div style={{
@@ -675,7 +675,7 @@ function Pricing({ onOpenApp }){
           <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Edite tudo no Pro.</h2>
           <p className="rv lede" style={{margin:"0 auto", maxWidth:500}}>Sem cartão de crédito. Cancele a qualquer momento.</p>
         </div>
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18, maxWidth: 920, margin:"0 auto"}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18, maxWidth: 920, margin:"0 auto"}}>
           <div className="rv card" style={{padding:32}}>
             <div style={{fontWeight:700, fontSize:18}}>Free</div>
             <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>Perfeito para experimentar.</div>
