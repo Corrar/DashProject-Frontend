@@ -317,6 +317,12 @@
     .strip{ grid-template-columns: 1fr 1fr !important; }
     .auth-grid{ grid-template-columns: 1fr !important; }
     .auth-grid > :last-child{ display: none !important; }
+    /* Navbar da landing: esconde links de seção + CTA primário para não
+       estourar a largura. Sobra logo + AuthBubble (Entrar/Criar conta).
+       nav-row é rede de segurança: contém qualquer item residual. */
+    .nav-links{ display: none !important; }
+    .nav-cta{ display: none !important; }
+    .nav-row{ overflow-x: hidden !important; max-width: 100% !important; }
   }
 </style>
 </head>

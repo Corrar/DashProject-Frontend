@@ -177,7 +177,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
       borderBottom: scrolled ? "1px solid var(--line)" : "1px solid transparent",
       transition: "background .25s ease, border-color .25s ease"
     }}>
-      <div className="wrap" style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 24px"}}>
+      <div className="wrap nav-row" style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 24px"}}>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <Icon.Logo size={30}/>
           <div style={{display:"flex", flexDirection:"column", lineHeight:1}}>
@@ -185,7 +185,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
             <span className="mono" style={{fontSize:10, color:"var(--muted)"}}>DASHBOARDS · IA</span>
           </div>
         </div>
-        <nav style={{display:"flex", gap:28, alignItems:"center"}}>
+        <nav className="nav-links" style={{display:"flex", gap:28, alignItems:"center"}}>
           <a href="#exemplos" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Exemplos</a>
           <a href="#recursos" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Recursos</a>
           <a href="#como" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Como funciona</a>
@@ -193,7 +193,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
         </nav>
         <div style={{display:"flex", alignItems:"center", gap:10}}>
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-          <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>
+          <button className="btn btn-primary nav-cta" onClick={()=> window.__dashEnterApp?.()}>
             {currentUser ? <>Abrir app <Icon.Arrow size={14}/></> : <>Começar grátis <Icon.Arrow size={14}/></>}
           </button>
         </div>
