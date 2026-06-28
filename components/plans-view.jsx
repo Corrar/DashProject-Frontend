@@ -1,70 +1,71 @@
 /* Plans / pricing view — shown to logged-in users who click "Experimentar Pro". */
 
-function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
-  const [cycle, setCycle] = React.useState("monthly"); // monthly | yearly
+function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
+  // Backend só tem cobrança mensal; sem ciclo anual (não inventar preço).
+  const planLabel = (k)=> k === "pro" ? "Pro" : k === "essencial" ? "Essencial" : "Free";
+  const fmtPrice = (v)=> v === 0 ? "0" : v.toFixed(2).replace(".", ","); // 29.9 → "29,90"
 
-  const monthly = { free: 0, pro: 29 };
-  const yearly  = { free: 0, pro: 23 }; // ~20% off
-  const price = cycle === "monthly" ? monthly : yearly;
-  const period = cycle === "monthly" ? "/mês" : "/mês · cobrado anualmente";
+  const PLAN_DATA = {
+    free:      { price:0 },
+    essencial: { price:29.90 },
+    pro:       { price:49.90 },
+  };
 
   const planList = [
     {
-      k:"free",
-      name:"Free",
-      tagline:"Para experimentar.",
-      cta: tweaks.plan==="free" ? "Plano atual" : "Permanecer no Free",
-      ctaDisabled: tweaks.plan==="free",
-      ctaStyle: "ghost",
+      k:"free", name:"Free", tagline:"Para experimentar.",
       features: [
-        { ok:true,  t:"Upload CSV / JSON / Excel" },
+        { ok:true,  t:"Upload CSV" },
         { ok:true,  t:"Dashboard gerado por IA" },
-        { ok:true,  t:"5 tipos de gráfico" },
-        { ok:true,  t:"Filtros por período" },
-        { ok:false, t:"Análises da IA com narrativa" },
-        { ok:false, t:"Edição completa do layout" },
+        { ok:true,  t:"3 análises da IA por mês" },
+        { ok:true,  t:"Até 5 mil linhas por base" },
         { ok:false, t:"Exportar PDF/PNG" },
-        { ok:false, t:"Dashboards avançados" },
+        { ok:false, t:"Compartilhamento por link" },
+        { ok:false, t:"Remover marca “Dash”" },
       ]
     },
     {
-      k:"pro",
-      name:"Pro",
-      tagline:"Para profissionais e equipes pequenas.",
-      highlight: true,
-      cta: tweaks.plan==="pro" ? "Plano atual" : "Começar teste grátis",
-      ctaDisabled: tweaks.plan==="pro",
-      ctaStyle: "primary",
+      k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.",
       features: [
-        { ok:true, t:"Tudo do Free, e mais:", bold:true },
-        { ok:true, t:"Análises da IA: resumo, riscos, recomendações" },
-        { ok:true, t:"Edição completa: drag-and-drop, ⅓/½/⅔/full" },
-        { ok:true, t:"KPIs, gráficos e blocos ilimitados" },
-        { ok:true, t:"Dashboards avançados (cohort, outliers, sazonalidade)" },
-        { ok:true, t:"Exportar PDF/PNG com pré-visualização" },
-        { ok:true, t:"Reanálise da IA sob demanda" },
+        { ok:true,  t:"Tudo do Free, e mais:", bold:true },
+        { ok:true,  t:"CSV, Excel e JSON" },
+        { ok:true,  t:"50 análises da IA por mês" },
+        { ok:true,  t:"Até 100 mil linhas por base" },
+        { ok:true,  t:"Exportar PDF/PNG" },
+        { ok:true,  t:"Suporte por e-mail" },
+        { ok:false, t:"Compartilhamento por link" },
+        { ok:false, t:"Remover marca “Dash”" },
+      ]
+    },
+    {
+      k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", highlight: true,
+      features: [
+        { ok:true, t:"Tudo do Essencial, e mais:", bold:true },
+        { ok:true, t:"300 análises da IA por mês" },
+        { ok:true, t:"Até 1 milhão de linhas por base" },
         { ok:true, t:"Compartilhamento por link" },
+        { ok:true, t:"Remover marca “Dash”" },
+        { ok:true, t:"Suporte prioritário" },
       ]
     },
   ];
 
   const faqs = [
-    { q:"Como funciona o teste grátis do Pro?", a:"7 dias completos do plano Pro, sem cartão de crédito. Após o período, sua conta volta ao Free automaticamente — você só é cobrado se confirmar a assinatura." },
+    { q:"Como funciona a cobrança?", a:"No cartão, a assinatura é mensal e renova automaticamente — cancele quando quiser e mantenha acesso até o fim do ciclo já pago. No Pix, a cobrança é mensal e avulsa: perto do vencimento o sistema envia o link da próxima cobrança e, após o pagamento, seu acesso é estendido por mais 30 dias." },
     { q:"Meus dados ficam seguros?", a:"Sim. O processamento dos arquivos é feito no seu navegador. Apenas metadados (nomes de colunas e tipos) podem ser enviados para a IA com seu consentimento. Estamos em conformidade com LGPD e SOC 2." },
     { q:"Posso cancelar quando quiser?", a:"Sem fidelidade. Cancele no painel e mantenha acesso até o fim do ciclo já pago. Seus dashboards continuam disponíveis em modo de visualização." },
-    { q:"Posso exportar em outro formato?", a:"Pro inclui PDF e PNG com layout customizado." },
+    { q:"Posso exportar em outro formato?", a:"Os planos Essencial e Pro incluem exportação em PDF e PNG com layout customizado." },
   ];
 
   const compare = [
-    { f:"Dashboards gerados por IA", free:true, pro:true },
-    { f:"Bases de dados aceitas", free:"CSV, JSON, Excel", pro:"+ TSV, Parquet, Google Sheets" },
-    { f:"Análises da IA", free:false, pro:true },
-    { f:"Edição do layout", free:false, pro:true },
-    { f:"Tipos de gráfico", free:"5", pro:"Ilimitados" },
-    { f:"Histórico de versões", free:"7 dias", pro:"90 dias" },
-    { f:"Exportar PDF/PNG", free:false, pro:true },
-    { f:"Compartilhamento por link", free:false, pro:true },
-    { f:"Suporte", free:"Comunidade", pro:"Email · 24h" },
+    { f:"Dashboards gerados por IA", free:true,        essencial:true,               pro:true },
+    { f:"Bases de dados aceitas",    free:"CSV",        essencial:"CSV, Excel, JSON", pro:"CSV, Excel, JSON" },
+    { f:"Análises da IA por mês",    free:"3",          essencial:"50",               pro:"300" },
+    { f:"Linhas por base",           free:"5 mil",      essencial:"100 mil",          pro:"1 milhão" },
+    { f:"Exportar PDF/PNG",          free:false,        essencial:true,               pro:true },
+    { f:"Compartilhamento por link", free:false,        essencial:false,              pro:true },
+    { f:"Remover marca “Dash”",      free:false,        essencial:false,              pro:true },
+    { f:"Suporte",                   free:"Comunidade", essencial:"E-mail",           pro:"Prioritário" },
   ];
 
   const Cell = ({ v })=> {
@@ -91,7 +92,7 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
           <div style={{display:"flex", alignItems:"center", gap:10}}>
             {!!currentUser && (
               <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}>
-                Sessão ativa · plano {tweaks.plan === "pro" ? "Pro" : "Free"}
+                Sessão ativa · plano {planLabel(tweaks.plan)}
               </span>
             )}
             <button onClick={onClose} className="btn btn-ghost" style={{padding:"8px 12px", fontSize:13}}>
@@ -113,23 +114,29 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
           <p style={{margin:"0 auto 28px", fontSize:16, color:"var(--muted)", maxWidth:520, lineHeight:1.55}}>
             Comece grátis. Faça upgrade quando precisar de análises da IA, edição completa e exportação.
           </p>
-
-          {/* Cycle toggle */}
-          <div style={{display:"inline-flex", alignItems:"center", gap:10}}>
-            <div className="seg" style={{padding:4, background:"white", border:"1px solid var(--line)", borderRadius:12}}>
-              <button className={cycle==="monthly"?"on":""} onClick={()=>setCycle("monthly")} style={{padding:"8px 16px", fontSize:13}}>Mensal</button>
-              <button className={cycle==="yearly"?"on":""} onClick={()=>setCycle("yearly")} style={{padding:"8px 16px", fontSize:13}}>
-                Anual
-                <span className="chip" style={{marginLeft:8, padding:"1px 6px", fontSize:10, background:"#e7f7ef", color:"#0a8a4a"}}>−20%</span>
-              </button>
-            </div>
-          </div>
         </div>
 
+        {/* Reativação / upgrade — visível p/ usuário logado no Free. Sem sinal de
+            "plano anterior" no /me, então não auto-detecta vencimento: destaca o
+            caminho do cartão (renovação automática) e deixa a escolha de método
+            nos botões Cartão/Pix de cada plano abaixo. */}
+        {currentUser && tweaks.plan === "free" && (
+          <div className="rv" style={{
+            maxWidth: 1080, margin:"0 auto 28px", padding:"16px 20px", borderRadius:14,
+            background:"var(--brand-soft)", border:"1px solid var(--line)",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:10, flexWrap:"wrap", textAlign:"center"
+          }}>
+            <Icon.Sparkle size={16}/>
+            <span style={{fontSize:13.5, color:"var(--ink-2)", lineHeight:1.5}}>
+              <b>Reative ou faça upgrade abaixo.</b> No <b>cartão</b>, a renovação é automática — nunca mais se preocupe com o vencimento. No <b>Pix</b>, você paga a cada mês.
+            </span>
+          </div>
+        )}
+
         {/* Plan cards */}
-        <div className="rv" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18, marginBottom: 48, maxWidth: 760, marginLeft:"auto", marginRight:"auto"}}>
+        <div className="rv" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
           {planList.map(p=>{
-            const isCurrent = (p.k === tweaks.plan) || (p.k==="free" && tweaks.plan!=="pro");
+            const isCurrent = p.k === tweaks.plan; // free | essencial | pro
             const hl = p.highlight;
             return (
               <div key={p.k} className={hl?"lift":""} style={{
@@ -139,21 +146,20 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
                 boxShadow: hl ? "0 30px 60px -28px rgba(47,107,255,.35)" : "none",
                 position:"relative", display:"flex", flexDirection:"column"
               }}>
-                {hl && <span className="chip" style={{position:"absolute", top:20, right:20, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>}
-                {isCurrent && !hl && <span className="chip" style={{position:"absolute", top:20, right:20, background:"#e7f7ef", color:"#0a8a4a"}}>Atual</span>}
-                {isCurrent && hl && <span className="chip" style={{position:"absolute", top:20, right:20, background:"var(--ink)", color:"white"}}>Seu plano</span>}
+                {isCurrent ? (
+                  <span className="chip" style={{position:"absolute", top:20, right:20, background: hl?"var(--ink)":"#e7f7ef", color: hl?"white":"#0a8a4a"}}>{hl?"Seu plano":"Atual"}</span>
+                ) : hl ? (
+                  <span className="chip" style={{position:"absolute", top:20, right:20, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>
+                ) : null}
 
                 <div style={{fontWeight:700, fontSize:18}}>{p.name}</div>
                 <div style={{fontSize:13, color:"var(--muted)", marginTop:4, marginBottom:22}}>{p.tagline}</div>
 
                 <div style={{marginBottom:18, minHeight: 68}}>
                   <div style={{display:"flex", alignItems:"baseline", gap:4}}>
-                    <span style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {price[p.k]}</span>
+                    <span style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {fmtPrice(PLAN_DATA[p.k].price)}</span>
                     <span style={{fontSize:14, color:"var(--muted)"}}>{p.k === "free" ? "/sempre" : "/mês"}</span>
                   </div>
-                  {p.k !== "free" && cycle === "yearly" && (
-                    <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>cobrado anualmente · R$ {price[p.k]*12}/ano</div>
-                  )}
                 </div>
 
                 <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10, flex:1}}>
@@ -176,25 +182,30 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
                   ))}
                 </ul>
 
-                <button
-                  disabled={p.ctaDisabled}
-                  onClick={()=>{
-                    if(p.ctaDisabled) return;
-                    if(p.k === "pro") onSelectPro();
-                  }}
-                  className={`btn ${p.ctaStyle==="primary"?"btn-primary":"btn-ghost"}`}
-                  style={{
-                    width:"100%", justifyContent:"center", padding:"12px",
-                    opacity: p.ctaDisabled ? 0.6 : 1,
-                    cursor: p.ctaDisabled ? "default" : "pointer"
-                  }}>
-                  {p.k === "pro" && !p.ctaDisabled && <Icon.Crown size={14}/>}
-                  {p.cta}
-                </button>
-                {p.k === "pro" && !p.ctaDisabled && (
-                  <div style={{textAlign:"center", marginTop:8, fontSize:11, color:"var(--muted)"}}>
-                    7 dias grátis · sem cartão · cancele quando quiser
+                {isCurrent ? (
+                  <button disabled className={`btn ${hl?"btn-primary":"btn-ghost"}`}
+                    style={{width:"100%", justifyContent:"center", padding:"12px", opacity:0.6, cursor:"default"}}>
+                    Plano atual
+                  </button>
+                ) : p.k !== "free" ? (
+                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                    <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px"}}
+                      onClick={()=> onSelectPlan(p.k, "card")}>
+                      <Icon.Crown size={14}/> Assinar no cartão
+                    </button>
+                    <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center", padding:"12px"}}
+                      onClick={()=> onSelectPlan(p.k, "pix")}>
+                      Pagar no Pix
+                    </button>
+                    <div style={{textAlign:"center", marginTop:2, fontSize:11, color:"var(--muted)", lineHeight:1.45}}>
+                      Renovação automática só no cartão. No Pix, a cobrança do próximo mês é enviada perto do vencimento.
+                    </div>
                   </div>
+                ) : (
+                  <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center", padding:"12px"}}
+                    onClick={onClose}>
+                    Permanecer no Free
+                  </button>
                 )}
               </div>
             );
@@ -217,7 +228,7 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
               <thead>
                 <tr>
                   <th style={{textAlign:"left", padding:"12px 16px", fontSize:11, color:"var(--muted)", fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", borderBottom:"1px solid var(--line-2)"}}>Recurso</th>
-                  {["Free","Pro"].map(n=>(
+                  {["Free","Essencial","Pro"].map(n=>(
                     <th key={n} style={{textAlign:"center", padding:"12px 16px", fontSize:14, fontWeight:700, color:"var(--ink)", borderBottom:"1px solid var(--line-2)", background: n==="Pro"?"var(--brand-soft)":"transparent"}}>
                       {n}
                       {n==="Pro" && <span style={{marginLeft:6, color:"var(--brand)"}}>★</span>}
@@ -226,13 +237,17 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
                 </tr>
               </thead>
               <tbody>
-                {compare.map((row, i)=>(
-                  <tr key={i}>
-                    <td style={{padding:"12px 16px", fontSize:13, color:"var(--ink-2)", fontWeight:500, borderBottom: i<compare.length-1?"1px solid var(--line-2)":"none"}}>{row.f}</td>
-                    <td style={{padding:"12px 16px", textAlign:"center", borderBottom: i<compare.length-1?"1px solid var(--line-2)":"none"}}><Cell v={row.free}/></td>
-                    <td style={{padding:"12px 16px", textAlign:"center", background:"var(--brand-soft)", borderBottom: i<compare.length-1?"1px solid var(--line-2)":"none"}}><Cell v={row.pro}/></td>
-                  </tr>
-                ))}
+                {compare.map((row, i)=>{
+                  const bb = i<compare.length-1 ? "1px solid var(--line-2)" : "none";
+                  return (
+                    <tr key={i}>
+                      <td style={{padding:"12px 16px", fontSize:13, color:"var(--ink-2)", fontWeight:500, borderBottom:bb}}>{row.f}</td>
+                      <td style={{padding:"12px 16px", textAlign:"center", borderBottom:bb}}><Cell v={row.free}/></td>
+                      <td style={{padding:"12px 16px", textAlign:"center", borderBottom:bb}}><Cell v={row.essencial}/></td>
+                      <td style={{padding:"12px 16px", textAlign:"center", background:"var(--brand-soft)", borderBottom:bb}}><Cell v={row.pro}/></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -282,13 +297,13 @@ function PlansView({ tweaks, currentUser, onSelectPro, onClose }){
               {tweaks.plan === "pro" ? "Você já está no Pro." : "Pronto para ver tudo que o Pro libera?"}
             </h3>
             <p style={{margin:0, fontSize:14, color:"rgba(255,255,255,.85)"}}>
-              {tweaks.plan === "pro" ? "Explore os dashboards avançados e a IA." : "7 dias grátis · sem cartão · cancele quando quiser"}
+              {tweaks.plan === "pro" ? "Explore os dashboards avançados e a IA." : "Assine no cartão ou Pix · cancele quando quiser"}
             </p>
           </div>
           <div style={{display:"flex", gap:8}}>
             {tweaks.plan !== "pro" && (
-              <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={onSelectPro}>
-                <Icon.Crown size={14}/> Começar teste grátis
+              <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> onSelectPlan("pro", "card")}>
+                <Icon.Crown size={14}/> Assinar o Pro no cartão
               </button>
             )}
             <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}} onClick={onClose}>

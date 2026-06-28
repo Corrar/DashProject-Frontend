@@ -1,6 +1,6 @@
 /* Account / Workspace / Billing / History / Referral pages */
 
-// Decoration for sections whose persistence isn't wired to Supabase yet
+// Decoration for sections whose persistence isn't wired to the backend yet
 // (profile save, password change, plan management buttons, social share).
 // Blurs the wrapped content + blocks pointer events + drops an "Em breve"
 // badge at the top corner. Cheaper than gating each control individually,
@@ -183,7 +183,7 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
           <AccountErrorBoundary resetKey={section}>
             {section === "account"   && <AccountSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser} onClose={onClose}/>}
             {section === "workspace" && <WorkspaceComingSoon tweaks={tweaks}/>}
-            {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak}/>}
+            {section === "billing"   && <BillingSection tweaks={tweaks} setTweak={setTweak} currentUser={currentUser}/>}
             {section === "history"   && <HistorySection tweaks={tweaks}/>}
             {section === "referral"  && <ReferralSection tweaks={tweaks}/>}
           </AccountErrorBoundary>
@@ -416,7 +416,7 @@ function SaveBar({ onSave, onDiscard, dirty }){
 /* — 1. CONTA — */
 
 function AccountSection({ tweaks, setTweak, currentUser, onClose }){
-  // Initial values come from the Supabase profile. Email is read-only (auth
+  // Initial values come from the backend profile (/me). Email is read-only (auth
   // identity); name/role are editable but persistence is wired in a later
   // sprint — for now the Save bar is UI-only. Role isn't stored in profiles
   // yet, so it defaults to empty.
@@ -430,7 +430,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
   const [twofa, setTwofa] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
   const set = (fn)=> { fn(); setDirty(true); };
-  // Every editable card in this tab is wrapped in <ComingSoonOverlay> (Supabase
+  // Every editable card in this tab is wrapped in <ComingSoonOverlay> (backend
   // persistence isn't wired yet), so the inputs are inert and there is nothing
   // to save — keep the SaveBar hidden. Flip to false / drop the overlays when
   // the backend lands.
@@ -576,8 +576,26 @@ function SelectField({ label, value, onChange, options }){
 
 /* — 3. FATURAMENTO — */
 
-function BillingSection({ tweaks, setTweak }){
-  const isPro = tweaks.plan === "pro";
+function BillingSection({ tweaks, setTweak, currentUser }){
+  const isPro  = tweaks.plan === "pro";
+  const isPaid = tweaks.plan !== "free";              // essencial OU pro = assinatura ativa
+  const planName  = isPro ? "Pro" : tweaks.plan === "essencial" ? "Essencial" : "Free";
+  const planPrice = isPro ? "49,90" : tweaks.plan === "essencial" ? "29,90" : "0";
+  const limits = (currentUser && currentUser.limits) || null;
+
+  // Cancela a assinatura no backend (Asaas). O downgrade pra free vem pelo
+  // webhook — NÃO mexer em tweaks.plan aqui.
+  const onCancel = async ()=>{
+    if(!window.confirm("Cancelar a assinatura? Você mantém o acesso até o fim do período pago.")) return;
+    try {
+      await window.DashAPI.cancel();
+      window.alert("Assinatura cancelada. Seu acesso continua até o fim do período.");
+    } catch(err){
+      window.alert((err && err.data && err.data.error) === "sem_customer_stripe"
+        ? "Não há assinatura ativa para cancelar."
+        : "Não foi possível cancelar agora. Tente novamente.");
+    }
+  };
 
   // Free users have no real billing history yet — showing fake "Pro · Mensal"
   // rows here would be misleading. The empty-state below kicks in when the
@@ -590,10 +608,17 @@ function BillingSection({ tweaks, setTweak }){
     { id:"INV-2026-001", date:"15/jan/2026", amount:0.00, st:"paid", desc:"Pro · Trial" },
   ] : [];
 
+  // Análises da IA: dados reais de currentUser.limits quando disponíveis
+  // (aiUsed/aiMonthly); fallback nos números de exibição se limits ausente.
+  const aiUsed    = limits ? (limits.aiUsed || 0)    : (isPro ? 86 : 5);
+  const aiMonthly = limits ? (limits.aiMonthly || 0) : (isPro ? 1000 : 10);
+  const aiPct     = aiMonthly > 0 ? Math.min(100, Math.round((aiUsed / aiMonthly) * 100)) : 0;
+  const canExport = limits ? !!limits.canExport : isPro;
+
   const usage = [
     { l:"Dashboards", v: isPro ? 14 : 3, max: isPro ? "ilimitado" : 5, pct: isPro ? 18 : 60, c: tweaks.accent },
-    { l:"Análises da IA neste mês", v: isPro ? 86 : 5, max: isPro ? 1000 : 10, pct: isPro ? 8.6 : 50, c: "#7a5cff" },
-    { l:"Exportações no mês", v: isPro ? 32 : 0, max: isPro ? "ilimitado" : 0, pct: isPro ? 18 : 0, c: "#0a8a4a", locked: !isPro },
+    { l:"Análises da IA neste mês", v: aiUsed, max: aiMonthly, pct: aiPct, c: "#7a5cff" },
+    { l:"Exportações no mês", v: isPro ? 32 : 0, max: isPro ? "ilimitado" : 0, pct: isPro ? 18 : 0, c: "#0a8a4a", locked: !canExport },
   ];
 
   return (
@@ -603,41 +628,38 @@ function BillingSection({ tweaks, setTweak }){
       {/* Big plan card */}
       <div style={{
         padding: 32, borderRadius: 18, marginBottom: 18,
-        background: isPro
+        background: isPaid
           ? `linear-gradient(135deg, ${tweaks.accent}, var(--violet))`
           : "linear-gradient(180deg, #fafbfe, white)",
-        color: isPro ? "white" : "var(--ink)",
-        border: isPro ? "none" : "1px solid var(--line)",
+        color: isPaid ? "white" : "var(--ink)",
+        border: isPaid ? "none" : "1px solid var(--line)",
         position:"relative", overflow:"hidden"
       }}>
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:24, flexWrap:"wrap"}}>
           <div>
             <div style={{
               display:"inline-flex", alignItems:"center", gap:6, padding:"4px 10px",
-              borderRadius:99, background: isPro ? "rgba(255,255,255,.18)" : "var(--brand-soft)",
-              color: isPro ? "white" : "var(--brand-2)",
+              borderRadius:99, background: isPaid ? "rgba(255,255,255,.18)" : "var(--brand-soft)",
+              color: isPaid ? "white" : "var(--brand-2)",
               fontSize:11, fontWeight:700, marginBottom:12
             }}>
-              <Icon.Crown size={11}/> {isPro ? "Plano Pro · Ativo" : "Plano Free"}
+              <Icon.Crown size={11}/> {isPaid ? ("Plano " + planName + " · Ativo") : "Plano Free"}
             </div>
             <h2 style={{margin:"0 0 6px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>
-              {isPro ? "R$ 29" : "R$ 0"}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>/mês</span>
+              R$ {planPrice}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>/mês</span>
             </h2>
-            <div style={{fontSize:13, opacity: isPro ? .9 : 1, color: isPro ? "white" : "var(--muted)"}}>
-              {isPro ? "Próxima cobrança em 14 dias · 03/jun/2026" : "Sem cobranças · upgrade quando quiser"}
+            <div style={{fontSize:13, opacity: isPaid ? .9 : 1, color: isPaid ? "white" : "var(--muted)"}}>
+              {isPaid ? "Assinatura ativa" : "Sem cobranças · upgrade quando quiser"}
             </div>
           </div>
           <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-            {isPro ? (
-              // Subscription management ("Gerenciar assinatura") — not wired to
-              // Stripe yet, so it's gated as "Em breve". The plan card itself
-              // (price, status, próxima cobrança) stays readable above.
-              <ComingSoonOverlay>
-                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-                  <button style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
-                  <button onClick={()=>setTweak({plan:"free"})} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar Pro</button>
-                </div>
-              </ComingSoonOverlay>
+            {isPaid ? (
+              // Gestão da assinatura ligada ao backend: "Mudar plano" abre os
+              // planos; "Cancelar" chama DashAPI.cancel() (downgrade vem do webhook).
+              <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                <button onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()} style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
+                <button onClick={onCancel} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar</button>
+              </div>
             ) : (
               <button onClick={()=> window.__dashUpgrade && window.__dashUpgrade()} className="btn btn-primary" style={{padding:"10px 16px"}}>
                 <Icon.Crown size={14}/> Fazer upgrade

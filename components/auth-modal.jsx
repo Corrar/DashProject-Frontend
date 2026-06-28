@@ -1,8 +1,7 @@
-/* AuthModal — sign in / sign up form backed by Supabase Auth.
- * Reads from window.supabaseClient (initialized in Dash.html). The forms call
- * supa.auth.signInWithPassword / signUp / resetPasswordForEmail. Auth state
- * propagation happens in App via onAuthStateChange — this modal closes on
- * sign-in success and shows a "confirme seu e-mail" message on sign-up.
+/* AuthModal — sign in / sign up form (backend próprio via DashAPI).
+ * Os formulários chamam DashAPI.login / signup / requestReset. A propagação do
+ * estado de auth acontece no App via DashAPI.onAuthChange — este modal fecha no
+ * sign-in e mostra "confirme seu e-mail" no sign-up.
  *
  * Accessibility:
  * - ESC closes
@@ -10,6 +9,18 @@
  * - First input is auto-focused on open
  * - Body overflow locked while open so the page underneath doesn't scroll
  */
+
+// Traduz os códigos de erro do backend (err.data.error) em mensagens de UI.
+// Definido aqui (auth-modal.jsx carrega ANTES de auth-view.jsx em Dash.html),
+// e reusado por ambos — não duplicar.
+function authErrorMessage(err){
+  const code = err && err.data && err.data.error;
+  if(code === "email_em_uso")          return "Este e-mail já está cadastrado.";
+  if(code === "credenciais_invalidas") return "E-mail ou senha incorretos.";
+  if(code === "senha_fraca")           return "A senha precisa ter ao menos 8 caracteres.";
+  if(code === "payload_invalido")      return "Verifique os dados informados.";
+  return (err && err.message) || "Falha de rede.";
+}
 
 function AuthField({ label, htmlFor, children, hint }){
   return (
@@ -71,31 +82,19 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
 
   if(!open) return null;
 
-  const supa = window.supabaseClient;
   const accent = (tweaks && tweaks.accent) || "var(--brand)";
-
-  const guardSupa = ()=>{
-    if(!supa || !supa.auth){
-      setError("Cliente Supabase indisponível. Verifique a anon key em Dash.html.");
-      return false;
-    }
-    return true;
-  };
 
   const handleSignIn = async (e)=>{
     e.preventDefault();
     setError(null); setInfo(null);
-    if(!guardSupa()) return;
     setLoading(true);
     try {
-      const { error: err } = await supa.auth.signInWithPassword({ email, password });
-      if(err){ setError(err.message || "Falha ao entrar."); return; }
-      // Success — onAuthStateChange (App) fires loadUserProfile and closes
-      // the modal indirectly via the controlled `open` prop. We also close
-      // here optimistically so the modal disappears right away.
+      await window.DashAPI.login(email, password);
+      // Success — onAuthChange (App) hidrata currentUser. Fechamos aqui também
+      // otimisticamente pra o modal sumir na hora.
       onClose();
     } catch(err){
-      setError((err && err.message) || "Falha ao entrar.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -107,20 +106,14 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
     if(password.length < 8){ setError("Senha deve ter pelo menos 8 caracteres."); return; }
     if(password !== confirmPassword){ setError("As senhas não coincidem."); return; }
     if(!acceptedTerms){ setError("Aceite os termos de uso para continuar."); return; }
-    if(!guardSupa()) return;
     setLoading(true);
     try {
-      const { error: err } = await supa.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: fullName || null } },
-      });
-      if(err){ setError(err.message || "Falha ao criar conta."); return; }
+      await window.DashAPI.signup(email, password, fullName || null);
       // Don't close — the user needs to confirm their e-mail before login.
       setInfo("Conta criada. Confirme seu e-mail antes de fazer login.");
       setPassword(""); setConfirmPassword("");
     } catch(err){
-      setError((err && err.message) || "Falha ao criar conta.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -129,14 +122,12 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
   const handleResetPassword = async ()=>{
     setError(null); setInfo(null);
     if(!email){ setError("Informe seu e-mail antes de pedir a redefinição."); return; }
-    if(!guardSupa()) return;
     setLoading(true);
     try {
-      const { error: err } = await supa.auth.resetPasswordForEmail(email);
-      if(err){ setError(err.message || "Falha ao enviar link."); return; }
-      setInfo("Enviamos um link de redefinição para o e-mail informado.");
+      await window.DashAPI.requestReset(email);
+      setInfo("Se este e-mail existir, enviamos um link de redefinição.");
     } catch(err){
-      setError((err && err.message) || "Falha ao enviar link.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }

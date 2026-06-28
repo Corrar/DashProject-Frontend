@@ -10,17 +10,14 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  // Supabase client — initialized once, exposed via window.supabaseClient so
-  // any script can grab the same singleton. Anon key is public-by-design
-  // (Row Level Security is what protects the data). NEVER paste the
-  // service_role key here.
-  window.supabaseClient = window.supabase.createClient(
-    "https://ylukkykovcyyvjfdlnwr.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsdWtreWtvdmN5eXZqZmRsbndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMDA5NTksImV4cCI6MjA5NDg3Njk1OX0.bygukdGg4mz3Pwx0L4TM5ZZUE4nAkDHZ4H2_9GzXNMc"
-  );
+  // Base pública da API do Dash (backend próprio: auth JWT + Asaas).
+  // Trocar pela URL de produção no deploy. NENHUM segredo aqui — o cliente
+  // (components/api.js) guarda o access token só em memória e o refresh
+  // token vive num cookie httpOnly.
+  window.__API_URL = "http://localhost:8787";
 </script>
+<script src="components/api.js"></script>
 <style>
   :root{
     --bg: #f6f7fb;
@@ -326,5 +323,57 @@
   <script type="text/babel" src="components/plans-view.jsx"></script>
   <script type="text/babel" src="components/account-view.jsx"></script>
   <script type="text/babel" src="components/app.jsx"></script>
+
+  <script type="text/babel">
+    // Deep links de e-mail/checkout. O backend manda ?verify=<token> e
+    // ?reset=<token>; o checkout do Asaas volta com ?upgrade=ok|cancel|expired.
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      function clearQuery() {
+        history.replaceState(null, "", window.location.pathname + window.location.hash);
+      }
+
+      var verify = params.get("verify");
+      var reset = params.get("reset");
+      var upgrade = params.get("upgrade");
+
+      if (verify) {
+        window.DashAPI.verifyEmail(verify)
+          .then(function () { window.alert("E-mail confirmado! Você já pode usar sua conta."); })
+          .catch(function () { window.alert("Não foi possível confirmar o e-mail. O link pode ter expirado."); })
+          .finally(clearQuery);
+        return;
+      }
+
+      if (reset) {
+        // Guarda o token; por ora um prompt valida o fluxo (o ideal depois é
+        // reaproveitar o visual do auth-view numa tela dedicada).
+        window.__resetToken = reset;
+        var nova = window.prompt("Defina sua nova senha (mín. 8 caracteres):");
+        if (nova && nova.length >= 8) {
+          window.DashAPI.resetPassword(reset, nova)
+            .then(function () { window.alert("Senha redefinida! Faça login com a nova senha."); })
+            .catch(function () { window.alert("Não foi possível redefinir a senha. O link pode ter expirado."); })
+            .finally(clearQuery);
+        } else {
+          if (nova !== null) window.alert("Senha muito curta. Tente o link novamente.");
+          clearQuery();
+        }
+        return;
+      }
+
+      if (upgrade === "ok") {
+        window.DashAPI.me()
+          .catch(function () {})
+          .finally(function () {
+            window.alert("Plano ativado! Obrigado pela assinatura.");
+            clearQuery();
+          });
+      } else if (upgrade === "cancel" || upgrade === "expired") {
+        window.alert("Pagamento não concluído. Você pode tentar novamente quando quiser.");
+        clearQuery();
+      }
+    })();
+  </script>
 </body>
 </html>

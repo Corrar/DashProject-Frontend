@@ -235,24 +235,41 @@ function dashFilterByPeriod(rows, dateKey, days){
   });
 }
 
-/* Fetch a real AI narrative from the gemini-narrative Supabase Edge Function.
- * Uses supabaseClient.functions.invoke so the SDK attaches the apikey +
- * Authorization headers (the logged-in session JWT when present, else the
- * public anon key) that the function verifies — a bare fetch without them 401s
- * when JWT verification is on. Resolves to the function payload
- * ({ narrative, insights, recommendations, rawText }) or null on any failure,
- * so callers render a friendly error instead of crashing. Only a bounded sample
- * (≤20 rows) + column metadata leaves the browser, and only for Pro users who
- * opted into the analysis. */
+/* Fetch a real AI narrative from the backend (POST /tools/analyze via DashAPI).
+ * O DashAPI anexa o Bearer (access token em memória) + cookie de refresh e faz
+ * auto-refresh em 401. Resolve no payload da ferramenta ({ narrative, model }),
+ * null em falha/402 (free → abre planos), ou { quotaExceeded } em 429 (quota do
+ * mês). Só um sample limitado (≤20 linhas) + metadados de coluna saem do browser,
+ * e só para planos pagos que pediram a análise (o tier/quota é reforçado no
+ * servidor). */
 async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
   try {
-    const { data, error } = await window.supabaseClient.functions.invoke("gemini-narrative", {
-      body: { profiles, metrics, sampleRows, datasetName }
+    // profiles = saída de dashProfileColumns: { name, baseType, pattern, stats,… }.
+    // Mapeia pro contrato do backend {name, type}. Filtra colunas sem name string
+    // não-vazio (o zod do backend exige name) → nunca manda name:""/undefined.
+    const columns = (profiles || [])
+      .filter(function(p){ return p && typeof p.name === "string" && p.name.trim() !== ""; })
+      .map(function(p){ return { name: p.name, type: p.baseType || p.pattern || null }; });
+    // Injeta os KPIs reais como contexto na pergunta (o backend lê
+    // datasetName/columns/sampleRows/question — campos extras são ignorados).
+    const question = (metrics && metrics.length)
+      ? ("KPIs calculados: " + JSON.stringify(metrics))
+      : null;
+    const result = await window.DashAPI.analyze({
+      datasetName: datasetName,
+      columns: columns,
+      sampleRows: sampleRows,
+      question: question,
     });
-    if(error) throw error;
-    return data;
+    return result; // { narrative, model }
   } catch(err){
-    // Network/CORS/HTTP/JSON failure — surfaced to the user as the error state.
+    if(err && err.status === 402){            // plano insuficiente (free)
+      if(window.__dashOpenPlans) window.__dashOpenPlans();
+      return null;
+    }
+    if(err && err.status === 429){            // quota de IA do mês excedida
+      return { quotaExceeded: true, limite: err.data && err.data.limite, usados: err.data && err.data.usados };
+    }
     console.error("Narrative fetch failed:", err);
     return null;
   }
@@ -1374,6 +1391,7 @@ function AINarrative({ tweaks, live }){
   const data = (live && live.data) || null;
   const loading = !!(live && live.loading);
   const error = !!(live && live.error);
+  const quota = (live && live.quota) || null;
   const reload = ()=> { if(live && live.onReload) live.onReload(); };
 
   const norm = (arr)=> (Array.isArray(arr) ? arr : []).map(it => {
@@ -1433,6 +1451,30 @@ function AINarrative({ tweaks, live }){
               <div key={i} style={{height:62, borderRadius:12, background:"var(--line-2)", animation:"narrShimmer 1.4s ease-in-out infinite", animationDelay:(i*0.12)+"s"}}/>
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Quota state — monthly AI limit reached. Distinct from the generic error:
+  // offers an upgrade CTA instead of "try again". Rendered BEFORE error/idle.
+  if(quota && !data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{padding:"18px 20px", borderRadius:12, background:"var(--brand-soft)", border:"1px solid var(--line)", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
+          <div style={{width:36, height:36, borderRadius:9, background:"#fff", color:"var(--brand-2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+            <Icon.Sparkle size={16}/>
+          </div>
+          <div style={{flex:1, minWidth:200}}>
+            <div style={{fontWeight:700, fontSize:14, color:"var(--brand-2)"}}>Limite de análises deste mês atingido</div>
+            <div style={{fontSize:13, color:"var(--ink-2)", marginTop:2}}>
+              Você usou {quota.usados != null ? quota.usados : "—"} de {quota.limite != null ? quota.limite : "—"} análises. Faça upgrade para continuar.
+            </div>
+          </div>
+          <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()}>
+            <Icon.Arrow size={13}/> Ver planos
+          </button>
         </div>
       </div>
     );
@@ -1725,7 +1767,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [paywallReason, setPaywallReason] = React.useState(null); // null | "edit" | "add" | "insights" | "advanced"
 
-  const isFree = tweaks.plan !== "pro";
+  const isFree = tweaks.plan === "free";   // pago (essencial OU pro) libera a análise
   const requirePro = (reason)=>{
     if(isFree){ setPaywallReason(reason); return true; }
     return false;
@@ -1792,6 +1834,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const [narrative, setNarrative] = React.useState(null);
   const [narrativeLoading, setNarrativeLoading] = React.useState(false);
   const [narrativeError, setNarrativeError] = React.useState(false);
+  const [narrativeQuota, setNarrativeQuota] = React.useState(null); // null | { usados, limite }
   const narrativeKeyRef = React.useRef(null); // profile shape of the cached result
   const narrativeReqRef = React.useRef(0);    // guards against stale responses
   const narrativeKey = React.useMemo(()=>{
@@ -1803,7 +1846,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     if(!narrativeKey) return;
     if(!force && narrativeKeyRef.current === narrativeKey) return; // same data → keep cache
     const reqId = ++narrativeReqRef.current;
-    setNarrativeLoading(true); setNarrativeError(false);
+    setNarrativeLoading(true); setNarrativeError(false); setNarrativeQuota(null);
     // Real KPI values give the model concrete numbers to narrate; sampleRows is
     // a small, representative slice (period-independent so the cache stays warm).
     const metricsPayload = (generated && Array.isArray(generated.kpis) ? generated.kpis : [])
@@ -1812,6 +1855,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados")
       .then(result => {
         if(reqId !== narrativeReqRef.current) return; // a newer request superseded this one
+        if(result && result.quotaExceeded){ // 429 — quota do mês esgotada: card de upgrade, não erro genérico
+          setNarrativeQuota({ usados: result.usados, limite: result.limite });
+          setNarrativeError(false); setNarrativeLoading(false);
+          return;
+        }
         const ok = result && (result.narrative || result.rawText ||
           (Array.isArray(result.insights) && result.insights.length) ||
           (Array.isArray(result.recommendations) && result.recommendations.length));
@@ -2339,7 +2387,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       // Pro: real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
       const inner = hasRealData
-        ? <AINarrative tweaks={tweaks} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, onReload: ()=>loadNarrative(true) }}/>
+        ? <AINarrative tweaks={tweaks} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>

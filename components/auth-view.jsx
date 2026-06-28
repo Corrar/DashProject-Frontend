@@ -1,20 +1,19 @@
-/* AuthView — full-screen sign-in / sign-up page backed by Supabase Auth.
+/* AuthView — full-screen sign-in / sign-up page (backend próprio via DashAPI).
  *
  * Mirrors the logic of components/auth-modal.jsx (which stays as a fallback
  * surface, e.g. paywall flows) but exposes it as a routed view so that
  * landing/topbar buttons can navigate here instead of opening a modal.
  *
  * Submit handlers call:
- *   - supabaseClient.auth.signInWithPassword({ email, password })  → on success,
- *     onAuthStateChange (App) hydrates currentUser; we call onSuccess() so
- *     App navigates back to returnView.
- *   - supabaseClient.auth.signUp({ email, password, options:{ data:{ full_name }}})
- *     → on success, render SuccessCard with "confirme seu e-mail" copy and
- *     stay on the page (no auto-redirect — the session only becomes valid
- *     after the user clicks the confirmation link).
+ *   - DashAPI.login(email, password)  → on success, onAuthChange (App) hydrates
+ *     currentUser; we call onSuccess() so App navigates back to returnView.
+ *   - DashAPI.signup(email, password, fullName)  → conta criada e sessão já
+ *     ativa, mas e-mail ainda não verificado: render SuccessCard com a copy
+ *     "confirme seu e-mail" e fica na página.
  *
- * Microsoft login removed; Google left as a placeholder (alert "Em breve")
- * until the OAuth provider is configured in Supabase.
+ * authErrorMessage() é definido em auth-modal.jsx (carrega antes) e reusado aqui.
+ *
+ * Microsoft login removed; Google left as a placeholder (alert "Em breve").
  */
 
 function PasswordStrength({ value }){
@@ -112,40 +111,20 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
     if(state === "submitting") return;
     setApiError(null);
     if(!validate()) return;
-    const supa = window.supabaseClient;
-    if(!supa || !supa.auth){
-      setApiError("Cliente Supabase indisponível. Verifique a anon key em Dash.html.");
-      return;
-    }
     setState("submitting");
     try {
       if(isSignup){
-        const { error } = await supa.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name || null } },
-        });
-        if(error){
-          setApiError(error.message || "Falha ao criar conta.");
-          setState("idle");
-          return;
-        }
-        // Session only activates after the user clicks the confirmation
-        // e-mail; stay on this view and surface a SuccessCard.
+        await window.DashAPI.signup(email, password, name || null);
+        // Conta criada; sessão já ativa, mas e-mail ainda não verificado.
+        // Mantém o SuccessCard "confirme seu e-mail".
         setState("success");
       } else {
-        const { error } = await supa.auth.signInWithPassword({ email, password });
-        if(error){
-          setApiError(error.message || "Falha ao entrar.");
-          setState("idle");
-          return;
-        }
-        // onAuthStateChange in App hydrates currentUser. Hand control back to
-        // App so it can navigate to returnView (or landing as fallback).
+        await window.DashAPI.login(email, password);
+        // onAuthChange (App) hidrata currentUser; devolve controle ao App.
         onSuccess && onSuccess({ mode: "signin" });
       }
     } catch(err){
-      setApiError((err && err.message) || "Falha de rede.");
+      setApiError(authErrorMessage(err));
       setState("idle");
     }
   };

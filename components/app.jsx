@@ -1,4 +1,4 @@
-/* App root — view switcher + tweaks + Supabase auth glue. */
+/* App root — view switcher + tweaks + auth glue (backend próprio via DashAPI). */
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "brandName": "Dash",
@@ -11,8 +11,8 @@ function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [view, setView] = React.useState("landing"); // landing | upload | prompt | dashboard | auth | plans | account
   const [fileInfo, setFileInfo] = React.useState(null);
-  // currentUser is hydrated from Supabase Auth + profiles. null while
-  // anonymous; populated as { id, email, plan, fullName, stripeCustomerId }
+  // currentUser is hydrated from the backend (DashAPI.me). null while
+  // anonymous; populated as { id, email, plan, fullName, emailVerified, limits }
   // once the user signs in. See CLAUDE.md §17.
   const [currentUser, setCurrentUser] = React.useState(null);
   // AuthModal stays as a fallback surface (paywall/inline flows). Primary
@@ -36,74 +36,68 @@ function App(){
     window.scrollTo({top:0, behavior:"auto"});
   }, [view]);
 
-  // Read the `profiles` row for the signed-in user and shape it into the
-  // local currentUser model. RLS keeps this scoped to the user's own row.
-  const loadUserProfile = React.useCallback(async (userId)=>{
-    const supa = window.supabaseClient;
-    if(!supa) return;
+  // Hidrata currentUser a partir do backend (/me). Inclui `limits` p/ gates de UX.
+  // Obs.: DashAPI.me() também emite via onAuthChange, então o listener do bootstrap
+  // abaixo recebe este mesmo user — tudo bem, ele é guardado p/ não re-buscar.
+  const loadUserProfile = React.useCallback(async ()=>{
     try {
-      const { data, error } = await supa
-        .from("profiles")
-        .select("id, email, plan, full_name, stripe_customer_id")
-        .eq("id", userId)
-        .single();
-      if(error){
-        // eslint-disable-next-line no-console
-        console.error("[Auth] loadUserProfile:", error.message);
-        return;
-      }
-      if(data){
+      const me = await window.DashAPI.me();
+      if(me){
         setCurrentUser({
-          id: data.id,
-          email: data.email,
-          plan: data.plan || "free",
-          fullName: data.full_name,
-          stripeCustomerId: data.stripe_customer_id,
+          id: me.id,
+          email: me.email,
+          plan: me.plan || "free",
+          fullName: me.fullName,
+          emailVerified: me.emailVerified,
+          limits: me.limits || null,
         });
+      } else {
+        setCurrentUser(null);
       }
     } catch(e){
       // eslint-disable-next-line no-console
-      console.error("[Auth] loadUserProfile threw:", e);
+      console.error("[Auth] me() falhou:", e);
     }
   }, []);
 
-  // Bootstrap: pick up an existing session on mount and subscribe to auth
-  // events. Signed-in → hydrate currentUser from profiles. Signed-out →
-  // clear currentUser. Subscription is cleaned up on unmount.
+  // Bootstrap: hidrata UMA vez no mount; depois reage aos eventos de auth que o
+  // DashAPI emite (login/signup/logout e o refresh do me()).
+  //
+  // Guarda anti-loop: DashAPI.me() TAMBÉM emite via onAuthChange. Se este listener
+  // chamasse loadUserProfile() (→ me()) sempre, esse emit re-entraria o listener →
+  // loadUserProfile() → me() → … pra sempre. Então:
+  //   • seta currentUser direto do `user` que o evento traz (sem fetch);
+  //   • só chama loadUserProfile() quando o `user` vem SEM o campo `limits`
+  //     (payload de login/signup). O me() seguinte emite um user que JÁ tem limits,
+  //     então a próxima passada do listener pula o re-fetch. Limitado a exatamente
+  //     um /me extra, sem loop (cobre também limits:null, pois null !== undefined).
   React.useEffect(()=>{
-    const supa = window.supabaseClient;
-    if(!supa){
-      // eslint-disable-next-line no-console
-      console.warn("[Auth] window.supabaseClient ausente — verifique o init em Dash.html.");
-      return undefined;
-    }
-    supa.auth.getSession().then(({ data })=>{
-      const session = data && data.session;
-      if(session && session.user){ loadUserProfile(session.user.id); }
-    }).catch((e)=>{
-      // eslint-disable-next-line no-console
-      console.error("[Auth] getSession threw:", e);
-    });
-    const sub = supa.auth.onAuthStateChange((_event, session)=>{
-      if(session && session.user){
-        loadUserProfile(session.user.id);
-        // Close the auth modal if it was open — sign-in just succeeded.
+    loadUserProfile();
+    const off = window.DashAPI.onAuthChange((user)=>{
+      if(user){
+        setCurrentUser({
+          id: user.id,
+          email: user.email,
+          plan: user.plan || "free",
+          fullName: user.fullName,
+          emailVerified: user.emailVerified,
+          limits: user.limits || null,
+        });
+        if(user.limits === undefined){ loadUserProfile(); } // busca limits completos, 1x
+        // Fecha o auth modal se estava aberto — login acabou de suceder.
         setAuthModal((m)=> m.open ? { ...m, open: false } : m);
       } else {
         setCurrentUser(null);
       }
     });
-    return ()=>{
-      const subscription = sub && sub.data && sub.data.subscription;
-      if(subscription && subscription.unsubscribe){ subscription.unsubscribe(); }
-    };
+    return off;
   }, [loadUserProfile]);
 
   // Plan resolution: anonymous visitors are always "free" — the tweaks
   // panel's plan toggle no longer affects the paywall (security spec, see
   // CLAUDE.md §17). The toggle stays in the UI as a dev-only relic; to test
-  // Pro behavior end-to-end, edit profiles.plan in the Supabase dashboard
-  // (CLAUDE.md §18).
+  // Pro behavior end-to-end, set the user's plan no backend (tabela profiles)
+  // — o /me reflete o tier real (CLAUDE.md §18).
   const userPlan = (currentUser && currentUser.plan) || "free";
   const effectiveTweaks = { ...tweaks, plan: userPlan };
 
@@ -158,10 +152,8 @@ function App(){
   const onSignIn = ()=> openAuth("login");
   const onSignUp = ()=> openAuth("signup");
   const onSignOut = async ()=>{
-    const supa = window.supabaseClient;
-    if(supa && supa.auth){ await supa.auth.signOut(); }
-    setCurrentUser(null);
-    setProfileOpen(false);
+    try { await window.DashAPI.logout(); }
+    finally { setCurrentUser(null); setProfileOpen(false); }
   };
   const onProfile = ()=> setProfileOpen(true);
 
@@ -225,13 +217,12 @@ function App(){
         onSuccess={()=> setView(returnView || "landing")}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
-        onSelectPro={()=>{
-          // Stripe Checkout lands in a future sprint (CLAUDE.md §15).
-          // For now: anonymous users get bounced into signup, logged-in users
-          // see a placeholder. Plan flips happen server-side via webhook —
-          // never mutate currentUser.plan from the client.
+        onSelectPlan={(plan, method)=>{
+          // plan: 'essencial'|'pro'  method: 'card'|'pix'
+          // Anônimo → cadastro primeiro. O flip de plano acontece no servidor
+          // via webhook — nunca mutar currentUser.plan no cliente.
           if(!currentUser) return onSignUp();
-          window.alert("Checkout do Stripe em breve.");
+          window.DashAPI.checkout(plan, method); // redireciona pro Asaas
         }}
         onClose={closeSecondary}/>}
       {view==="account" && <AccountView tweaks={effectiveTweaks} setTweak={setTweak} currentUser={currentUser}
