@@ -214,7 +214,7 @@ function App(){
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
         tweaks={effectiveTweaks}
-        onSuccess={()=> setView(returnView || "landing")}
+        onSuccess={()=> setView(returnView && returnView !== "landing" ? returnView : "upload")}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
         onSelectPlan={(plan, method)=>{
