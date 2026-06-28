@@ -1,9 +1,12 @@
+node_modules/
 uploads/
 .DS_Store
 Thumbs.db
 *.log
+*.tmp
 .vscode/
 .idea/
+.claude/settings.local.json
 
 # Exploratory mocks from the design-v2 sprint — integrated into components/
 # and deleted in commit 5 of the design-v2-integration branch. Kept ignored
