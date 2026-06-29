@@ -214,6 +214,32 @@ function dashProfileColumns(header, rawRows){
   });
 }
 
+/* Single source of truth for ranking a column NAME as the headline "value"
+ * (revenue) column. Used by BOTH dashResolveColumns (realAgg) and
+ * dashSuggestMetrics (discovery) so the KPI total and the charts can never
+ * pick different value columns (the valor_unitario vs valor_total bug).
+ * Higher = more likely the revenue column; negative = must never be the
+ * headline (counts, order ids). "total/bruto/líquido" beats a bare "valor",
+ * and "unitário"/"custo" are demoted (unit price and cost are not revenue). */
+function dashScoreValueName(name){
+  const n = String(name).toLowerCase();
+  const isQty   = /(qtd|qtde|qty|quantidade|unidades|volume|count|^num$|^qt$|^n$)/.test(n);
+  const isOrder = /(pedido|order|num_venda|venda_id|cod_venda|numero_pedido|nota_fiscal|^nf$|^id$|order_id)/.test(n);
+  if(isQty || isOrder) return -1;
+  const terms = ["receita","valor","faturamento","revenue","gmv","montante","venda","total","preco","preço"];
+  let best = 0;
+  for(const t of terms){
+    if(n.startsWith(t)) best = Math.max(best, 3);   // prefix match
+    else if(n.includes(t)) best = Math.max(best, 2); // substring match
+  }
+  if(best > 0){
+    if(/total|bruto|l[íi]quid|faturad|geral/.test(n)) best += 2;        // headline totals win the tie
+    if(/(unit[áa]rio|por_unidade|preco_unit|vlr_unit)/.test(n)) best -= 2; // unit price ≠ revenue
+    if(/(custo|cost|despesa|cogs|cmv)/.test(n)) best -= 2;               // cost ≠ revenue
+  }
+  return best;
+}
+
 /* Suggest ranked metrics from profiles. Higher priority = more relevant.
  * Priorities follow the design doc table (monetary sum 100 … count 50). */
 function dashSuggestMetrics(profiles, rows){
@@ -223,11 +249,16 @@ function dashSuggestMetrics(profiles, rows){
 
   (profiles || []).forEach(p => {
     switch(p.pattern){
-      case "monetary":
-        add({ kind:"sum", columns:{ primary:p.name }, label:"Total de "+p.name, priority:100, format:"currency" });
-        if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95, format:"currency" });
-        add({ kind:"avg", columns:{ primary:p.name }, label:"Média de "+p.name, priority:65, format:"currency" });
+      case "monetary": {
+        // Tie-break by name score so that with multiple monetary columns
+        // (e.g. valor_unitario + valor_total) the headline KPI and the trend
+        // chart both lock onto the SAME column realAgg picks (valor_total).
+        const vb = dashScoreValueName(p.name);
+        add({ kind:"sum", columns:{ primary:p.name }, label:"Total de "+p.name, priority:100 + vb, format:"currency" });
+        if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95 + vb, format:"currency" });
+        add({ kind:"avg", columns:{ primary:p.name }, label:"Média de "+p.name, priority:65 + vb, format:"currency" });
         break;
+      }
       case "continuous":
         add({ kind:"sum", columns:{ primary:p.name }, label:"Soma de "+p.name, priority:60, format:"number" });
         if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95, format:"number" });
@@ -473,7 +504,7 @@ function dashPresetCompat(profiles){
 
 Object.assign(window, {
   // canonical names
-  dashProfileColumn, dashProfileColumns, dashSuggestMetrics, dashGenerateBlocks, dashPresetCompat,
+  dashProfileColumn, dashProfileColumns, dashSuggestMetrics, dashGenerateBlocks, dashPresetCompat, dashScoreValueName,
   // short aliases for console / tests
   dashProfile: dashProfileColumn,
   dashProfiles: dashProfileColumns,

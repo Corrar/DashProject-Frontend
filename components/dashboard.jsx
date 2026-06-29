@@ -140,25 +140,12 @@ function dashResolveColumns(schema){
     const m = schema.find(c => (!type || c.type === type) && re.test(lc(c.name)));
     return m ? m.name : null;
   };
-  // Names that must never be chosen as the headline "value": counts and order
-  // identifiers. Excluding them stops "Quantidade"/"num_venda" from being read
-  // as revenue just because they're the first numeric column (BUG 5).
-  const isQtyName   = (n)=> /(qtd|qtde|qty|quantidade|unidades|volume|count|^num$|^qt$|^n$)/.test(n);
+  // Order identifiers (used below for the unique-order denominator) must never
+  // be read as revenue. The full "is this the value column?" scoring lives in
+  // dashScoreValueName (dashboard-discovery.jsx) so realAgg and the discovery
+  // pipeline share ONE ranking and can't pick different value columns.
   const isOrderName = (n)=> /(pedido|order|num_venda|venda_id|cod_venda|numero_pedido|nota_fiscal|^nf$|^id$|order_id)/.test(n);
-  // Revenue terms, ranked: a prefix match beats a substring match so the regex
-  // no longer needs a "^" anchor (BUG 6) — "ValorBruto" (prefix) outranks
-  // "Vlr_Total" (substring of "total"), both now match instead of neither.
-  const valueTerms = ["receita","valor","faturamento","revenue","gmv","montante","venda","total","preco","preço"];
-  const scoreValue = (name)=>{
-    const n = lc(name);
-    if(isQtyName(n) || isOrderName(n)) return -1;
-    let best = 0;
-    for(const t of valueTerms){
-      if(n.startsWith(t)) best = Math.max(best, 3);
-      else if(n.includes(t)) best = Math.max(best, 2);
-    }
-    return best;
-  };
+  const scoreValue = window.dashScoreValueName;
   const measures = schema.filter(c => c.type === "measure");
   let value = null, bestScore = 0;
   for(const c of measures){ const sc = scoreValue(c.name); if(sc > bestScore){ bestScore = sc; value = c.name; } }
