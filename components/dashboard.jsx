@@ -1748,7 +1748,10 @@ function Insights({ tweaks, onAddChart, generated }){
 }
 
 function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
-  const [period, setPeriod] = React.useState("90d");
+  // Real upload → abre em "Tudo" para mostrar TODOS os dados de cara (não uma
+  // janela de 90d que descartaria linhas silenciosamente). O caminho de demo
+  // sem upload mantém "90d". Lazy init: roda só no mount.
+  const [period, setPeriod] = React.useState(()=> (fileInfo && fileInfo.data && fileInfo.data.length) ? "all" : "90d");
   const [editing, setEditing] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -2519,7 +2522,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             const showBefore = dragOver?.id === b.id && dragOver.position === "before" && dragId !== b.id;
             const showAfter  = dragOver?.id === b.id && dragOver.position === "after"  && dragId !== b.id;
             return (
-              <div key={b.id} data-block-id={b.id}
+              <div key={b.kind === "kpi" ? `${b.id}::${period}` : b.id} data-block-id={b.id}
                 className={"block-wrap rv"}
                 style={{
                   gridColumn: `span ${b.span}`,
