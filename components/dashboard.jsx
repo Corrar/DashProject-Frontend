@@ -134,6 +134,65 @@ function dashRowsToObjects(header, rawRows, schema){
   });
 }
 
+/* ── Excel (.xlsx/.xls) — SheetJS carregado LAZY ─────────────────────────
+ * A lib só é baixada quando o usuário sobe um Excel, então quem usa CSV/JSON
+ * não paga o peso dela no load da página.
+ * ⚠️ CSP (CLAUDE.md §8): quando a Content-Security-Policy entrar, `cdn.sheetjs.com`
+ * PRECISA ir para a allowlist de `script-src` — senão este <script> injetado é
+ * bloqueado e o upload de Excel quebra silenciosamente. Hoje a CSP planejada só
+ * permite unpkg + fonts. */
+let _xlsxLoad = null;
+function dashEnsureXLSX(){
+  if(typeof window !== "undefined" && window.XLSX) return Promise.resolve(window.XLSX);
+  if(_xlsxLoad) return _xlsxLoad;
+  _xlsxLoad = new Promise((resolve, reject)=>{
+    const s = document.createElement("script");
+    s.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    s.crossOrigin = "anonymous"; // TODO: adicionar integrity (SRI) na hora do deploy
+    s.onload = ()=> window.XLSX ? resolve(window.XLSX) : reject(new Error("XLSX ausente após carregar"));
+    s.onerror = ()=>{ _xlsxLoad = null; reject(new Error("Falha ao carregar SheetJS")); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLoad;
+}
+
+/* Excel ArrayBuffer → texto CSV (primeira aba). De propósito devolve CSV para
+ * reaproveitar dashParseCSV → o xlsx entra no MESMO pipeline de um upload CSV. */
+function dashXlsxToText(arrayBuffer, XLSX){
+  const wb = XLSX.read(arrayBuffer, { type:"array" });
+  const sheetName = wb.SheetNames && wb.SheetNames[0];
+  if(!sheetName) throw new Error("A planilha está vazia.");
+  const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], { blankrows:false });
+  if(!csv.trim()) throw new Error("A primeira aba não tem dados.");
+  return csv;
+}
+
+/* JSON / NDJSON texto → { header, rows } no MESMO formato que dashParseCSV
+ * devolve, então alimenta dashInferSchema/dashRowsToObjects sem lib externa.
+ * Aceita array de objetos, {data:[...]} ou {rows:[...]}. */
+function dashJsonToParsed(text, ndjson){
+  let arr;
+  if(ndjson){
+    arr = String(text).split(/\r?\n/).filter(l => l.trim()).map(l => JSON.parse(l));
+  } else {
+    const p = JSON.parse(text);
+    arr = Array.isArray(p) ? p
+        : (p && Array.isArray(p.data)) ? p.data
+        : (p && Array.isArray(p.rows)) ? p.rows
+        : null;
+  }
+  if(!Array.isArray(arr) || !arr.length) throw new Error("o JSON precisa ser um array de objetos (ou {data:[...]}).");
+  // Header = união das chaves entre as linhas (mantém ordem de 1ª aparição).
+  const header = [], seen = {};
+  arr.forEach(o => { if(o && typeof o === "object" && !Array.isArray(o)){ Object.keys(o).forEach(k => { if(!seen[k]){ seen[k]=1; header.push(k); } }); } });
+  if(!header.length) throw new Error("JSON sem campos reconhecíveis (esperado array de objetos).");
+  const rows = arr.map(o => header.map(k => {
+    const v = o ? o[k] : null;
+    return v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+  }));
+  return { header, rows };
+}
+
 function dashResolveColumns(schema){
   const lc = (s)=> String(s).toLowerCase();
   const pick = (re, type)=>{
@@ -304,6 +363,17 @@ const DASH_SAMPLE_CSV = [
   "2026-05-19,Climatização Industrial,Marketplace,CO,Diego R.,61700,16,3856.25,0.051,75",
 ].join("\n");
 
+// Amostra JSON real (array de objetos) — usada no botão de exemplo ".json" para
+// exercitar o suporte a JSON de verdade, em vez de fingir com o CSV.
+const DASH_SAMPLE_JSON = JSON.stringify([
+  { data:"2026-04-02", produto:"Mesa Ajustável",        canal:"Marketplace",  regiao:"CO", vendedor:"Ana P.",    receita:2980, quantidade:2,  ticket_medio:1490.00, conversao:0.21, nps:74 },
+  { data:"2026-04-05", produto:"Notebook Pro 14",       canal:"Site",         regiao:"SE", vendedor:"Bruno S.",  receita:8120, quantidade:1,  ticket_medio:8120.00, conversao:0.18, nps:71 },
+  { data:"2026-04-09", produto:"Cadeira Gamer",         canal:"Loja Física",  regiao:"NE", vendedor:"Carla L.",  receita:3460, quantidade:3,  ticket_medio:1153.33, conversao:0.16, nps:69 },
+  { data:"2026-04-12", produto:"Fone Bluetooth",        canal:"Marketplace",  regiao:"Sul",vendedor:"Diego R.",  receita:1880, quantidade:8,  ticket_medio:235.00,  conversao:0.24, nps:73 },
+  { data:"2026-04-16", produto:"Mouse Sem Fio",         canal:"Marketplace",  regiao:"CO", vendedor:"Eva M.",    receita:1240, quantidade:11, ticket_medio:112.73,  conversao:0.22, nps:70 },
+  { data:"2026-04-20", produto:"Mesa Ajustável",        canal:"Site",         regiao:"SE", vendedor:"Felipe T.", receita:5960, quantidade:4,  ticket_medio:1490.00, conversao:0.20, nps:75 },
+], null, 2);
+
 function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
   const fname = fileInfo?.name || "vendas_exemplo.csv";
   return (
@@ -371,13 +441,6 @@ function UploadView({ onUploaded }){
 2026-07-12\tMesa\t2980`,
     },
     {
-      k:"parquet", ext:".parquet", n:"Parquet", c:"#2f6bff", pro:true,
-      desc:"Formato colunar comprimido. Ótimo para arquivos grandes.",
-      max:"200 MB", rows:"até 5M linhas",
-      sample: `[binário, otimizado para análise]
-schema inferida automaticamente`,
-    },
-    {
       k:"gsheet", ext:"link compartilhado", n:"Google Sheets", c:"#34a853", pro:true,
       desc:"Cole o link público da planilha. Sincronização opcional.",
       max:"qualquer tamanho", rows:"primeira aba por padrão",
@@ -407,51 +470,98 @@ schema inferida automaticamente`,
     setStep("reading");
     setProgress(10);
 
-    const ingest = (text)=>{
-      setProgress(35); setStep("parsing");
+    const ext = String(name).toLowerCase().split(".").pop();
+    const fail = (msg)=>{ setParseError(msg); setStep(""); };
+
+    // Cauda compartilhada: recebe { header, rows } e roda o MESMO pipeline de
+    // schema/dados/profiles para todo formato (CSV, Excel, JSON). É o corpo
+    // original do ingest() a partir do dashInferSchema — os fixes de coluna/
+    // período/número vivem aqui embaixo e seguem intactos.
+    const ingestParsed = (header, rows)=>{
+      if(!header.length || !rows.length){
+        fail("Não consegui detectar cabeçalho ou linhas no arquivo.");
+        return;
+      }
+      const schema = dashInferSchema(header, rows);
+      setProgress(70); setStep("analyzing");
       setTimeout(()=>{
-        try {
-          const parsed = dashParseCSV(text);
-          if(!parsed.header.length || !parsed.rows.length){
-            setParseError("Não consegui detectar cabeçalho ou linhas no arquivo.");
-            setStep("");
-            return;
-          }
-          const schema = dashInferSchema(parsed.header, parsed.rows);
-          setProgress(70); setStep("analyzing");
-          setTimeout(()=>{
-            const data = dashRowsToObjects(parsed.header, parsed.rows, schema);
-            // Profile on the RAW rows (parsed.rows) — currency/percent symbols
-            // are still intact here; dashRowsToObjects would have stripped them.
-            const profiles = window.dashProfileColumns ? window.dashProfileColumns(parsed.header, parsed.rows) : [];
-            setProgress(100); setStep("done");
-            setFilename(prev => ({...prev, rows: data.length, cols: parsed.header.length}));
-            setTimeout(()=> onUploaded && onUploaded({
-              name, sizeKB,
-              rows: data.length,
-              cols: parsed.header.length,
-              schema, data, profiles,
-            }), 400);
-          }, 400);
-        } catch(e){
-          setParseError("Erro ao processar o arquivo: " + (e && e.message ? e.message : "formato inesperado"));
-          setStep("");
-        }
+        const data = dashRowsToObjects(header, rows, schema);
+        // Profile on the RAW rows — currency/percent symbols still intact here.
+        const profiles = window.dashProfileColumns ? window.dashProfileColumns(header, rows) : [];
+        setProgress(100); setStep("done");
+        setFilename(prev => ({...prev, rows: data.length, cols: header.length}));
+        setTimeout(()=> onUploaded && onUploaded({
+          name, sizeKB,
+          rows: data.length,
+          cols: header.length,
+          schema, data, profiles,
+        }), 400);
       }, 400);
     };
 
+    // Porta CSV/TSV/TXT — caminho ORIGINAL: dashParseCSV → cauda compartilhada.
+    const ingestText = (text)=>{
+      setProgress(35); setStep("parsing");
+      setTimeout(()=>{
+        try { const p = dashParseCSV(text); ingestParsed(p.header, p.rows); }
+        catch(e){ fail("Erro ao processar o arquivo: " + (e && e.message ? e.message : "formato inesperado")); }
+      }, 400);
+    };
+
+    // Porta JSON/NDJSON — deriva { header, rows } e cai na cauda compartilhada.
+    const ingestJSON = (text)=>{
+      setProgress(35); setStep("parsing");
+      setTimeout(()=>{
+        try { const p = dashJsonToParsed(text, ext === "ndjson"); ingestParsed(p.header, p.rows); }
+        catch(e){ fail("Não consegui ler o JSON: " + (e && e.message ? e.message : "formato inválido")); }
+      }, 400);
+    };
+
+    // ── Dispatch por EXTENSÃO (MIME do xlsx é inconsistente entre SO) ───────
+    if(ext === "xlsx" || ext === "xls"){
+      if(!(file instanceof Blob)){ fail("Envie o arquivo Excel (a prévia em texto não se aplica)."); return; }
+      setStep("parsing"); setProgress(25);
+      dashEnsureXLSX().then(XLSX=>{
+        const reader = new FileReader();
+        reader.onload = (e)=>{
+          try { ingestText(dashXlsxToText(e.target?.result, XLSX)); }
+          catch(err){ fail("Não consegui ler o Excel (arquivo corrompido ou protegido por senha?)" + (err && err.message ? " — " + err.message : "")); }
+        };
+        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
+        reader.readAsArrayBuffer(file);
+      }).catch(()=> fail("Suporte a Excel indisponível agora. Verifique a conexão e tente de novo."));
+      return;
+    }
+
+    if(ext === "json" || ext === "ndjson"){
+      if(file && typeof file.text === "string"){ ingestJSON(file.text); }
+      else if(file instanceof Blob){
+        const reader = new FileReader();
+        reader.onload = (e)=> ingestJSON(String(e.target?.result || ""));
+        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
+        reader.readAsText(file);
+      } else { fail("Fonte sem dados anexados."); }
+      return;
+    }
+
+    // Binários conhecidos que NÃO suportamos → erro claro (não lixo "PK").
+    const UNSUPPORTED = ["parquet","pdf","zip","rar","7z","png","jpg","jpeg","gif","xlsb","db","sqlite"];
+    if(file instanceof Blob && UNSUPPORTED.indexOf(ext) >= 0){
+      fail("Formato ." + ext + " não suportado. Use CSV, TSV, JSON ou Excel (.xlsx).");
+      return;
+    }
+
+    // DEFAULT — CSV/TSV/TXT (e payloads de texto: colar/sample/URL). INALTERADO.
     if(file && typeof file.text === "string"){
-      ingest(file.text);
+      ingestText(file.text);
     } else if(file instanceof Blob){
       const reader = new FileReader();
-      reader.onload = (e)=> ingest(String(e.target?.result || ""));
-      reader.onerror = ()=>{ setParseError("Não foi possível ler o arquivo."); setStep(""); };
+      reader.onload = (e)=> ingestText(String(e.target?.result || ""));
+      reader.onerror = ()=>{ fail("Não foi possível ler o arquivo."); };
       reader.readAsText(file);
     } else {
-      // URL tab still calls this without a real payload — keep the user-facing
-      // pipeline but bail out cleanly.
-      setParseError("Fonte sem dados anexados.");
-      setStep("");
+      // URL tab still calls this without a real payload — bail out cleanly.
+      fail("Fonte sem dados anexados.");
     }
   };
 
@@ -469,7 +579,7 @@ schema inferida automaticamente`,
 
   return (
     <div style={{maxWidth: 1100, margin:"40px auto 0", padding:"0 24px 80px"}}>
-      <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls,.parquet" style={{display:"none"}} onChange={onFileChosen}/>
+      <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls" style={{display:"none"}} onChange={onFileChosen}/>
       <div style={{textAlign:"center", marginBottom: 36}}>
         <div className="rv eyebrow" style={{marginBottom:18}}><Icon.Sparkle size={12}/> Powered by IA · seus dados nunca saem do navegador</div>
         <h1 className="rv h-section" style={{margin:"0 0 12px", fontSize: 44}}>Envie seus dados e a IA monta o <span style={{color:"var(--brand)"}}>dashboard</span>.</h1>
@@ -536,7 +646,7 @@ schema inferida automaticamente`,
                   <div style={{fontWeight:700, fontSize:18, marginBottom:6}}>Arraste seu arquivo aqui</div>
                   <div style={{fontSize:13, color:"var(--muted)", marginBottom: 20}}>ou clique para selecionar do seu computador</div>
                   <div style={{display:"flex", justifyContent:"center", gap:8, flexWrap:"wrap"}}>
-                    {[".csv",".xlsx",".json",".tsv",".parquet"].map(e=>(
+                    {[".csv",".xlsx",".json",".tsv"].map(e=>(
                       <span key={e} className="chip mono" style={{background:"var(--line-2)"}}>{e}</span>
                     ))}
                   </div>
@@ -600,12 +710,12 @@ schema inferida automaticamente`,
               <div style={{fontWeight:700, fontSize:15}}>Quer testar sem dados próprios?</div>
               <div style={{fontSize:13, color:"var(--muted)", marginBottom:6}}>Escolha um dataset de exemplo. Você pode trocar depois.</div>
               {[
-                {n:"vendas_exemplo.csv", d:"120 linhas · 10 colunas · marketplace BR", t:"E-commerce", c:"var(--brand)"},
-                {n:"churn_saas.json", d:"850 registros · 14 colunas · cohort 2025", t:"SaaS", c:"var(--violet)"},
-                {n:"funil_marketing.xlsx", d:"6 abas · top of funnel → MQL → SQL", t:"Marketing", c:"#0a8a4a"},
-                {n:"financeiro_q3.csv", d:"312 linhas · DRE simplificado", t:"Finanças", c:"#ff7849"},
+                {n:"vendas_exemplo.csv", d:"linhas · 10 colunas · marketplace BR", t:"E-commerce", c:"var(--brand)", text: DASH_SAMPLE_CSV},
+                {n:"churn_saas.json", d:"array de objetos · testa o suporte a JSON", t:"SaaS", c:"var(--violet)", text: DASH_SAMPLE_JSON},
+                {n:"funil_marketing.csv", d:"top of funnel → MQL → SQL", t:"Marketing", c:"#0a8a4a", text: DASH_SAMPLE_CSV},
+                {n:"financeiro_q3.csv", d:"DRE simplificado", t:"Finanças", c:"#ff7849", text: DASH_SAMPLE_CSV},
               ].map(s=>(
-                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, text: DASH_SAMPLE_CSV})}
+                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, text: s.text})}
                   style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"white", cursor:"pointer", textAlign:"left"}}>
                   <div style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center"}}>
                     <Icon.Doc size={16}/>
