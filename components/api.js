@@ -121,23 +121,27 @@
     },
 
     // ── billing (Asaas) ─────────────────────────────────────────────────
-    // plan: 'essencial' | 'pro'    method: 'card' | 'pix'
+    // plan: 'essencial' | 'pro'    method: 'card' | 'pix'    cycle: 'monthly' | 'yearly'
     // 'card' = assinatura recorrente; 'pix' = entrada avulsa (boleto fica nas
     // renovações geradas pelo job no backend). Redireciona pro checkout do Asaas.
-    async checkout(plan, method) {
+    async checkout(plan, method, cycle) {
       var d = await json("/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ plan: plan, method: method || "card" }),
+        body: JSON.stringify({ plan: plan, method: method || "card", cycle: cycle === "yearly" ? "yearly" : "monthly" }),
       });
       if (d && d.url) { window.location.href = d.url; }
       return d;
     },
-    // Troca de tier na assinatura do cartão. Upgrade: na hora; downgrade: no
-    // próximo ciclo. Resolve em { ok, plan, effective: 'now'|'next_cycle' }.
-    changePlan: function (plan) {
-      return json("/billing/change-plan", { method: "POST", body: JSON.stringify({ plan: plan }) });
+    // Troca de tier e/ou ciclo na assinatura do cartão. Upgrade: na hora;
+    // downgrade e troca de ciclo: na próxima cobrança.
+    // Resolve em { ok, plan, cycle, effective: 'now'|'next_cycle' }.
+    changePlan: function (plan, cycle) {
+      var body = { plan: plan };
+      if (cycle) body.cycle = cycle;
+      return json("/billing/change-plan", { method: "POST", body: JSON.stringify(body) });
     },
-    // Cancela a assinatura (cartão). O downgrade pra free vem pelo webhook.
+    // Cancela a assinatura (cartão). A renovação para e o acesso segue até o fim
+    // do período pago. Resolve em { ok, accessUntil }.
     cancel: function () { return json("/billing/cancel", { method: "POST" }); },
 
     // ── links públicos (Pro) ────────────────────────────────────────────
@@ -153,9 +157,9 @@
     // Público: abre sem login (404 se desativado ou se o dono saiu do Pro).
     getShare: function (slug) { return json("/share/" + encodeURIComponent(slug)); },
 
-    // ── ferramenta paga (IA) ────────────────────────────────────────────
+    // ── análise por IA (cota mensal: Free 1 · Essencial 50 · Pro 300) ────
     // payload: { datasetName, columns:[{name,type?}], sampleRows:[{}], question? }
-    // 402 = plano insuficiente · 429 = quota de IA do mês excedida.
+    // 401 = sem sessão · 429 = quota de IA do mês excedida.
     analyze: function (payload) {
       return json("/tools/analyze", { method: "POST", body: JSON.stringify(payload) });
     },

@@ -36,6 +36,26 @@
   window.__API_URL = "https://dashproject-backend.onrender.com";
   // E-mail de contato exibido em "Fale com a gente" (vazio = link oculto).
   window.__CONTACT_EMAIL = "";
+
+  // Vercel Web Analytics (sem cookies). Ativar em Vercel → projeto → Analytics.
+  // O auto-track fica desligado: o app é uma página só, e a URL pode carregar
+  // tokens (?verify=, ?reset=, ?s=). O App manda um pageview por tela com um
+  // caminho virtual (/upload, /dashboard…) via dashTrackView; eventos-chave
+  // via dashTrack (eventos personalizados exigem o plano Pro da Vercel).
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  window.dashTrackView = function (name) {
+    try { window.va("pageview", { route: "/" + name, path: "/" + name }); } catch (e) {}
+  };
+  window.dashTrack = function (name, data) {
+    try { window.va("event", { name: name, data: data || {} }); } catch (e) {}
+  };
+  if (!/^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(window.location.hostname)) {
+    var vaScript = document.createElement("script");
+    vaScript.defer = true;
+    vaScript.src = "/_vercel/insights/script.js";
+    vaScript.setAttribute("data-disable-auto-track", "1");
+    document.head.appendChild(vaScript);
+  }
 </script>
 <script src="components/api.js"></script>
 <style>
@@ -402,6 +422,7 @@
   <script type="text/babel" src="components/dashboard-discovery.jsx"></script>
   <script type="text/babel" src="components/dashboard.jsx"></script>
   <script type="text/babel" src="components/dashboard-export.jsx"></script>
+  <script type="text/babel" src="components/dashboard-saved.jsx"></script>
   <script type="text/babel" src="components/share-view.jsx"></script>
   <script type="text/babel" src="components/auth-modal.jsx"></script>
   <script type="text/babel" src="components/auth-view.jsx"></script>
@@ -448,6 +469,7 @@
       }
 
       if (upgrade === "ok") {
+        window.dashTrack("checkout_concluido");
         window.DashAPI.me()
           .catch(function () {})
           .finally(function () {

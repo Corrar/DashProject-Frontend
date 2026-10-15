@@ -670,27 +670,57 @@ function Logos(){
   );
 }
 
+// Preços espelham src/plans.ts do backend (anual = 10× o mensal, ou seja,
+// 2 meses grátis). Usado por Pricing, PlansView, BillingSection e app.jsx.
+const DASH_PRICES = {
+  essencial: { monthly: 29.90, yearly: 299 },
+  pro:       { monthly: 49.90, yearly: 499 },
+};
+function dashFmtBRL(v){ return "R$ " + Number(v).toFixed(2).replace(".", ","); }
+
+// Seletor Mensal/Anual compartilhado pela landing e pela PlansView.
+function CycleToggle({ cycle, onChange }){
+  return (
+    <div className="seg" role="group" aria-label="Ciclo de cobrança" style={{padding:4, borderRadius:12}}>
+      <button className={cycle === "monthly" ? "on" : ""} aria-pressed={cycle === "monthly"} onClick={()=> onChange("monthly")} style={{padding:"8px 16px", fontSize:13, fontWeight:600}}>Mensal</button>
+      <button className={cycle === "yearly" ? "on" : ""} aria-pressed={cycle === "yearly"} onClick={()=> onChange("yearly")} style={{padding:"8px 14px", fontSize:13, fontWeight:600}}>
+        Anual <span className="chip" style={{marginLeft:6, padding:"1px 7px", fontSize:10.5, background:"#e7f7ef", color:"#0a8a4a"}}>2 meses grátis</span>
+      </button>
+    </div>
+  );
+}
+
 // Espelha os 3 tiers do backend (src/plans.ts) e a PlansView — manter os três
 // em sincronia ao mudar preço/limite.
 function Pricing({ onOpenApp }){
+  const [cycle, setCycle] = React.useState("monthly");
+  const yearly = cycle === "yearly";
+  const price = (k)=> {
+    const v = DASH_PRICES[k][cycle];
+    return yearly ? String(v) : v.toFixed(2).replace(".", ",");
+  };
+  const perMonth = (k)=> dashFmtBRL(DASH_PRICES[k].yearly / 12);
   const plans = [
     { k:"free", name:"Free", tagline:"Para experimentar.", price:"0", per:"/sempre",
-      features:["Upload CSV, Excel e JSON","Dashboard montado automaticamente","Até 5 mil linhas por base","Filtros por período"],
+      features:["Upload CSV, Excel e JSON","Dashboard montado automaticamente","1 análise da IA por mês","Até 5 mil linhas por base"],
       cta:"Começar grátis", onClick:()=> window.__dashEnterApp?.() },
-    { k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.", price:"29,90", per:"/mês",
+    { k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.", price:price("essencial"), per: yearly ? "/ano" : "/mês",
+      note: yearly ? "equivale a " + perMonth("essencial") + "/mês" : null,
       features:["Tudo do Free, e mais:","50 análises da IA por mês","Editar e adicionar blocos","Até 100 mil linhas por base","Exportar PDF/PNG"],
-      cta:"Assinar o Essencial", onClick:()=> window.__dashUpgrade?.() },
-    { k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", price:"49,90", per:"/mês", highlight:true,
+      cta:"Assinar o Essencial", onClick:()=> window.__dashUpgrade?.(cycle) },
+    { k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", price:price("pro"), per: yearly ? "/ano" : "/mês", highlight:true,
+      note: yearly ? "equivale a " + perMonth("pro") + "/mês" : null,
       features:["Tudo do Essencial, e mais:","300 análises da IA por mês","Até 1 milhão de linhas por base","Compartilhamento por link","Sem a marca Dash"],
-      cta:"Assinar o Pro", onClick:()=> window.__dashUpgrade?.() },
+      cta:"Assinar o Pro", onClick:()=> window.__dashUpgrade?.(cycle) },
   ];
   return (
     <section id="planos" className="pad">
       <div className="wrap">
-        <div style={{textAlign:"center", marginBottom:48}}>
+        <div style={{textAlign:"center", marginBottom:32}}>
           <span className="rv eyebrow"><span className="dot"/> Planos</span>
-          <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Assine quando precisar da IA.</h2>
-          <p className="rv lede" style={{margin:"0 auto", maxWidth:500}}>O Free não pede cartão. Nos planos pagos, sem fidelidade — cartão ou Pix.</p>
+          <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Assine quando precisar de mais.</h2>
+          <p className="rv lede" style={{margin:"0 auto 24px", maxWidth:520}}>O Free não pede cartão e já inclui 1 análise da IA por mês. Nos planos pagos, sem fidelidade — cartão ou Pix.</p>
+          <div className="rv" style={{display:"flex", justifyContent:"center"}}><CycleToggle cycle={cycle} onChange={setCycle}/></div>
         </div>
         <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, maxWidth: 1080, margin:"0 auto"}}>
           {plans.map(p=>(
@@ -701,9 +731,10 @@ function Pricing({ onOpenApp }){
               {p.highlight && <span className="chip" style={{position:"absolute", top:22, right:22, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>}
               <div style={{fontWeight:700, fontSize:18}}>{p.name}</div>
               <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>{p.tagline}</div>
-              <div style={{margin:"22px 0 18px"}}>
-                <span style={{fontSize:40, fontWeight:800, letterSpacing:"-.03em", color: p.highlight ? "var(--brand)" : "var(--ink)"}}>R$ {p.price}</span>
+              <div style={{margin:"22px 0 18px", minHeight:66}}>
+                <span className="ticker" style={{fontSize:40, fontWeight:800, letterSpacing:"-.03em", color: p.highlight ? "var(--brand)" : "var(--ink)"}}>R$ {p.price}</span>
                 <span style={{color:"var(--muted)"}}>{p.per}</span>
+                {p.note && <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>{p.note}</div>}
               </div>
               <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10, flex:1}}>
                 {p.features.map((t,i)=>(
@@ -789,4 +820,4 @@ function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignU
   );
 }
 
-Object.assign(window, { Landing, AuthBubble, useReveal, useScrollProgress, useScrollY, useCount, dashPlanLabel });
+Object.assign(window, { Landing, AuthBubble, useReveal, useScrollProgress, useScrollY, useCount, dashPlanLabel, DASH_PRICES, dashFmtBRL, CycleToggle });

@@ -1,16 +1,22 @@
 /* Plans / pricing view — shown to logged-in users who click "Experimentar Pro". */
 
-function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose }){
-  // Backend só tem cobrança mensal; sem ciclo anual (não inventar preço).
+function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, initialCycle }){
   const planLabel = (k)=> k === "pro" ? "Pro" : k === "essencial" ? "Essencial" : "Free";
-  const fmtPrice = (v)=> v === 0 ? "0" : v.toFixed(2).replace(".", ","); // 29.9 → "29,90"
+  const fmtPrice = (v)=> v === 0 ? "0" : Number.isInteger(v) ? String(v) : v.toFixed(2).replace(".", ","); // 29.9 → "29,90" · 299 → "299"
 
+  // Preços em DASH_PRICES (landing.jsx), espelho de src/plans.ts. Anual = 10× o mensal.
   const PLAN_DATA = {
-    free:      { price:0,     rank:0 },
-    essencial: { price:29.90, rank:1 },
-    pro:       { price:49.90, rank:2 },
+    free:      { rank:0, price:{ monthly:0, yearly:0 } },
+    essencial: { rank:1, price: DASH_PRICES.essencial },
+    pro:       { rank:2, price: DASH_PRICES.pro },
   };
   const currentRank = (PLAN_DATA[tweaks.plan] || PLAN_DATA.free).rank;
+  const isPaid = tweaks.plan !== "free";
+  const currentCycle = (currentUser && currentUser.billingCycle) || "monthly";
+  // Cartão cancelado ainda no período pago: pode reassinar qualquer plano (o backend libera).
+  const cancelled = isPaid && !!currentUser && currentUser.autoRenew === false;
+  const [cycle, setCycle] = React.useState(()=> initialCycle || (isPaid ? currentCycle : "monthly"));
+  const cycleWord = (c)=> c === "yearly" ? "anual" : "mensal";
 
   // Um clique = um checkout no Asaas. Trava os botões enquanto a URL não volta
   // (duplo clique criava duas sessões de checkout). onSelectPlan devolve false
@@ -19,15 +25,15 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
   const pick = async (plan, method)=>{
     if(busy) return;
     setBusy(plan + ":" + method);
-    const ok = await onSelectPlan(plan, method);
+    const ok = await onSelectPlan(plan, method, cycle);
     if(!ok) setBusy(null);
   };
-  // Assinante no cartão troca de tier na própria assinatura (sem 2º checkout).
-  const cardSubscriber = !!currentUser && currentUser.billingMethod === "card" && tweaks.plan !== "free";
+  // Assinante no cartão troca de tier/ciclo na própria assinatura (sem 2º checkout).
+  const cardSubscriber = !!currentUser && currentUser.billingMethod === "card" && isPaid && !cancelled;
   const change = async (plan)=>{
     if(busy) return;
     setBusy(plan + ":change");
-    await onChangePlan(plan);
+    await onChangePlan(plan, cycle);
     setBusy(null);
   };
 
@@ -38,7 +44,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
         { ok:true,  t:"Upload CSV, Excel e JSON" },
         { ok:true,  t:"Dashboard montado automaticamente" },
         { ok:true,  t:"Até 5 mil linhas por base" },
-        { ok:false, t:"Análises da IA" },
+        { ok:true,  t:"1 análise da IA por mês" },
         { ok:false, t:"Editar e adicionar blocos" },
         { ok:false, t:"Exportar PDF/PNG" },
         { ok:false, t:"Compartilhamento por link" },
@@ -72,16 +78,18 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
   ];
 
   const faqs = [
-    { q:"Como funciona a cobrança?", a:"No cartão, a assinatura é mensal e renova automaticamente. No Pix, a cobrança é mensal e avulsa: perto do vencimento o sistema envia o link da próxima cobrança e, após o pagamento, seu acesso é estendido por mais 30 dias." },
-    { q:"Meus dados ficam seguros?", a:"Seus arquivos são lidos e processados no próprio navegador — não ficam guardados nos nossos servidores. Quando você pede uma análise da IA (planos pagos), enviamos os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas para o Google Gemini gerar o texto." },
-    { q:"Posso cancelar quando quiser?", a:"Sim, sem fidelidade. No cartão, cancele em Conta → Faturamento: a renovação para e a conta volta para o plano Free. No Pix não há renovação automática — basta não pagar a próxima cobrança." },
+    { q:"Como funciona a cobrança?", a:"Você escolhe mensal ou anual. No cartão, a assinatura renova automaticamente no mesmo ciclo. No Pix, a cobrança é avulsa: perto do vencimento enviamos o link da próxima e, após o pagamento, seu acesso é estendido por mais um mês (ou um ano, no anual)." },
+    { q:"Quanto economizo no plano anual?", a:"O anual custa 10 mensalidades: R$ 299 no Essencial e R$ 499 no Pro, ou seja, 2 meses grátis por ano. Quem assina no cartão pode trocar entre mensal e anual na página de planos; a mudança vale a partir da próxima cobrança." },
+    { q:"O plano Free usa a IA?", a:"Sim. Com uma conta grátis você gera 1 análise por mês. No Essencial são 50 por mês e no Pro, 300. A cota renova todo dia 1º." },
+    { q:"Meus dados ficam seguros?", a:"Seus arquivos são lidos e processados no próprio navegador — não ficam guardados nos nossos servidores. Quando você pede uma análise da IA, enviamos os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas para o Google Gemini gerar o texto." },
+    { q:"Posso cancelar quando quiser?", a:"Sim, sem fidelidade. No cartão, cancele em Conta → Faturamento: a renovação para e você continua com o plano até o fim do período já pago. Depois disso a conta volta para o Free. No Pix não há renovação automática — basta não pagar a próxima cobrança." },
     { q:"Posso exportar em outro formato?", a:"Os planos Essencial e Pro incluem exportação em PDF e PNG com layout customizado." },
   ];
 
   const compare = [
     { f:"Dashboard montado automaticamente", free:true, essencial:true,           pro:true },
     { f:"Bases de dados aceitas",    free:"CSV, Excel, JSON", essencial:"CSV, Excel, JSON", pro:"CSV, Excel, JSON" },
-    { f:"Análises da IA por mês",    free:false,        essencial:"50",               pro:"300" },
+    { f:"Análises da IA por mês",    free:"1",          essencial:"50",               pro:"300" },
     { f:"Editar e adicionar blocos", free:false,        essencial:true,               pro:true },
     { f:"Linhas por base",           free:"5 mil",      essencial:"100 mil",          pro:"1 milhão" },
     { f:"Exportar PDF/PNG",          free:false,        essencial:true,               pro:true },
@@ -133,10 +141,24 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
           <h1 style={{margin:"0 0 12px", fontSize:48, fontWeight:800, letterSpacing:"-.03em", lineHeight:1.05}}>
             Escolha o plano ideal<br/>para você.
           </h1>
-          <p style={{margin:"0 auto 28px", fontSize:16, color:"var(--muted)", maxWidth:520, lineHeight:1.55}}>
-            Comece grátis. Faça upgrade quando precisar de análises da IA, edição completa e exportação.
+          <p style={{margin:"0 auto 24px", fontSize:16, color:"var(--muted)", maxWidth:520, lineHeight:1.55}}>
+            Comece grátis. Faça upgrade quando precisar de mais análises da IA, edição completa e exportação.
           </p>
+          <div style={{display:"flex", justifyContent:"center"}}><CycleToggle cycle={cycle} onChange={setCycle}/></div>
         </div>
+
+        {/* Cartão cancelado: acesso até o fim do período; pode reassinar. */}
+        {cancelled && (
+          <div className="rv" style={{
+            maxWidth: 1080, margin:"0 auto 28px", padding:"16px 20px", borderRadius:14,
+            background:"#fff8ec", border:"1px solid #ffe2b8",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:10, flexWrap:"wrap", textAlign:"center"
+          }}>
+            <span style={{fontSize:13.5, color:"var(--ink-2)", lineHeight:1.5}}>
+              <b>Sua assinatura foi cancelada.</b> Você continua no {planLabel(tweaks.plan)}{currentUser.currentPeriodEnd ? " até " + new Date(currentUser.currentPeriodEnd).toLocaleDateString("pt-BR") : " até o fim do período pago"}. Para não perder o acesso, assine de novo abaixo — o novo período começa quando o atual terminar.
+            </span>
+          </div>
+        )}
 
         {/* Reativação / upgrade — visível p/ usuário logado no Free. Sem sinal de
             "plano anterior" no /me, então não auto-detecta vencimento: destaca o
@@ -150,7 +172,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
           }}>
             <Icon.Sparkle size={16}/>
             <span style={{fontSize:13.5, color:"var(--ink-2)", lineHeight:1.5}}>
-              <b>Reative ou faça upgrade abaixo.</b> No <b>cartão</b>, a renovação é automática — nunca mais se preocupe com o vencimento. No <b>Pix</b>, você paga a cada mês.
+              <b>Reative ou faça upgrade abaixo.</b> No <b>cartão</b>, a renovação é automática — nunca mais se preocupe com o vencimento. No <b>Pix</b>, você paga a cada período.
             </span>
           </div>
         )}
@@ -158,10 +180,13 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
         {/* Plan cards */}
         <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
           {planList.map(p=>{
-            const isCurrent = p.k === tweaks.plan; // free | essencial | pro
+            // Plano atual = mesmo tier E mesmo ciclo (Pro mensal → "Pro anual" é uma troca).
+            const isCurrent = p.k === tweaks.plan && (p.k === "free" || (cycle === currentCycle && !cancelled));
             // Tier abaixo do atual: o plano já cobre — sem botão de compra (o
-            // backend também recusa com 409 plano_ja_ativo).
-            const isIncluded = !isCurrent && PLAN_DATA[p.k].rank < currentRank && !(cardSubscriber && p.k !== "free");
+            // backend também recusa com 409 plano_ja_ativo). Quem cancelou pode escolher qualquer um.
+            const isIncluded = !isCurrent && PLAN_DATA[p.k].rank < currentRank && (p.k === "free" || (!cardSubscriber && !cancelled));
+            const sameTier = p.k === tweaks.plan;
+            const price = PLAN_DATA[p.k].price[cycle];
             const hl = p.highlight;
             return (
               <div key={p.k} className={hl?"lift":""} style={{
@@ -182,9 +207,14 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
 
                 <div style={{marginBottom:18, minHeight: 68}}>
                   <div style={{display:"flex", alignItems:"baseline", gap:4}}>
-                    <span style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {fmtPrice(PLAN_DATA[p.k].price)}</span>
-                    <span style={{fontSize:14, color:"var(--muted)"}}>{p.k === "free" ? "/sempre" : "/mês"}</span>
+                    <span className="ticker" style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {fmtPrice(price)}</span>
+                    <span style={{fontSize:14, color:"var(--muted)"}}>{p.k === "free" ? "/sempre" : cycle === "yearly" ? "/ano" : "/mês"}</span>
                   </div>
+                  {p.k !== "free" && cycle === "yearly" && (
+                    <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>
+                      equivale a {dashFmtBRL(price / 12)}/mês · 2 meses grátis
+                    </div>
+                  )}
                 </div>
 
                 <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10, flex:1}}>
@@ -216,26 +246,26 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose })
                   <div style={{display:"flex", flexDirection:"column", gap:8}}>
                     <button className={`btn ${hl?"btn-primary":"btn-ghost"}`} style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
                       disabled={!!busy} onClick={()=> change(p.k)}>
-                      <Icon.Crown size={14}/> {busy === p.k + ":change" ? "Trocando…" : "Mudar para o " + p.name}
+                      <Icon.Crown size={14}/> {busy === p.k + ":change" ? "Trocando…" : sameTier ? "Mudar para o " + cycleWord(cycle) : "Mudar para o " + p.name}
                     </button>
                     <div style={{textAlign:"center", marginTop:2, fontSize:11, color:"var(--muted)", lineHeight:1.45}}>
                       {PLAN_DATA[p.k].rank > currentRank
                         ? "Na mesma assinatura do cartão. Libera na hora; a próxima cobrança já vem no valor novo."
-                        : "Vale a partir da próxima cobrança do cartão."}
+                        : "Na mesma assinatura do cartão. Vale a partir da próxima cobrança."}
                     </div>
                   </div>
                 ) : p.k !== "free" ? (
                   <div style={{display:"flex", flexDirection:"column", gap:8}}>
                     <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
                       disabled={!!busy} onClick={()=> pick(p.k, "card")}>
-                      <Icon.Crown size={14}/> {busy === p.k + ":card" ? "Abrindo checkout…" : "Assinar no cartão"}
+                      <Icon.Crown size={14}/> {busy === p.k + ":card" ? "Abrindo checkout…" : (cancelled && sameTier ? "Reativar no cartão" : "Assinar no cartão")}
                     </button>
                     <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
                       disabled={!!busy} onClick={()=> pick(p.k, "pix")}>
                       {busy === p.k + ":pix" ? "Abrindo checkout…" : "Pagar no Pix"}
                     </button>
                     <div style={{textAlign:"center", marginTop:2, fontSize:11, color:"var(--muted)", lineHeight:1.45}}>
-                      Renovação automática só no cartão. No Pix, a cobrança do próximo mês é enviada perto do vencimento.
+                      Renovação automática só no cartão. No Pix, a cobrança do próximo {cycle === "yearly" ? "ano" : "mês"} é enviada perto do vencimento.
                     </div>
                   </div>
                 ) : (

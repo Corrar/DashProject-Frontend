@@ -402,6 +402,10 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
     if(err && err.status === 429){            // quota de IA do mês excedida
       return { quotaExceeded: true, limite: err.data && err.data.limite, usados: err.data && err.data.usados };
     }
+    if(err && err.status === 401){            // sessão expirou: o me() falho zera o currentUser e o bloco pede login
+      window.DashAPI.me().catch(function(){});
+      return { authRequired: true };
+    }
     console.error("Narrative fetch failed:", err);
     return null;
   }
@@ -496,7 +500,7 @@ function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, on
   );
 }
 
-function UploadView({ onUploaded, maxRows }){
+function UploadView({ onUploaded, maxRows, children }){
   const [drag, setDrag] = React.useState(false);
   const [tab, setTab] = React.useState("file"); // file, paste, url, sample
 
@@ -687,6 +691,8 @@ function UploadView({ onUploaded, maxRows }){
         <h1 className="rv h-section" style={{margin:"0 0 12px", fontSize: 44}}>Envie seus dados e a IA monta o <span style={{color:"var(--brand)"}}>dashboard</span>.</h1>
         <p className="rv lede" style={{margin:"0 auto", maxWidth: 580}}>Escolha uma fonte abaixo. Em segundos você tem KPIs, gráficos e análises prontas.</p>
       </div>
+
+      {children}
 
       {/* Tabs */}
       <div className="rv" style={{display:"flex", justifyContent:"center", marginBottom: 18}}>
@@ -1597,13 +1603,24 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
 // Sobrevive a remontagens do Dashboard (ir à Conta e voltar não gasta cota).
 const _dashNarrativeCache = new Map();
 
-function AINarrative({ tweaks, live, limits }){
+// anon: visitante sem conta — a análise grátis (1/mês) exige conta, então o
+// bloco vira convite de cadastro em vez de chamar a API.
+function AINarrative({ tweaks, live, limits, anon }){
   const accent = tweaks.accent;
+  const isFreePlan = tweaks.plan === "free";
   const data = (live && live.data) || null;
   const loading = !!(live && live.loading);
   const error = !!(live && live.error);
-  const quota = (live && live.quota) || null;
-  const reload = ()=> { if(live && live.onReload) live.onReload(); };
+  // Cota já gasta segundo o /me: mostra o card de limite sem gastar uma chamada.
+  const used = limits && limits.aiUsed != null ? limits.aiUsed : null;
+  const cap = limits && limits.aiMonthly != null ? limits.aiMonthly : null;
+  const exhausted = !anon && used != null && cap != null && used >= cap;
+  const quota = (live && live.quota) || (exhausted ? { usados: used, limite: cap } : null);
+  const signup = ()=> window.__dashOpenAuth && window.__dashOpenAuth("signup");
+  const reload = ()=> {
+    if(anon){ signup(); return; }
+    if(live && live.onReload) live.onReload();
+  };
 
   const norm = (arr)=> (Array.isArray(arr) ? arr : []).map(it => {
     if(typeof it === "string") return { title:null, detail:it };
@@ -1635,12 +1652,33 @@ function AINarrative({ tweaks, live, limits }){
           </div>
         </div>
       </div>
-      <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
-        onClick={reload} title="Gerar uma nova análise com a IA">
-        <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
-      </button>
+      {!anon && !quota && (
+        <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
+          onClick={reload} title="Gerar uma nova análise com a IA">
+          <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
+        </button>
+      )}
     </div>
   );
+
+  // Visitante: a análise grátis precisa de conta (a cota é por usuário).
+  if(anon && !data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
+            <div style={{fontWeight:700, marginBottom:4}}>Crie uma conta grátis e gere 1 análise por mês</div>
+            A IA escreve um resumo executivo, insights e recomendações a partir desta base. Sem cartão de crédito. Seus dados continuam aqui enquanto você cria a conta.
+          </div>
+          <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+            <button className="btn btn-primary" onClick={signup}><Icon.Sparkle size={13}/> Criar conta grátis</button>
+            <button className="btn btn-ghost" onClick={()=> window.__dashOpenAuth && window.__dashOpenAuth("login")}>Já tenho conta</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Loading skeleton — only when there's nothing to show yet. A reload with
   // existing data keeps the previous content visible (button shows "Gerando…").
@@ -1678,9 +1716,13 @@ function AINarrative({ tweaks, live, limits }){
             <Icon.Sparkle size={16}/>
           </div>
           <div style={{flex:1, minWidth:200}}>
-            <div style={{fontWeight:700, fontSize:14, color:"var(--brand-2)"}}>Limite de análises deste mês atingido</div>
+            <div style={{fontWeight:700, fontSize:14, color:"var(--brand-2)"}}>
+              {isFreePlan ? "Você já usou a análise grátis deste mês" : "Limite de análises deste mês atingido"}
+            </div>
             <div style={{fontSize:13, color:"var(--ink-2)", marginTop:2}}>
-              Você usou {quota.usados != null ? quota.usados : "—"} de {quota.limite != null ? quota.limite : "—"} análises. Faça upgrade para continuar.
+              {isFreePlan
+                ? "Ela renova no dia 1º. No Essencial são 50 análises por mês e no Pro, 300."
+                : "Você usou " + (quota.usados != null ? quota.usados : "—") + " de " + (quota.limite != null ? quota.limite : "—") + " análises. A cota renova no dia 1º; faça upgrade para continuar agora."}
             </div>
           </div>
           <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()}>
@@ -1715,8 +1757,6 @@ function AINarrative({ tweaks, live, limits }){
   // Idle — nada é enviado até o clique. O aviso diz exatamente o que sai do
   // navegador (dashFetchNarrative: colunas, KPIs e até 20 linhas) e o custo.
   if(!data){
-    const used = limits && limits.aiUsed != null ? limits.aiUsed : null;
-    const cap = limits && limits.aiMonthly ? limits.aiMonthly : null;
     return (
       <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
         {Header}
@@ -1724,7 +1764,11 @@ function AINarrative({ tweaks, live, limits }){
           <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
             <div style={{fontWeight:700, marginBottom:4}}>Gere um resumo executivo com a IA</div>
             Ao gerar, enviamos ao Google Gemini os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas desta base. O restante do arquivo continua só no seu navegador.
-            {cap != null && <div style={{fontSize:12, color:"var(--muted)", marginTop:6}}>Usa 1 análise da sua cota mensal{used != null ? ` (${used} de ${cap} usadas)` : ""}.</div>}
+            {cap != null && <div style={{fontSize:12, color:"var(--muted)", marginTop:6}}>
+              {isFreePlan
+                ? "Seu plano Free inclui 1 análise por mês" + (used != null ? ` (${used} de ${cap} usada${cap === 1 ? "" : "s"})` : "") + "."
+                : "Usa 1 análise da sua cota mensal" + (used != null ? ` (${used} de ${cap} usadas)` : "") + "."}
+            </div>}
           </div>
           <button className="btn btn-primary" onClick={reload}><Icon.Sparkle size={13}/> Gerar análise</button>
         </div>
@@ -1736,6 +1780,13 @@ function AINarrative({ tweaks, live, limits }){
   return (
     <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
       {Header}
+
+      {live && live.quota && (
+        <div className="no-export" style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"10px 14px", marginBottom:14, borderRadius:10, background:"var(--brand-soft)", fontSize:13, color:"var(--ink-2)"}}>
+          <span style={{flex:1, minWidth:200}}>Limite de análises deste mês atingido. A análise abaixo continua disponível.</span>
+          <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}} onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()}>Ver planos</button>
+        </div>
+      )}
 
       {summary && (
         <div style={{padding:"16px 18px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
@@ -1979,11 +2030,16 @@ function Insights({ tweaks, onAddChart, generated }){
   );
 }
 
-function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
+function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile, onPersist }){
+  // Dashboard salvo (dashboard-saved.jsx): reabre com o layout, o período e a
+  // visão de quando foi deixado.
+  const savedLayout = (fileInfo && fileInfo.savedLayout) || null;
   // Real upload → abre em "Tudo" para mostrar TODOS os dados de cara (não uma
   // janela de 90d que descartaria linhas silenciosamente). O caminho de demo
   // sem upload mantém "90d". Lazy init: roda só no mount.
-  const [period, setPeriod] = React.useState(()=> (fileInfo && fileInfo.data && fileInfo.data.length) ? "all" : "90d");
+  const [period, setPeriod] = React.useState(()=>
+    (savedLayout && ["7d","30d","90d","all"].includes(savedLayout.period)) ? savedLayout.period
+    : (fileInfo && fileInfo.data && fileInfo.data.length) ? "all" : "90d");
   const [editing, setEditing] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -2061,9 +2117,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     (isUpload && !hasRealData && !!(generated && (generated.kpis.length || generated.charts.length)));
 
   // ── AI narrative (Gemini Edge Function) ─────────────────────────────────
-  // The real narrative replaces the mock "Análises da IA" for Pro users with a
-  // real upload. We only call the function for Pro: free users see the paywall,
-  // and not calling keeps their data in the browser. Cached by the profile
+  // The real narrative replaces the mock "Análises da IA" for any signed-in
+  // user with a real upload (Free = 1/month, enforced by the backend quota).
+  // Anonymous visitors get a signup prompt and nothing is sent. Cached by the profile
   // shape (column name + pattern) so it doesn't refire when the period changes;
   // the "Recarregar análise" button forces a fresh call.
   const [narrative, setNarrative] = React.useState(null);
@@ -2081,15 +2137,18 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // para a IA sem opt-in) — antes ela disparava sozinha ao abrir o dashboard,
   // a cada remontagem e de novo se o período mudasse com a 1ª chamada em voo,
   // gastando cota. O resultado fica no cache da sessão por base de dados.
+  // Um dashboard salvo traz a narrativa junto: reabrir não gasta cota.
   React.useEffect(()=>{
-    if(narrativeKey && _dashNarrativeCache.has(narrativeKey)){
+    const cached = narrativeKey && (_dashNarrativeCache.get(narrativeKey) || (fileInfo && fileInfo.savedNarrative) || null);
+    if(cached){
+      _dashNarrativeCache.set(narrativeKey, cached);
       narrativeKeyRef.current = narrativeKey;
-      setNarrative(_dashNarrativeCache.get(narrativeKey));
+      setNarrative(cached);
     }
   }, [narrativeKey]);
 
   const loadNarrative = React.useCallback((force)=>{
-    if(!narrativeKey || narrativeLoading) return;
+    if(!narrativeKey || narrativeLoading || !currentUser) return; // a cota é por conta (Free = 1/mês)
     if(!force && narrativeKeyRef.current === narrativeKey) return; // same data → keep cache
     const reqId = ++narrativeReqRef.current;
     setNarrativeLoading(true); setNarrativeError(false); setNarrativeQuota(null);
@@ -2107,6 +2166,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           return;
         }
         if(result && result.planRequired){ setNarrativeError(true); setNarrativeLoading(false); return; }
+        if(result && result.authRequired){ setNarrativeLoading(false); return; } // currentUser vira null → bloco pede login
         const ok = result && (result.narrative || result.rawText ||
           (Array.isArray(result.insights) && result.insights.length) ||
           (Array.isArray(result.recommendations) && result.recommendations.length));
@@ -2114,6 +2174,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           narrativeKeyRef.current = narrativeKey;
           _dashNarrativeCache.set(narrativeKey, result);
           setNarrative(result); setNarrativeError(false);
+          window.dashTrack && window.dashTrack("analise_ia", { plano: tweaks.plan });
           window.DashAPI.me().catch(()=>{}); // atualiza o contador de uso (limits.aiUsed)
         }
         else { setNarrativeError(true); }
@@ -2122,7 +2183,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       .catch(()=>{ // dashFetchNarrative already swallows errors, but stay defensive
         if(reqId === narrativeReqRef.current){ setNarrativeError(true); setNarrativeLoading(false); }
       });
-  }, [narrativeKey, narrativeLoading, profiles, dataset, generated, fileInfo]);
+  }, [narrativeKey, narrativeLoading, profiles, dataset, generated, fileInfo, currentUser, tweaks.plan]);
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -2490,7 +2551,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   };
   const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile, isUpload]);
   const defaultViewKey = dataDrivenMode ? "discovery" : "overview";
-  const [viewKey, setViewKey] = React.useState(defaultViewKey);
+  // Visão salva só volta se ainda existir e o plano ainda a liberar.
+  const savedViewOk = !!(savedLayout && presets[savedLayout.viewKey] && !(presets[savedLayout.viewKey].badge === "Pro" && isFree));
+  const [viewKey, setViewKey] = React.useState(()=> savedViewOk ? savedLayout.viewKey : defaultViewKey);
 
   // Initial blocks — unified layout. Falls back to the first available preset
   // so it never assumes "overview" exists (Descoberta mode has no overview).
@@ -2499,7 +2562,28 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     return ((base && base.blocks) || []).concat([{ id:"b-cta", kind:"cta", span:12 }]);
   }, [presets, defaultViewKey]);
 
-  const [blocks, setBlocks] = React.useState(initialBlocks);
+  const [blocks, setBlocks] = React.useState(()=>
+    (savedViewOk && Array.isArray(savedLayout.blocks) && savedLayout.blocks.length) ? savedLayout.blocks : initialBlocks);
+
+  // Salva layout + narrativa (debounce). A última mudança pendente é gravada
+  // mesmo se a pessoa sair do dashboard antes do timer.
+  const onPersistRef = React.useRef(onPersist);
+  onPersistRef.current = onPersist;
+  const persistPendingRef = React.useRef(null);
+  const persistInitRef = React.useRef(true);
+  React.useEffect(()=>{
+    if(persistInitRef.current){ persistInitRef.current = false; return undefined; }
+    const payload = { layout: { viewKey, period, blocks }, narrative };
+    persistPendingRef.current = payload;
+    const t = setTimeout(()=>{
+      persistPendingRef.current = null;
+      if(onPersistRef.current) onPersistRef.current(payload);
+    }, 700);
+    return ()=> clearTimeout(t);
+  }, [blocks, viewKey, period, narrative]);
+  React.useEffect(()=> ()=>{
+    if(persistPendingRef.current && onPersistRef.current) onPersistRef.current(persistPendingRef.current);
+  }, []);
 
   // When the period changes, re-hydrate blocks from the active preset so chart
   // data follows. Mirrors the view-switch behavior: changing the data window
@@ -2631,9 +2715,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)}/>;
     }
     if(b.kind === "insights"){
-      // Free: blurred demo/generated Insights behind the paywall (an enticing
-      // preview). We never call the AI for free users — their data stays local.
-      if(isFree){
+      // Sem dados do usuário (entrada só pelo Tweaks) não há o que analisar: o
+      // Free vê o Insights de exemplo borrado atrás do paywall. Com upload, o
+      // Free também usa a IA real (1 análise/mês com conta; ver AINarrative).
+      if(isFree && !isUpload){
         const backdrop = (
           <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
             <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>
@@ -2649,7 +2734,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                 </div>
                 <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
                 <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:16}}>
-                  Resumo executivo, insights e recomendações gerados por IA a partir dos seus dados estão disponíveis nos planos pagos, a partir do Essencial.
+                  Envie uma planilha para gerar um resumo executivo, insights e recomendações com a IA. O Free inclui 1 análise por mês; no Essencial são 50 e no Pro, 300.
                 </div>
                 <div style={{display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap"}}>
                   <button className="btn btn-primary" onClick={()=>setPaywallReason("insights")}><Icon.Crown size={14}/> Desbloquear análise por IA</button>
@@ -2671,10 +2756,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           </div>
         );
       }
-      // Pro: real Gemini narrative when there's an upload to analyze; otherwise
+      // Real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
       const inner = isUpload
-        ? <AINarrative tweaks={tweaks} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
+        ? <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2911,7 +2996,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         }}
         canExport={!isFree && !(currentUser && currentUser.limits && currentUser.limits.canExport === false)}
         canRemoveBranding={!!(currentUser && currentUser.limits ? currentUser.limits.removeBranding : tweaks.plan === "pro")}
-        hasAI={!isFree && !!narrative}
+        hasAI={!!narrative}
         onLocked={()=>{ setExportOpen(false); setPaywallReason("export"); }}/>}
       {shareOpen && <ShareModal onClose={()=>setShareOpen(false)} tweaks={tweaks} hasAI={!!narrative}
         defaultTitle={((dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas") + (fileInfo && fileInfo.name ? " · " + fileInfo.name : "")).slice(0, 120)}
@@ -2941,7 +3026,7 @@ function PaywallModal({ reason, onClose, tweaks }){
   const meta = {
     edit:     { t:"Editar o layout é um recurso pago", d:"Reorganizar blocos, redimensionar, mudar tipos, dimensões e cores fica disponível a partir do plano Essencial." },
     add:      { t:"Adicionar blocos é um recurso pago", d:"Criar novos KPIs, gráficos, ranking e blocos de insights fica disponível a partir do plano Essencial." },
-    insights: { t:"Análises da IA nos planos pagos", d:"Resumo executivo, insights e recomendações gerados por IA ficam disponíveis a partir do plano Essencial." },
+    insights: { t:"Mais análises da IA nos planos pagos", d:"O Free inclui 1 análise por mês. No Essencial são 50 e no Pro, 300, com resumo executivo, insights e recomendações." },
     advanced: { t:"Visão avançada nos planos pagos", d:"Sazonalidade, vendedores e mix por categoria ficam disponíveis a partir do plano Essencial." },
     export:   { t:"Exportar é um recurso pago", d:"Baixe o dashboard em PDF ou PNG a partir do plano Essencial." },
     share:    { t:"Link público é do plano Pro", d:"Compartilhe o dashboard com quem não tem conta: um link de leitura que você desativa quando quiser." },
@@ -3019,7 +3104,7 @@ function PaywallModal({ reason, onClose, tweaks }){
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:11, color:"var(--ink-2)", fontWeight:700}}>{proOnly ? "Cartão ou Pix" : "Pro: R$ 49,90/mês"}</div>
-              <div style={{fontSize:11, color:"var(--muted)"}}>Cancele a qualquer momento</div>
+              <div style={{fontSize:11, color:"var(--muted)"}}>No anual, 2 meses grátis</div>
             </div>
           </div>
           <div style={{display:"flex", gap:8}}>

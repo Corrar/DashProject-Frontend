@@ -27,6 +27,7 @@ function App(){
   // it. accountSection picks the AccountView sidebar tab to show on entry.
   const [accountSection, setAccountSection] = React.useState("account");
   const [returnView, setReturnView] = React.useState("landing");
+  const [plansCycle, setPlansCycle] = React.useState(null); // ciclo pré-selecionado na PlansView (CTA da landing)
   const isSecondaryView = (v)=> v==="plans" || v==="account" || v==="auth";
   useScrollProgress();
   useReveal(view);
@@ -36,6 +37,7 @@ function App(){
   }, [tweaks.accent]);
   React.useEffect(()=>{
     window.scrollTo({top:0, behavior:"auto"});
+    window.dashTrackView && window.dashTrackView(view); // Vercel Web Analytics (index.html)
   }, [view]);
 
   // Hidrata currentUser a partir do backend (/me). Inclui `limits` p/ gates de UX.
@@ -89,6 +91,47 @@ function App(){
   const userPlan = (currentUser && currentUser.plan) || "free";
   const effectiveTweaks = { ...tweaks, plan: userPlan };
 
+  // Dashboards salvos neste navegador (dashboard-saved.jsx), por dono.
+  const savedOwner = currentUser ? currentUser.id : "anon";
+  const savedKeep = userPlan === "free" ? DashSaved.KEEP.free : DashSaved.KEEP.paid;
+  // Quem montou dashboards sem conta e entrou leva-os para a conta.
+  React.useEffect(()=>{
+    if(currentUser && currentUser.id) DashSaved.claim("anon", currentUser.id);
+  }, [currentUser && currentUser.id]);
+
+  // Prompt → Dashboard: registra a base (só uploads reais, nunca a demonstração).
+  const startDashboard = ()=>{
+    if(fileInfo && !fileInfo.isDemo && !fileInfo.savedId && Array.isArray(fileInfo.data) && fileInfo.data.length){
+      const id = "d-" + Date.now();
+      const fi = { ...fileInfo, savedId: id };
+      setFileInfo(fi);
+      DashSaved.create(id, savedOwner, fi).then(ok => { if(ok) DashSaved.prune(savedOwner, savedKeep, id); });
+      window.dashTrack && window.dashTrack("dashboard_gerado", { linhas: dashRowsBucket(fileInfo.data.length) });
+    }
+    setView("dashboard");
+  };
+  const openSaved = async (id)=>{
+    const r = await DashSaved.load(id);
+    if(!r){
+      window.alert("Não foi possível abrir este dashboard. Envie o arquivo de novo.");
+      return false;
+    }
+    // Mesmo limite do upload: base salva num plano maior não abre depois do downgrade.
+    const maxRows = (currentUser && currentUser.limits && currentUser.limits.maxRows) || 5000;
+    if(r.fileInfo.rows > maxRows){
+      if(window.confirm("Esta base tem " + r.fileInfo.rows.toLocaleString("pt-BR") + " linhas e o seu plano permite até "
+        + maxRows.toLocaleString("pt-BR") + " por base. Ver os planos?")) openPlans();
+      return false;
+    }
+    setFileInfo(r.fileInfo);
+    setView("dashboard");
+    window.dashTrack && window.dashTrack("dashboard_reaberto");
+    return true;
+  };
+  const persistDashboard = (patch)=>{
+    if(fileInfo && fileInfo.savedId && DashSaved.enabled()) DashSaved.update(fileInfo.savedId, patch);
+  };
+
   const openApp = ()=> setView("upload");
 
   // "Ver demonstração": parses the bundled CSV, hydrates fileInfo with
@@ -99,6 +142,7 @@ function App(){
       const schema = dashInferSchema(parsed.header, parsed.rows);
       const data = dashRowsToObjects(parsed.header, parsed.rows, schema);
       const profiles = window.dashProfileColumns ? window.dashProfileColumns(parsed.header, parsed.rows) : [];
+      window.dashTrack && window.dashTrack("demo_aberta");
       setFileInfo({
         name: "dados_demonstracao.csv",
         sizeKB: Math.max(1, Math.round(DASH_SAMPLE_CSV.length / 1024)),
@@ -122,8 +166,9 @@ function App(){
     setAuthMode(mode === "signup" ? "signup" : "login");
     setView("auth");
   };
-  const openPlans = ()=>{
+  const openPlans = (cycle)=>{
     setReturnView(isSecondaryView(view) ? returnView : view);
+    setPlansCycle(cycle === "yearly" || cycle === "monthly" ? cycle : null);
     setView("plans");
   };
   const openAccount = (section="account")=>{
@@ -161,13 +206,13 @@ function App(){
       if(currentUser){ setView("upload"); }
       else { openAuth("signup"); }
     };
-    const upgrade = ()=>{
+    const upgrade = (cycle)=>{
       if(!currentUser){ openAuth("signup"); }
       else if(currentUser.plan === "pro"){ setView("upload"); }
-      else { openPlans(); }
+      else { openPlans(cycle); }
     };
     window.__dashOpenAuth    = (mode)=> openAuth(mode === "signup" ? "signup" : "login");
-    window.__dashOpenPlans   = ()=> openPlans();
+    window.__dashOpenPlans   = (cycle)=> openPlans(cycle);
     window.__dashOpenAccount = (section)=> openAccount(section || "account");
     window.__dashEnterApp    = enterApp;
     window.__dashUpgrade     = upgrade;
@@ -197,31 +242,38 @@ function App(){
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
           <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
           <UploadView maxRows={(currentUser && currentUser.limits && currentUser.limits.maxRows) || 5000}
-            onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}/>
+            onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}>
+            <SavedDashboards owner={savedOwner} isPaid={userPlan !== "free"} onOpen={openSaved}/>
+          </UploadView>
         </div>
       )}
       {view==="prompt" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
           <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
-          <PromptView onGenerate={()=>setView("dashboard")} onBack={()=>setView("upload")} fileInfo={fileInfo}/>
+          <PromptView onGenerate={startDashboard} onBack={()=>setView("upload")} fileInfo={fileInfo}/>
         </div>
       )}
-      {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
+      {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}
+        onPersist={persistDashboard}/>}
       {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
         tweaks={effectiveTweaks}
-        onSuccess={()=> setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload")}
+        onSuccess={()=>{
+          window.dashTrack && window.dashTrack(authMode === "signup" ? "cadastro" : "login");
+          setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload");
+        }}
         onClose={closeSecondary}/>}
-      {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
-        onChangePlan={(plan)=> dashChangePlan(plan, currentUser && currentUser.plan)}
-        onSelectPlan={async (plan, method)=>{
-          // plan: 'essencial'|'pro'  method: 'card'|'pix'
+      {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser} initialCycle={plansCycle}
+        onChangePlan={(plan, cycle)=> dashChangePlan(plan, cycle, currentUser)}
+        onSelectPlan={async (plan, method, cycle)=>{
+          // plan: 'essencial'|'pro'  method: 'card'|'pix'  cycle: 'monthly'|'yearly'
           // Anônimo → cadastro primeiro. O flip de plano acontece no servidor
           // via webhook — nunca mutar currentUser.plan no cliente.
           // Retorna true quando o redirect pro Asaas começou (PlansView mantém
           // os botões travados) e false em erro.
           if(!currentUser){ onSignUp(); return false; }
           try {
-            await window.DashAPI.checkout(plan, method); // redireciona pro Asaas
+            window.dashTrack && window.dashTrack("checkout_iniciado", { plano: plan, metodo: method, ciclo: cycle || "monthly" });
+            await window.DashAPI.checkout(plan, method, cycle); // redireciona pro Asaas
             return true;
           } catch(err){
             window.alert(checkoutErrorMessage(err));
@@ -267,8 +319,8 @@ function App(){
   );
 }
 
-// Payload do backend (/me, login, signup) → currentUser. billingMethod e
-// currentPeriodEnd só vêm do /me (login/signup não têm).
+// Payload do backend (/me, login, signup) → currentUser. billingMethod,
+// currentPeriodEnd, billingCycle e autoRenew só vêm do /me (login/signup não têm).
 function dashToCurrentUser(u){
   return {
     id: u.id,
@@ -279,28 +331,49 @@ function dashToCurrentUser(u){
     limits: u.limits || null,
     billingMethod: u.billingMethod || null,
     currentPeriodEnd: u.currentPeriodEnd || null,
+    billingCycle: u.billingCycle || null,      // 'monthly' | 'yearly' (null no Free)
+    autoRenew: u.autoRenew == null ? null : !!u.autoRenew, // false = cancelou, acesso até currentPeriodEnd
   };
 }
 
-// Troca de tier na assinatura do cartão (POST /billing/change-plan).
-async function dashChangePlan(plan, currentPlan){
+// Faixa de tamanho da base para analytics (nunca o nome nem o conteúdo).
+function dashRowsBucket(n){
+  return n <= 1000 ? "ate_1k" : n <= 5000 ? "ate_5k" : n <= 100000 ? "ate_100k" : "acima_100k";
+}
+
+// Troca de tier e/ou ciclo na assinatura do cartão (POST /billing/change-plan).
+async function dashChangePlan(plan, cycle, currentUser){
+  const curPlan = (currentUser && currentUser.plan) || "free";
+  const curCycle = (currentUser && currentUser.billingCycle) || "monthly";
+  const nextCycle = cycle || curCycle;
+  const rank = { free:0, essencial:1, pro:2 };
   const name = plan === "pro" ? "Pro" : "Essencial";
-  const upgrade = plan === "pro";
+  const curName = curPlan === "pro" ? "Pro" : curPlan === "essencial" ? "Essencial" : "plano atual";
+  const cycleWord = nextCycle === "yearly" ? "anual" : "mensal";
+  const price = dashFmtBRL(DASH_PRICES[plan][nextCycle]) + (nextCycle === "yearly" ? " por ano" : " por mês");
+  const end = currentUser && currentUser.currentPeriodEnd ? new Date(currentUser.currentPeriodEnd) : null;
+  const when = end && !isNaN(end) ? " em " + end.toLocaleDateString("pt-BR") : "";
+  const upgrade = rank[plan] > rank[curPlan];
+  const sameTier = plan === curPlan;
   const ok = window.confirm(upgrade
-    ? "Mudar para o Pro agora? Os recursos do Pro liberam na hora e a próxima cobrança no cartão já vem com R$ 49,90."
-    : "Mudar para o Essencial? Você continua no " + (currentPlan === "pro" ? "Pro" : "plano atual") + " até a próxima cobrança, que já virá com R$ 29,90.");
+    ? "Mudar para o " + name + " " + cycleWord + " agora? Os recursos do " + name + " liberam na hora e a próxima cobrança no cartão" + when + " já vem com " + price + "."
+    : sameTier
+      ? "Mudar o " + name + " para o plano " + cycleWord + "? Nada muda até a próxima cobrança no cartão" + when + ", que virá com " + price + "."
+      : "Mudar para o " + name + " " + cycleWord + "? Você continua no " + curName + " até a próxima cobrança no cartão" + when + ", que virá com " + price + ".");
   if(!ok) return false;
   try {
-    const r = await window.DashAPI.changePlan(plan);
+    const r = await window.DashAPI.changePlan(plan, nextCycle);
+    window.dashTrack && window.dashTrack("plano_trocado", { plano: plan, ciclo: nextCycle });
     await window.DashAPI.me().catch(()=>{});
     window.alert(r && r.effective === "now"
-      ? "Pronto! Seu plano agora é " + name + "."
-      : "Combinado. A mudança para o " + name + " vale a partir da próxima cobrança.");
+      ? "Pronto! Seu plano agora é " + name + " " + cycleWord + "."
+      : "Combinado. A mudança para o " + name + " " + cycleWord + " vale a partir da próxima cobrança.");
     return true;
   } catch(err){
     const code = err && err.data && err.data.error;
     window.alert(code === "sem_assinatura_cartao"
       ? "Seu plano é pago via Pix. Para trocar, assine o novo plano no Pix."
+      : code === "assinatura_cancelada" ? "Sua assinatura foi cancelada. Assine de novo na página de planos para trocar."
       : code === "plano_ja_ativo" ? "Você já está neste plano."
       : "Não foi possível trocar o plano agora. Tente novamente em instantes.");
     return false;

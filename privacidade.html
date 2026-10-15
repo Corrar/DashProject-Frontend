@@ -24,6 +24,7 @@
 <ul>
   <li>Os arquivos que você envia (CSV, Excel, JSON) são lidos e processados <b>no seu navegador</b>. Eles não são enviados nem guardados nos nossos servidores.</li>
   <li>Só saem do navegador, e apenas quando <b>você pede</b>: (a) uma amostra para a análise por IA e (b) o retrato agregado de um dashboard quando você cria um link público.</li>
+  <li>Os dashboards que você monta ficam salvos <b>só neste navegador</b> (no seu aparelho), para você reabrir depois. Dá para desligar e apagar.</li>
   <li>Guardamos os dados da sua conta (e-mail, nome, plano) e o histórico de uso necessário para cobrança e limites do plano.</li>
   <li>Pagamentos são processados pelo Asaas. Não recebemos nem guardamos dados de cartão.</li>
 </ul>
@@ -35,14 +36,15 @@
     <tr><td>E-mail, nome (opcional) e senha (guardada apenas como hash)</td><td>Criar e manter sua conta, login, recuperação de senha, avisos sobre a conta</td><td>Execução de contrato (V)</td></tr>
     <tr><td>Plano, status da assinatura, identificadores do Asaas, datas e valores de cobrança</td><td>Cobrança, renovação, liberação dos recursos do plano</td><td>Execução de contrato (V) e obrigação legal (II)</td></tr>
     <tr><td>Contagem de análises de IA usadas no mês</td><td>Aplicar o limite mensal do plano</td><td>Execução de contrato (V)</td></tr>
-    <tr><td>Amostra de até 20 linhas do arquivo, nomes de colunas e indicadores calculados</td><td>Gerar o texto da análise por IA, quando você clica em “Gerar análise” (planos pagos)</td><td>Execução de contrato (V), por solicitação sua</td></tr>
+    <tr><td>Amostra de até 20 linhas do arquivo, nomes de colunas e indicadores calculados</td><td>Gerar o texto da análise por IA, quando você clica em “Gerar análise” (exige conta, em qualquer plano)</td><td>Execução de contrato (V), por solicitação sua</td></tr>
     <tr><td>Retrato do dashboard (títulos, valores já agregados, nome do arquivo)</td><td>Exibir o dashboard no link público que você criou</td><td>Execução de contrato (V), por solicitação sua</td></tr>
     <tr><td>Endereço IP e dados técnicos da requisição</td><td>Segurança, prevenção a fraude e funcionamento do serviço</td><td>Legítimo interesse (IX)</td></tr>
+    <tr><td>Estatísticas de uso agregadas (telas visitadas, eventos como “dashboard gerado” ou “checkout iniciado”, país, navegador e tipo de aparelho), sem nomes de arquivo nem conteúdo</td><td>Entender como o produto é usado e melhorá-lo</td><td>Legítimo interesse (IX)</td></tr>
   </tbody>
 </table>
 
 <h2>3. Análise por IA</h2>
-<p>Quando você clica em “Gerar análise”, enviamos ao <b>Google (Gemini)</b> os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas do seu arquivo, sem anonimização. O Google atua como operador para gerar o texto. Não use a análise por IA em arquivos com dados pessoais sensíveis ou de terceiros sem base legal para isso. Usuários do plano Free não enviam nenhum dado para a IA.</p>
+<p>Quando você clica em “Gerar análise”, enviamos ao <b>Google (Gemini)</b> os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas do seu arquivo, sem anonimização. O Google atua como operador para gerar o texto. Não use a análise por IA em arquivos com dados pessoais sensíveis ou de terceiros sem base legal para isso. Nada é enviado sem o clique: quem não gera a análise não envia nenhum dado para a IA.</p>
 
 <h2>4. Links públicos</h2>
 <p>Ao criar um link público (plano Pro), guardamos um retrato do dashboard com os valores já agregados, sem as linhas do arquivo. Qualquer pessoa com o link pode ver esse retrato. Você pode desativar o link a qualquer momento. Ele também deixa de abrir se a assinatura Pro terminar.</p>
@@ -51,7 +53,7 @@
 <ul>
   <li><b>Asaas Gestão Financeira</b>: processamento de pagamentos (cartão e Pix) e emissão de cobranças.</li>
   <li><b>Google</b>: geração da análise por IA (Gemini) e entrega das fontes do site (Google Fonts, que recebe o seu IP ao carregar a página).</li>
-  <li><b>Render</b> (hospedagem da API), <b>Neon</b> (banco de dados) e <b>Vercel</b> (hospedagem do site): infraestrutura.</li>
+  <li><b>Render</b> (hospedagem da API), <b>Neon</b> (banco de dados) e <b>Vercel</b> (hospedagem do site e estatísticas de uso pelo Vercel Web Analytics, que não usa cookies e não identifica você): infraestrutura.</li>
   <li><b>Resend</b>: envio de e-mails transacionais (confirmação, recuperação de senha, cobranças).</li>
   <li>Autoridades públicas, quando houver obrigação legal ou ordem judicial.</li>
 </ul>
@@ -61,7 +63,7 @@
 <p>Alguns desses fornecedores processam dados fora do Brasil (por exemplo, nos Estados Unidos). Essas transferências seguem o art. 33 da LGPD, com fornecedores que adotam garantias contratuais de proteção de dados.</p>
 
 <h2>7. Cookies e armazenamento local</h2>
-<p>Usamos apenas um cookie estritamente necessário (<code>dash_rt</code>, httpOnly), que mantém você conectado. Não usamos cookies de publicidade. O navegador pode guardar preferências de interface.</p>
+<p>Usamos apenas um cookie estritamente necessário (<code>dash_rt</code>, httpOnly), que mantém você conectado. Não usamos cookies de publicidade nem de estatística. O navegador guarda preferências de interface e, se você não desligar, os dashboards que você monta (base processada, layout e análise da IA) no armazenamento local do navegador (IndexedDB). Esses dados ficam só no seu aparelho: não os recebemos. Você pode apagá-los na tela de envio (“Continuar de onde parou”) ou limpando os dados do site no navegador. Em computador compartilhado, desligue a opção “Salvar neste navegador”.</p>
 
 <h2>8. Por quanto tempo guardamos</h2>
 <ul>

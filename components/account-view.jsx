@@ -171,7 +171,7 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
               <div style={{fontWeight:700, fontSize:14, margin:"8px 0 4px"}}>{isFree ? "Desbloqueie tudo" : "Vá de Pro"}</div>
               <div style={{fontSize:12, opacity:.9, lineHeight:1.5, marginBottom:12}}>
                 {isFree
-                  ? "Edição completa, análises da IA e exportação."
+                  ? "Edição completa, 50 análises da IA por mês e exportação."
                   : "300 análises da IA por mês e bases de até 1 milhão de linhas."}
               </div>
               <button onClick={()=> window.__dashUpgrade && window.__dashUpgrade()} style={{
@@ -585,22 +585,28 @@ function BillingSection({ tweaks, setTweak, currentUser }){
   const isPro  = tweaks.plan === "pro";
   const isPaid = tweaks.plan !== "free";              // essencial OU pro = assinatura ativa
   const planName  = isPro ? "Pro" : tweaks.plan === "essencial" ? "Essencial" : "Free";
-  const planPrice = isPro ? "49,90" : tweaks.plan === "essencial" ? "29,90" : "0";
+  const yearly = !!currentUser && currentUser.billingCycle === "yearly";
+  const priceTable = isPaid ? DASH_PRICES[isPro ? "pro" : "essencial"] : null;
+  const planPrice = priceTable ? dashFmtBRL(yearly ? priceTable.yearly : priceTable.monthly).replace("R$ ", "") : "0";
   const billingMethod = currentUser && currentUser.billingMethod;
   const periodEnd = currentUser && currentUser.currentPeriodEnd ? new Date(currentUser.currentPeriodEnd) : null;
   const periodEndText = periodEnd && !isNaN(periodEnd) ? periodEnd.toLocaleDateString("pt-BR") : null;
   const isCard = billingMethod === "card";
+  // Cancelou no cartão: o acesso segue até o fim do período pago, sem renovar.
+  const cancelled = isPaid && isCard && !!currentUser && currentUser.autoRenew === false;
   const limits = (currentUser && currentUser.limits) || null;
 
-  // Cancela a assinatura no backend (Asaas). O downgrade pra free vem pelo
-  // webhook — NÃO mexer em tweaks.plan aqui.
-  // O webhook SUBSCRIPTION_DELETED volta o plano para Free assim que o Asaas
-  // confirma — o texto não pode prometer acesso até o fim do período.
+  // Cancela a assinatura no backend (Asaas). A renovação para e o plano segue
+  // até current_period_end; o webhook marca auto_renew=false e o job do backend
+  // derruba para Free depois. NÃO mexer em tweaks.plan aqui.
   const onCancel = async ()=>{
-    if(!window.confirm("Cancelar a assinatura? A renovação automática é interrompida e sua conta volta para o plano Free assim que o cancelamento for confirmado.")) return;
+    if(!window.confirm("Cancelar a assinatura? A renovação automática para e você continua no " + planName
+      + (periodEndText ? " até " + periodEndText : " até o fim do período já pago") + ". Depois disso a conta volta para o plano Free.")) return;
     try {
-      await window.DashAPI.cancel();
-      window.alert("Assinatura cancelada. Sua conta volta para o plano Free em instantes.");
+      const r = await window.DashAPI.cancel();
+      const until = r && r.accessUntil ? new Date(r.accessUntil) : periodEnd;
+      window.alert("Assinatura cancelada. Você continua no " + planName
+        + (until && !isNaN(until) ? " até " + until.toLocaleDateString("pt-BR") : " até o fim do período pago") + ".");
       // Reidrata o plano (CLAUDE_CODE.md B7); o webhook pode levar alguns segundos.
       window.DashAPI.me().catch(()=>{});
       setTimeout(()=> window.DashAPI.me().catch(()=>{}), 5000);
@@ -625,9 +631,7 @@ function BillingSection({ tweaks, setTweak, currentUser }){
   const maxRows   = limits && limits.maxRows ? limits.maxRows : null;
 
   const usage = [
-    aiMonthly === 0
-      ? { l:"Análises da IA neste mês", v:"—", max:"só nos planos pagos", pct:0, c:"#7a5cff", locked:true }
-      : { l:"Análises da IA neste mês", v: aiUsed == null ? "—" : aiUsed, max: aiMonthly == null ? "—" : aiMonthly, pct: aiPct, c:"#7a5cff" },
+    { l:"Análises da IA neste mês", v: aiUsed == null ? "—" : aiUsed, max: aiMonthly == null ? "—" : aiMonthly, pct: aiPct, c:"#7a5cff" },
     { l:"Linhas por base", v: maxRows ? maxRows.toLocaleString("pt-BR") : "—", max:"limite do plano", pct:100, c: tweaks.accent },
     { l:"Exportar PDF/PNG", v: canExport ? "Incluído" : "—", max: canExport ? "no seu plano" : "só nos planos pagos", pct: canExport ? 100 : 0, c:"#0a8a4a", locked: !canExport },
   ];
@@ -654,15 +658,16 @@ function BillingSection({ tweaks, setTweak, currentUser }){
               color: isPaid ? "white" : "var(--brand-2)",
               fontSize:11, fontWeight:700, marginBottom:12
             }}>
-              <Icon.Crown size={11}/> {isPaid ? ("Plano " + planName + " · Ativo") : "Plano Free"}
+              <Icon.Crown size={11}/> {isPaid ? ("Plano " + planName + (yearly ? " anual" : "") + (cancelled ? " · Cancelado" : " · Ativo")) : "Plano Free"}
             </div>
-            <h2 style={{margin:"0 0 6px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>
-              R$ {planPrice}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>/mês</span>
+            <h2 className="ticker" style={{margin:"0 0 6px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>
+              R$ {planPrice}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>{isPaid && yearly ? "/ano" : "/mês"}</span>
             </h2>
             <div style={{fontSize:13, opacity: isPaid ? .9 : 1, color: isPaid ? "white" : "var(--muted)"}}>
               {!isPaid ? "Sem cobranças · upgrade quando quiser"
-                : isCard ? "Assinatura no cartão · renovação automática" + (periodEndText ? " por volta de " + periodEndText : "")
-                : billingMethod ? "Pagamento via Pix" + (periodEndText ? " · acesso até " + periodEndText + "; a próxima cobrança chega por e-mail" : "")
+                : cancelled ? "Assinatura cancelada · acesso até " + (periodEndText || "o fim do período pago") + ", sem novas cobranças"
+                : isCard ? "Assinatura no cartão (" + (yearly ? "anual" : "mensal") + ") · renovação automática" + (periodEndText ? " por volta de " + periodEndText : "")
+                : billingMethod ? "Pagamento via Pix (" + (yearly ? "anual" : "mensal") + ")" + (periodEndText ? " · acesso até " + periodEndText + "; a próxima cobrança chega por e-mail" : "")
                 : "Assinatura ativa"}
             </div>
           </div>
@@ -671,9 +676,9 @@ function BillingSection({ tweaks, setTweak, currentUser }){
               // Gestão da assinatura ligada ao backend: "Mudar plano" abre os
               // planos; "Cancelar" chama DashAPI.cancel() (downgrade vem do webhook).
               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-                <button onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()} style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
+                <button onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()} style={{padding:"10px 14px", background: cancelled ? "white" : "rgba(255,255,255,.18)", color: cancelled ? "var(--ink)" : "white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>{cancelled ? "Reativar assinatura" : "Mudar plano"}</button>
                 {/* Pix não tem assinatura para cancelar: basta não pagar a próxima cobrança. */}
-                {billingMethod !== "pix" && billingMethod !== "boleto" && (
+                {billingMethod !== "pix" && billingMethod !== "boleto" && !cancelled && (
                   <button onClick={onCancel} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar</button>
                 )}
               </div>

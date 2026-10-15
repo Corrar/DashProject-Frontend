@@ -56,6 +56,7 @@ components/
   landing.jsx              # Landing page + AuthBubble (Nav/Topbar dropdown da conta)
   dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, PaywallModal, …
   dashboard-export.jsx     # ExportModal + MiniBlock: PDF (impressão do navegador) e PNG (html-to-image lazy) do #dash-export-root
+  dashboard-saved.jsx      # DashSaved (IndexedDB) + SavedDashboards ("Continuar de onde parou" no UploadView)
   share-view.jsx           # ShareModal (cria/lista/desativa link, Pro) + SharedView (página pública ?s=<slug>)
   auth-modal.jsx           # AuthModal (popover) — fallback para fluxos que preferem modal
   auth-view.jsx            # AuthView (rota auth) — sign-in / sign-up / reset, full-screen
@@ -243,8 +244,8 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - **Sampling para IA** (decisão [DECISION 2026-06-03], substitui a regra antiga de "1-3 linhas anonimizadas"):
   - **20 linhas cruas (sem anonimização)** são enviadas para o Gemini (via Edge Function `gemini-narrative`), junto com perfis de coluna + KPIs computados.
   - **Decisão**: priorizar qualidade da análise sobre minimização de dados. Insights mais ricos e específicos compensam o trade-off.
-  - **Free não envia nenhum dado** — o paywall bloqueia antes da chamada (a IA só roda nos planos pagos: Essencial e Pro; o backend responde 402 para Free).
-  - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base).
+  - **Cota por conta**: Free 1 análise/mês, Essencial 50, Pro 300 (backend responde 429 ao estourar). **Anônimo não envia nada** — o bloco vira convite de cadastro; a IA exige conta.
+  - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base) e no dashboard salvo (IndexedDB), então reabrir não gasta cota.
   - **TODO pré-lançamento** (bloqueia ir a usuários reais):
     - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Análise por IA", estado inicial).
     - Termos de Uso e Política de Privacidade: rascunhos em `termos.html` / `privacidade.html`. **Preencher os campos entre colchetes (razão social, CNPJ, endereço, e-mails) e revisar com advogado** antes de lançar.
@@ -253,6 +254,8 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - Sanitizar nomes de arquivo antes de mostrar.
 - Não logar conteúdo do usuário em `console.log` em produção.
 - Não armazenar dados em `localStorage` exceto preferências de UI (período, tema, layout).
+- **Exceção: dashboards salvos** (`dashboard-saved.jsx`). A base processada, o layout e a narrativa da IA ficam no **IndexedDB deste navegador**, por dono (id do usuário ou `"anon"`), nunca no servidor. Free guarda os 3 mais recentes, pagos 50; bases > 200 mil linhas não são salvas. A pessoa pode desligar ("Salvar neste navegador") e apagar. Dados de demonstração nunca são salvos.
+- **Métricas**: Vercel Web Analytics (sem cookies), carregado em `index.html` com auto-track desligado — a URL pode carregar tokens (`?verify=`, `?reset=`, `?s=`). O `App` manda `dashTrackView(view)` por tela; eventos-chave via `window.dashTrack(nome, dados)`. **Nunca** mandar nome de arquivo, conteúdo, e-mail ou id de usuário nos eventos — só categorias (plano, ciclo, faixa de linhas).
 - Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção.
 - **Links públicos (Pro)**: guardam só o retrato agregado dos blocos (`dashBuildShareSnapshot`), nunca linhas do arquivo. A página pública sanitiza tudo (`dashSanitizeSharedBlock`) e tem `noindex`.
 - **LGPD**: copy precisa deixar claro que análise é local e que metadados podem ser enviados para a IA com opt-in.
