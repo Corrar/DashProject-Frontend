@@ -99,15 +99,23 @@ function App(){
     if(currentUser && currentUser.id) DashSaved.claim("anon", currentUser.id);
   }, [currentUser && currentUser.id]);
 
-  // Prompt → Dashboard: registra a base (só uploads reais, nunca a demonstração).
-  const startDashboard = ()=>{
-    if(fileInfo && !fileInfo.isDemo && !fileInfo.savedId && Array.isArray(fileInfo.data) && fileInfo.data.length){
-      const id = "d-" + Date.now();
-      const fi = { ...fileInfo, savedId: id };
-      setFileInfo(fi);
-      DashSaved.create(id, savedOwner, fi).then(ok => { if(ok) DashSaved.prune(savedOwner, savedKeep, id); });
-      window.dashTrack && window.dashTrack("dashboard_gerado", { linhas: dashRowsBucket(fileInfo.data.length) });
+  // Prompt → Dashboard: leva a seleção de métricas e o foco da IA, e registra a
+  // base nos dashboards salvos (só uploads reais, nunca a demonstração).
+  const startDashboard = (opts)=>{
+    if(!fileInfo){ setView("dashboard"); return; }
+    const metricPick = opts && Array.isArray(opts.metrics) ? opts.metrics : null;
+    const aiFocus = (opts && opts.focus) || "";
+    const fi = { ...fileInfo, metricPick, aiFocus, savedLayout: null };
+    if(!fi.isDemo && Array.isArray(fi.data) && fi.data.length){
+      if(!fi.savedId){
+        fi.savedId = "d-" + Date.now();
+        DashSaved.create(fi.savedId, savedOwner, fi).then(ok => { if(ok) DashSaved.prune(savedOwner, savedKeep, fi.savedId); });
+      } else {
+        DashSaved.update(fi.savedId, { metricPick, aiFocus, layout: null });
+      }
+      window.dashTrack && window.dashTrack("dashboard_gerado", { linhas: dashRowsBucket(fi.data.length), selecao: metricPick ? "personalizada" : "padrao" });
     }
+    setFileInfo(fi);
     setView("dashboard");
   };
   const openSaved = async (id)=>{

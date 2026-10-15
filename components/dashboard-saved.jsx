@@ -107,6 +107,8 @@ const DashSaved = {
       name: fileInfo.name || "dados", sizeKB: fileInfo.sizeKB || null,
       rows: fileInfo.data.length, cols: fileInfo.cols || header.length,
       createdAt: now, updatedAt: now, layout: null, narrative: null,
+      metricPick: Array.isArray(fileInfo.metricPick) ? fileInfo.metricPick.slice(0, 200) : null,
+      aiFocus: fileInfo.aiFocus ? String(fileInfo.aiFocus).slice(0, 200) : "",
     };
     const dataset = {
       id: id, header: header, rows: rows,
@@ -162,6 +164,7 @@ const DashSaved = {
           name: out.meta.name, sizeKB: out.meta.sizeKB, rows: data.length, cols: out.meta.cols,
           schema: out.dataset.schema || [], data: data, profiles: out.dataset.profiles || [],
           savedId: id, savedLayout: out.meta.layout || null, savedNarrative: out.meta.narrative || null,
+          metricPick: Array.isArray(out.meta.metricPick) ? out.meta.metricPick : null, aiFocus: out.meta.aiFocus || "",
         },
       };
     });

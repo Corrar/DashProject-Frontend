@@ -307,7 +307,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
       <div className="wrap resp-collapse" style={{position:"relative", display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:60, alignItems:"center"}}>
         <div>
           <div className="rv eyebrow" style={{marginBottom:18}}>
-            <span className="dot"/> v2.6 · agora com narrativa por IA
+            <span className="dot"/> Novo: 1 análise por IA grátis todo mês
           </div>
           <h1 className="rv rv-up h-display" style={{margin:"0 0 18px"}}>
             Da planilha ao<br/>
@@ -317,7 +317,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
             }}>dashboard</span> em segundos.
           </h1>
           <p className="rv lede" style={{margin:"0 0 28px", maxWidth: 520}}>
-            Suba um CSV, JSON ou Excel. Descreva o que quer ver. O {tweaks.brandName} monta KPIs, gráficos e análises — e você edita visualmente. Sem código.
+            Suba um CSV, JSON ou Excel. O {tweaks.brandName} monta KPIs, gráficos e um ranking, e a IA escreve a análise quando você pede. Sem código.
           </p>
           <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
             <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>Começar grátis <Icon.Arrow size={14}/></button>
@@ -347,19 +347,21 @@ function StatStrip(){
     if(ref.current) io.observe(ref.current);
     return ()=>io.disconnect();
   }, []);
-  const a = useCount(48000, vis);
-  const b = useCount(12, vis);
-  const c = useCount(99.4, vis);
-  const d = useCount(7, vis);
+  // Só fatos do produto (antes: "48.000 dashboards gerados", "99,4% de uptime"
+  // e "7 tipos de gráfico", números que não existiam).
+  const a = useCount(100, vis);
+  const b = useCount(4, vis);
+  const c = useCount(4, vis);
+  const d = useCount(1, vis);
   return (
     <section className="pad" style={{padding:"32px 24px 24px"}}>
       <div className="wrap rv" ref={ref}>
         <div className="strip soft-shadow">
           {[
-            { k: Math.round(a).toLocaleString("pt-BR"), s:"dashboards gerados" },
-            { k: b.toLocaleString("pt-BR", {minimumFractionDigits:1, maximumFractionDigits:1})+"s", s:"tempo médio para o primeiro insight" },
-            { k: c.toLocaleString("pt-BR", {minimumFractionDigits:1, maximumFractionDigits:1})+"%", s:"uptime de processamento local" },
-            { k: d.toFixed(0), s:"tipos de gráfico cobertos por padrão" },
+            { k: Math.round(a) + "%", s:"do arquivo processado no seu navegador" },
+            { k: Math.round(b), s:"formatos: CSV, TSV, JSON e Excel" },
+            { k: Math.round(c), s:"tipos de gráfico: barras, linha, área e donut" },
+            { k: Math.round(d), s:"análise por IA grátis por mês, sem cartão" },
           ].map((it,i)=>(
             <div key={i} style={{textAlign:"left"}}>
               <div className="ticker" style={{fontSize:30, fontWeight:800, letterSpacing:"-.02em"}}>{it.k}</div>
@@ -404,7 +406,7 @@ function PinnedSteps({ tweaks }){
             <div style={{marginTop: 36, display:"flex", flexDirection:"column", gap:14}}>
               {[
                 {n:"01", t:"Suba seus dados", s:"CSV, JSON ou Excel. Nada sai do seu navegador.", icon: <Icon.Upload size={18}/>},
-                {n:"02", t:"Descreva as métricas", s:'Em linguagem natural — "receita por região, evolução mensal".', icon: <Icon.Wand size={18}/>},
+                {n:"02", t:"Escolha as métricas", s:"O Dash sugere KPIs, tendências e quebras; você marca o que entra.", icon: <Icon.Wand size={18}/>},
                 {n:"03", t:"Receba o dashboard", s:"KPIs, gráficos e análises. Edite, reorganize, exporte.", icon: <Icon.Chart size={18}/>},
               ].map((s,i)=>(
                 <div key={i} style={{
@@ -612,12 +614,12 @@ function ChartGallery({ tweaks }){
 
 function Features({ tweaks }){
   const feats = [
-    { i: <Icon.Wand size={20}/>, t:"IA monta para você", d:"Descreva em português o que quer ver. Os gráficos certos aparecem.", c: tweaks.accent },
+    { i: <Icon.Wand size={20}/>, t:"Monta sozinho", d:"Detecta as colunas e sugere KPIs, tendências e rankings. Você escolhe o que entra.", c: tweaks.accent },
     { i: <Icon.Sparkle size={20}/>, t:"Análises automáticas", d:"Resumo executivo + insights destacando tendências e outliers.", c: "var(--violet)"},
     { i: <Icon.Chart size={20}/>, t:"Edição visual", d:"Troque tipo de gráfico, cores, ordem e título sem código.", c: "#0a8a4a"},
     { i: <Icon.Lock size={20}/>, t:"Processamento local", d:"Seus arquivos são lidos no navegador. Só a análise da IA, quando você pede, envia uma amostra.", c: "#ff7849"},
-    { i: <Icon.Bars size={20}/>, t:"7 tipos de gráfico", d:"KPI, barras, linha, área, pizza, donut e tabela com tema unificado.", c: "#ff5e93"},
-    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Link público, embed ou PDF — com filtros aplicados.", c: "#1b2240" },
+    { i: <Icon.Bars size={20}/>, t:"KPIs, gráficos e ranking", d:"Barras, linha, área e donut com legenda, no mesmo tema visual.", c: "#ff5e93"},
+    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Exporte em PDF ou PNG, ou crie um link público de leitura (Pro).", c: "#1b2240" },
   ];
   return (
     <section id="recursos" className="pad" style={{paddingTop: 80}}>
@@ -650,17 +652,18 @@ function Features({ tweaks }){
 }
 
 function Logos(){
-  const items = ["acme co","north star","quilo labs","oitava","datavela","helix","brisa","monorail","palmar"];
+  // Tipos de planilha que o Dash lê — não logos de clientes (não havia nenhum).
+  const items = ["Vendas","Financeiro","Estoque","Marketing","Pesquisas","RH","Atendimento","Logística","Exportações de ERP"];
   return (
     <section style={{padding:"24px 0 24px"}}>
       <div className="wrap" style={{textAlign:"center", marginBottom:18}}>
-        <span style={{fontSize:13, color:"var(--muted)"}}>Times de dados e produto usam para fechar o ciclo de análise:</span>
+        <span style={{fontSize:13, color:"var(--muted)"}}>Serve para qualquer planilha com cabeçalho:</span>
       </div>
       <div className="marquee">
         <div className="marquee-track">
           {[...items, ...items].map((t,i)=>(
-            <span key={i} className="marquee-item" style={{fontSize:22, letterSpacing:"-.03em", fontWeight:600, opacity:.55}}>
-              <span style={{width:18,height:18,borderRadius:5, background:"linear-gradient(135deg,#1b2240,#5b6478)"}}/>
+            <span key={i} className="marquee-item" style={{fontSize:20, letterSpacing:"-.02em", fontWeight:600, opacity:.6}}>
+              <Icon.Doc size={16}/>
               {t}
             </span>
           ))}

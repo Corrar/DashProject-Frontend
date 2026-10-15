@@ -13,7 +13,7 @@
  *
  * authErrorMessage() é definido em auth-modal.jsx (carrega antes) e reusado aqui.
  *
- * Microsoft login removed; Google left as a placeholder (alert "Em breve").
+ * Login social (Google) ainda não existe: o botão saiu até o backend suportar OAuth.
  */
 
 function PasswordStrength({ value }){
@@ -82,7 +82,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [company, setCompany] = React.useState("");
   const [terms, setTerms] = React.useState(false);
   const [showPw, setShowPw] = React.useState(false);
   const [errors, setErrors] = React.useState({});
@@ -153,7 +152,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
     }
   };
 
-  const onGoogle = ()=> window.alert("Login com Google: em breve.");
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)", display:"flex", flexDirection:"column"}}>
@@ -219,20 +217,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                 </div>
               )}
 
-              {/* Social */}
-              <div style={{marginBottom:18}}>
-                <button type="button" onClick={onGoogle} className="btn btn-ghost"
-                  style={{width:"100%", padding:"11px 12px", justifyContent:"center"}}>
-                  <GoogleLogo/> Continuar com Google
-                </button>
-              </div>
-
-              <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:18, color:"var(--muted)", fontSize:11}}>
-                <div style={{flex:1, height:1, background:"var(--line)"}}/>
-                <span style={{textTransform:"uppercase", letterSpacing:".08em", fontWeight:600}}>ou com email</span>
-                <div style={{flex:1, height:1, background:"var(--line)"}}/>
-              </div>
-
               <form onSubmit={onSubmit} style={{display:"flex", flexDirection:"column", gap:14}}>
                 {isSignup && (
                   <AuthField label="Nome completo" error={errors.name}>
@@ -270,13 +254,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                   </div>
                   {isSignup && password && <PasswordStrength value={password}/>}
                 </AuthField>
-                {isSignup && (
-                  <AuthField label="Empresa (opcional)">
-                    <input type="text" placeholder="Acme Co." value={company}
-                      onChange={e=>setCompany(e.target.value)}
-                      style={inputStyle()}/>
-                  </AuthField>
-                )}
                 {isSignup && (
                   <label style={{
                     display:"flex", alignItems:"flex-start", gap:10, padding:"4px 0",
@@ -343,24 +320,13 @@ function Spinner(){
   );
 }
 
-function GoogleLogo(){
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18">
-      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.13 4.13 0 0 1-1.8 2.71v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.61z"/>
-      <path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.92-2.27c-.8.54-1.83.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.94v2.32A9 9 0 0 0 9 18z"/>
-      <path fill="#FBBC05" d="M3.97 10.71A5.4 5.4 0 0 1 3.67 9c0-.6.1-1.17.3-1.71V4.96H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.04l3.03-2.33z"/>
-      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.34l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.96L3.97 7.3C4.68 5.17 6.66 3.58 9 3.58z"/>
-    </svg>
-  );
-}
-
 function AuthSidePanel({ tweaks, mode }){
   const features = [
-    "Análises da IA destravadas: resumo, riscos e recomendações",
-    "Edição completa do layout — drag-and-drop, ⅓/½/⅔/full",
-    "Dashboards avançados: cohort, sazonalidade, outliers",
-    "Exportação PDF/PNG fiel ao dashboard",
-    "Compartilhamento por link e embed",
+    "Até 300 análises da IA por mês: resumo, insights e recomendações",
+    "Edição completa do layout: arrastar, redimensionar, trocar gráficos",
+    "Visão avançada: sazonalidade, vendedores e mix por categoria",
+    "Exportação em PDF e PNG igual ao dashboard",
+    "Link público de leitura para compartilhar",
   ];
   return (
     <div style={{
@@ -441,22 +407,19 @@ function AuthSidePanel({ tweaks, mode }){
         </ul>
       </div>
 
-      {/* Testimonial */}
-      <div style={{position:"relative", zIndex:2, paddingTop: 24, borderTop:"1px solid rgba(255,255,255,.15)", marginTop:24}}>
-        <p style={{margin:"0 0 10px", fontSize:14, fontStyle:"italic", color:"rgba(255,255,255,.92)", lineHeight:1.5}}>
-          "O Dash virou nosso primeiro lugar para olhar antes de qualquer reunião de produto."
-        </p>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <div style={{width:32, height:32, borderRadius:"50%", background:"linear-gradient(135deg,#ff7849,#ff5e93)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:12}}>BS</div>
-          <div style={{fontSize:12}}>
-            <div style={{fontWeight:600}}>Beatriz Sá</div>
-            <div style={{opacity:.7}}>Head of Data · North Star</div>
+      {/* Garantias (antes havia um depoimento inventado aqui). */}
+      <div style={{position:"relative", zIndex:2, paddingTop: 22, borderTop:"1px solid rgba(255,255,255,.15)", marginTop:24, display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:12}}>
+        {[
+          { i:<Icon.Lock size={14}/>, t:"Arquivo no navegador", d:"Seus dados não vão para o servidor" },
+          { i:<Icon.Check size={14} stroke={3}/>, t:"Sem cartão no Free", d:"Upgrade só se precisar" },
+          { i:<Icon.Refresh size={14}/>, t:"Sem fidelidade", d:"Cancele quando quiser" },
+        ].map(f=>(
+          <div key={f.t} style={{fontSize:12, lineHeight:1.4}}>
+            <span style={{width:26, height:26, borderRadius:8, background:"rgba(255,255,255,.16)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:6}}>{f.i}</span>
+            <div style={{fontWeight:700}}>{f.t}</div>
+            <div style={{opacity:.75}}>{f.d}</div>
           </div>
-          <div style={{flex:1}}/>
-          <div style={{display:"flex", gap:6}}>
-            <span style={{padding:"3px 8px", background:"rgba(255,255,255,.12)", borderRadius:99, fontSize:10, fontWeight:600}}>LGPD</span>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );

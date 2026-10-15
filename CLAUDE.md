@@ -54,7 +54,8 @@ components/
   icons.jsx                # Icon.{Logo, Sparkle, …, User} — SVG inline. Lista canônica em §23.
   charts.jsx               # LineChart, BarChart, Donut, Sparkline (SVG)
   landing.jsx              # Landing page + AuthBubble (Nav/Topbar dropdown da conta)
-  dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, PaywallModal, …
+  dashboard.jsx            # parsers, Topbar, Dashboard, Insights, AINarrative, ChartCard, KPI, RankingTable, PaywallModal, …
+  dashboard-flow.jsx       # fluxo de geração: FlowSteps, UploadView, ProcessingPanel, PromptView (seleção de métricas + foco da IA)
   dashboard-export.jsx     # ExportModal + MiniBlock: PDF (impressão do navegador) e PNG (html-to-image lazy) do #dash-export-root
   dashboard-saved.jsx      # DashSaved (IndexedDB) + SavedDashboards ("Continuar de onde parou" no UploadView)
   share-view.jsx           # ShareModal (cria/lista/desativa link, Pro) + SharedView (página pública ?s=<slug>)
@@ -159,6 +160,7 @@ Todo conteúdo do dashboard é um **bloco** num grid de 12 colunas. Modelo:
 - Chart default `span: 6` (½). ⅔=8, full=12.
 - Insights / Ranking / CTA preferencialmente `span: 12`.
 - Adicionar novo tipo de bloco? Crie a entrada em `renderBlock` + atualize `MiniBlock` no `ExportModal` (caso contrário a prévia quebra) + adicione no `AddPicker`.
+- **A seleção da tela de métricas é real**: `PromptView` manda `onGenerate({ metrics, focus })`; `metrics` (chaves `dashMetricKey`) filtra `dashSuggestMetrics` no `Dashboard`. Em base de vendas com seleção própria, a primeira visão é "Sua seleção"; o `focus` vai na pergunta da análise por IA. Nada de controle na UI que não tenha efeito.
 - **Dados de exemplo nunca se misturam com dados do usuário.** Com upload (`isUpload`), os arrays mock do `Dashboard` viram `[]`, KPI sem dado real recebe `props: null` e `dashFitBlocks` remove o bloco e fecha o grid. Presets cuja coluna não existe (região/produto/canal) somem. Mocks só existem no caminho de dev sem upload (Tweaks).
 
 ### Drag-and-drop nativo
@@ -207,11 +209,14 @@ Todo conteúdo do dashboard é um **bloco** num grid de 12 colunas. Modelo:
 
 ## 6. Gráficos & visualizações
 
-- Sempre usar os componentes em `components/charts.jsx`: `<LineChart>`, `<BarChart>`, `<Donut>`, `<Sparkline>`.
+- Sempre usar os componentes em `components/charts.jsx`: `<LineChart>`, `<BarChart>`, `<Donut>`, `<DonutLegend>`, `<Sparkline>`.
 - API:
   ```jsx
   <LineChart data={[{l:"Jan", v:30}, …]} height={200} color={accent} fill animate />
+  <DonutLegend data={[{l:"Site", v:38}, …]} height={260} color={accent} unit="%" />  // unit="%" quando v já é participação
   ```
+- `LineChart`/`BarChart` medem a largura do contêiner (`useChartWidth`) e desenham em pixels reais — **não** voltar ao viewBox fixo com `preserveAspectRatio="none"` (esticava texto e pontos). Eixo Y usa `chartNiceTicks` + `chartFmt` (pt-BR compacto: "1,8 mil", "2,4 mi"). Ambos mostram o valor no hover (tooltip/realce com `.no-export`).
+- Donut sempre com legenda (`DonutLegend`): fatia sem nome não comunica nada.
 - Tempo: a tendência principal vive em `fullTendency` (90 pontos). Slice baseado em `periodMeta.days`.
 - Para previews ultra-pequenos (export modal), usar `<MiniChart>` / `<MiniBars>` — **não** inflar `LineChart` em 50px.
 - Nunca renderizar > 200 pontos num gráfico inline; faça downsample.

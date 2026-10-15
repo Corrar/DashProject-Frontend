@@ -371,7 +371,7 @@ function dashFilterByPeriod(rows, dateKey, days){
  * mês). Só um sample limitado (≤20 linhas) + metadados de coluna saem do browser,
  * e só para planos pagos que pediram a análise (o tier/quota é reforçado no
  * servidor). */
-async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
+async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName, focus){
   try {
     // profiles = saída de dashProfileColumns: { name, baseType, pattern, stats,… }.
     // Mapeia pro contrato do backend {name, type}. Filtra colunas sem name string
@@ -381,9 +381,11 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
       .map(function(p){ return { name: p.name, type: p.baseType || p.pattern || null }; });
     // Injeta os KPIs reais como contexto na pergunta (o backend lê
     // datasetName/columns/sampleRows/question — campos extras são ignorados).
-    const question = (metrics && metrics.length)
-      ? ("KPIs calculados: " + JSON.stringify(metrics))
-      : null;
+    // Foco escrito na tela de métricas vai na frente; o backend aceita até 500 caracteres.
+    const parts = [];
+    if(focus && String(focus).trim()) parts.push("Foco pedido pelo usuario: " + String(focus).trim().slice(0, 200) + ".");
+    if(metrics && metrics.length) parts.push("KPIs calculados: " + JSON.stringify(metrics));
+    const question = parts.length ? parts.join(" ").slice(0, 500) : null;
     const result = await window.DashAPI.analyze({
       datasetName: datasetName,
       columns: columns,
@@ -500,773 +502,6 @@ function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, on
   );
 }
 
-function UploadView({ onUploaded, maxRows, children }){
-  const [drag, setDrag] = React.useState(false);
-  const [tab, setTab] = React.useState("file"); // file, paste, url, sample
-
-  const formats = [
-    {
-      k:"csv", ext:".csv", n:"CSV", c:"#0a8a4a",
-      desc:"Valores separados por vírgula ou ponto-e-vírgula. UTF-8.",
-      max:"50 MB", rows:"linhas conforme o plano",
-      sample: `data,produto,regiao,valor
-2026-07-12,Mesa Ajustável,CO,2980
-2026-07-12,Notebook Pro 14,SE,8120`,
-    },
-    {
-      k:"xlsx", ext:".xlsx · .xls", n:"Excel", c:"#1b6f3b",
-      desc:"Planilhas do Excel. Detectamos cabeçalho e tipos automaticamente.",
-      max:"25 MB", rows:"primeira aba ou escolha qual",
-      sample: `[ Planilha1 ]
-| data       | produto         | regiao | valor |
-| 2026-07-12 | Mesa Ajustável  | CO     | 2980  |`,
-    },
-    {
-      k:"json", ext:".json · .ndjson", n:"JSON", c:"#7a5cff",
-      desc:"Array de objetos ou JSON line-delimited (uma linha por registro).",
-      max:"30 MB", rows:"objetos conforme o plano",
-      sample: `[
-  { "data":"2026-07-12", "produto":"Mesa", "valor":2980 },
-  { "data":"2026-07-12", "produto":"Notebook", "valor":8120 }
-]`,
-    },
-    {
-      k:"tsv", ext:".tsv · .txt", n:"TSV", c:"#ff7849",
-      desc:"Valores separados por tabulação. Útil para exports brutos.",
-      max:"50 MB", rows:"detecção automática",
-      sample: `data\tproduto\tvalor
-2026-07-12\tMesa\t2980`,
-    },
-    {
-      k:"gsheet", ext:"link compartilhado", n:"Google Sheets", c:"#34a853", pro:true,
-      desc:"Cole o link público da planilha. Sincronização opcional.",
-      max:"qualquer tamanho", rows:"primeira aba por padrão",
-      sample: `https://docs.google.com/spreadsheets/d/...
-☑ acesso somente leitura`,
-    },
-  ];
-
-  const [preview, setPreview] = React.useState(formats[0]);
-  const [filename, setFilename] = React.useState(null);
-  const [progress, setProgress] = React.useState(0);
-  const [step, setStep] = React.useState(""); // "" | reading | parsing | analyzing | done
-  const [pasteText, setPasteText] = React.useState("");
-  const [parseError, setParseError] = React.useState(null);
-  const fileInputRef = React.useRef(null);
-
-  // Parse a CSV/TSV text payload and forward the full dataset (header + typed
-  // rows + schema) via onUploaded. The progress markers below are cosmetic —
-  // the parse itself is synchronous for the file sizes we accept here, but the
-  // user sees a 4-step pipeline (reading → parsing → analyzing → done) so we
-  // sequence setStep with short timers to keep that affordance.
-  const runProcessing = (file)=>{
-    const name = file?.name || "dados.csv";
-    const sizeKB = file?.size ? Math.round(file.size/1024) : Math.round((file?.text?.length || 0)/1024) || 1;
-    setParseError(null);
-    setFilename({ name, sizeKB, rows: 0, cols: 0 });
-    setStep("reading");
-    setProgress(10);
-
-    const ext = String(name).toLowerCase().split(".").pop();
-    const fail = (msg)=>{ setParseError(msg); setStep(""); };
-
-    // Cauda compartilhada: recebe { header, rows } e roda o MESMO pipeline de
-    // schema/dados/profiles para todo formato (CSV, Excel, JSON). É o corpo
-    // original do ingest() a partir do dashInferSchema — os fixes de coluna/
-    // período/número vivem aqui embaixo e seguem intactos.
-    const ingestParsed = (header, rows)=>{
-      if(!header.length || !rows.length){
-        fail("Não consegui detectar cabeçalho ou linhas no arquivo.");
-        return;
-      }
-      // Limite de linhas do plano (limits.maxRows do /me; anônimo = Free).
-      if(maxRows && rows.length > maxRows){
-        fail(<>Esta base tem {rows.length.toLocaleString("pt-BR")} linhas e o seu plano permite até {maxRows.toLocaleString("pt-BR")} por base.{" "}
-          <a onClick={()=> window.__dashUpgrade?.()} style={{color:"var(--brand)", fontWeight:700, cursor:"pointer", textDecoration:"underline"}}>Ver planos</a></>);
-        return;
-      }
-      const schema = dashInferSchema(header, rows);
-      setProgress(70); setStep("analyzing");
-      setTimeout(()=>{
-        const data = dashRowsToObjects(header, rows, schema);
-        // Profile on the RAW rows — currency/percent symbols still intact here.
-        const profiles = window.dashProfileColumns ? window.dashProfileColumns(header, rows) : [];
-        setProgress(100); setStep("done");
-        setFilename(prev => ({...prev, rows: data.length, cols: header.length}));
-        setTimeout(()=> onUploaded && onUploaded({
-          name, sizeKB,
-          rows: data.length,
-          cols: header.length,
-          schema, data, profiles,
-        }), 400);
-      }, 400);
-    };
-
-    // Porta CSV/TSV/TXT — caminho ORIGINAL: dashParseCSV → cauda compartilhada.
-    const ingestText = (text)=>{
-      setProgress(35); setStep("parsing");
-      setTimeout(()=>{
-        try { const p = dashParseCSV(text); ingestParsed(p.header, p.rows); }
-        catch(e){ fail("Erro ao processar o arquivo: " + (e && e.message ? e.message : "formato inesperado")); }
-      }, 400);
-    };
-
-    // Porta JSON/NDJSON — deriva { header, rows } e cai na cauda compartilhada.
-    const ingestJSON = (text)=>{
-      setProgress(35); setStep("parsing");
-      setTimeout(()=>{
-        try { const p = dashJsonToParsed(text, ext === "ndjson"); ingestParsed(p.header, p.rows); }
-        catch(e){ fail("Não consegui ler o JSON: " + (e && e.message ? e.message : "formato inválido")); }
-      }, 400);
-    };
-
-    // ── Dispatch por EXTENSÃO (MIME do xlsx é inconsistente entre SO) ───────
-    if(ext === "xlsx" || ext === "xls"){
-      if(!(file instanceof Blob)){ fail("Envie o arquivo Excel (a prévia em texto não se aplica)."); return; }
-      setStep("parsing"); setProgress(25);
-      dashEnsureXLSX().then(XLSX=>{
-        const reader = new FileReader();
-        reader.onload = (e)=>{
-          let p;
-          try { p = dashXlsxToParsed(e.target?.result, XLSX); }
-          catch(err){ fail("Não consegui ler o Excel (arquivo corrompido ou protegido por senha?)" + (err && err.message ? " — " + err.message : "")); return; }
-          setProgress(35);
-          setTimeout(()=> ingestParsed(p.header, p.rows), 400);
-        };
-        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
-        reader.readAsArrayBuffer(file);
-      }).catch(()=> fail("Suporte a Excel indisponível agora. Verifique a conexão e tente de novo."));
-      return;
-    }
-
-    if(ext === "json" || ext === "ndjson"){
-      if(file && typeof file.text === "string"){ ingestJSON(file.text); }
-      else if(file instanceof Blob){
-        const reader = new FileReader();
-        reader.onload = (e)=> ingestJSON(dashDecodeText(e.target?.result));
-        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
-        reader.readAsArrayBuffer(file);
-      } else { fail("Fonte sem dados anexados."); }
-      return;
-    }
-
-    // Binários conhecidos que NÃO suportamos → erro claro (não lixo "PK").
-    const UNSUPPORTED = ["parquet","pdf","zip","rar","7z","png","jpg","jpeg","gif","xlsb","db","sqlite"];
-    if(file instanceof Blob && UNSUPPORTED.indexOf(ext) >= 0){
-      fail("Formato ." + ext + " não suportado. Use CSV, TSV, JSON ou Excel (.xlsx).");
-      return;
-    }
-
-    // DEFAULT — CSV/TSV/TXT (e payloads de texto: colar/sample/URL). INALTERADO.
-    if(file && typeof file.text === "string"){
-      ingestText(file.text);
-    } else if(file instanceof Blob){
-      const reader = new FileReader();
-      reader.onload = (e)=> ingestText(dashDecodeText(e.target?.result));
-      reader.onerror = ()=>{ fail("Não foi possível ler o arquivo."); };
-      reader.readAsArrayBuffer(file);
-    } else {
-      // URL tab still calls this without a real payload — bail out cleanly.
-      fail("Fonte sem dados anexados.");
-    }
-  };
-
-  const onPickFile = ()=> fileInputRef.current?.click();
-  const onFileChosen = (e)=>{
-    const file = e.target.files?.[0];
-    if(file) runProcessing(file);
-    e.target.value = "";
-  };
-  const onDropFile = (e)=>{
-    e.preventDefault(); setDrag(false);
-    const file = e.dataTransfer.files?.[0];
-    if(file) runProcessing(file);
-  };
-
-  return (
-    <div style={{maxWidth: 1100, margin:"40px auto 0", padding:"0 24px 80px"}}>
-      <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls" style={{display:"none"}} onChange={onFileChosen}/>
-      <div style={{textAlign:"center", marginBottom: 36}}>
-        <div className="rv eyebrow" style={{marginBottom:18}}><Icon.Sparkle size={12}/> Powered by IA · seu arquivo é processado no navegador</div>
-        <h1 className="rv h-section" style={{margin:"0 0 12px", fontSize: 44}}>Envie seus dados e a IA monta o <span style={{color:"var(--brand)"}}>dashboard</span>.</h1>
-        <p className="rv lede" style={{margin:"0 auto", maxWidth: 580}}>Escolha uma fonte abaixo. Em segundos você tem KPIs, gráficos e análises prontas.</p>
-      </div>
-
-      {children}
-
-      {/* Tabs */}
-      <div className="rv" style={{display:"flex", justifyContent:"center", marginBottom: 18}}>
-        <div className="seg" style={{padding:4, borderRadius:12, background:"white", border:"1px solid var(--line)", flexWrap:"wrap", justifyContent:"center"}}>
-          {[
-            {k:"file", i:<Icon.Upload size={14}/>, n:"Enviar arquivo"},
-            {k:"paste", i:<Icon.Doc size={14}/>, n:"Colar dados"},
-            {k:"url", i:<Icon.Share size={14}/>, n:"Importar de URL"},
-            {k:"sample", i:<Icon.Sparkle size={14}/>, n:"Dados de exemplo"},
-          ].map(t=>(
-            <button key={t.k} className={tab===t.k?"on":""} onClick={()=>setTab(t.k)}
-              style={{padding:"8px 14px", display:"inline-flex", alignItems:"center", gap:6, fontSize:13}}>
-              {t.i} {t.n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main area: dropzone + format list side by side */}
-      {parseError && (
-        <div className="rv" style={{
-          marginBottom: 14, padding:"12px 16px", borderRadius:12,
-          background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a",
-          display:"flex", alignItems:"center", gap:10, fontSize:13
-        }}>
-          <Icon.Bolt size={14}/> <span>{parseError}</span>
-        </div>
-      )}
-      <div className="resp-collapse" style={{display:"grid", gridTemplateColumns: "1.2fr 1fr", gap: 20}}>
-        {/* Left: input area */}
-        <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column"}}>
-          {tab === "file" && (
-            <div
-              role="button" tabIndex={step?-1:0}
-              onKeyDown={e=>{ if(!step && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); onPickFile(); }}}
-              style={{
-                flex:1, padding: 32, textAlign:"center",
-                border: drag ? `2px dashed var(--brand)` : "2px dashed transparent",
-                background: drag ? "var(--brand-soft)" : "transparent",
-                transition:"all .2s", display:"flex", flexDirection:"column", justifyContent:"center", minHeight: 380,
-                cursor: step ? "default" : "pointer", outline:"none"
-              }}
-              onDragOver={e=>{ if(!step){ e.preventDefault(); setDrag(true); }}}
-              onDragLeave={()=>setDrag(false)}
-              onDrop={step ? undefined : onDropFile}
-              onClick={step ? undefined : onPickFile}
-            >
-              {!step && (
-                <>
-                  <div style={{
-                    width:80, height:80, borderRadius:20, margin:"0 auto 18px",
-                    background:"linear-gradient(180deg, var(--brand), var(--brand-2))",
-                    color:"white", display:"flex", alignItems:"center", justifyContent:"center",
-                    boxShadow:"0 20px 40px -16px rgba(47,107,255,.6)",
-                    animation:"float 4s ease-in-out infinite"
-                  }}>
-                    <Icon.Upload size={32}/>
-                  </div>
-                  <div style={{fontWeight:700, fontSize:18, marginBottom:6}}>Arraste seu arquivo aqui</div>
-                  <div style={{fontSize:13, color:"var(--muted)", marginBottom: 20}}>ou clique para selecionar do seu computador</div>
-                  <div style={{display:"flex", justifyContent:"center", gap:8, flexWrap:"wrap"}}>
-                    {[".csv",".xlsx",".json",".tsv"].map(e=>(
-                      <span key={e} className="chip mono" style={{background:"var(--line-2)"}}>{e}</span>
-                    ))}
-                  </div>
-                  <style>{`@keyframes float{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-6px); } }`}</style>
-                </>
-              )}
-              {step && filename && (
-                <ProcessingPanel filename={filename} progress={progress} step={step}/>
-              )}
-            </div>
-          )}
-          {tab === "paste" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column"}}>
-              <div style={{fontWeight:700, fontSize:15, marginBottom:6}}>Cole seus dados</div>
-              <div style={{fontSize:13, color:"var(--muted)", marginBottom: 12}}>CSV, TSV ou JSON. Detectamos o formato automaticamente.</div>
-              <textarea
-                value={pasteText}
-                onChange={e=>setPasteText(e.target.value)}
-                placeholder={`data,produto,regiao,valor\n2026-07-12,Mesa Ajustável,CO,2980\n2026-07-12,Notebook Pro 14,SE,8120`}
-                style={{flex:1, padding:14, border:"1px solid var(--line)", borderRadius:12, resize:"none", fontFamily:"'Geist Mono', monospace", fontSize:13, outline:"none", lineHeight:1.5, color:"var(--ink)"}}
-                onFocus={e=>e.target.style.borderColor="var(--brand)"}
-                onBlur={e=>e.target.style.borderColor="var(--line)"}
-              />
-              <button className="btn btn-primary" style={{marginTop:14, justifyContent:"center"}}
-                disabled={!pasteText.trim()}
-                onClick={()=>{
-                  // Mesmo texto, porta certa: JSON colado ia para o parser de CSV
-                  // e virava uma coluna "[".
-                  const t = pasteText.trim();
-                  runProcessing({ name: (t[0] === "[" || t[0] === "{") ? "colado.json" : "colado.csv", text: pasteText });
-                }}>
-                <Icon.Sparkle size={14}/> Analisar dados colados
-              </button>
-            </div>
-          )}
-          {tab === "url" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column", gap:12}}>
-              <div style={{fontWeight:700, fontSize:15}}>Importar de uma URL</div>
-              <div style={{fontSize:13, color:"var(--muted)"}}>Link público de arquivo, Google Sheets ou endpoint público que retorne JSON.</div>
-              <div style={{position:"relative"}}>
-                <input
-                  placeholder="https://exemplo.com/dados.csv"
-                  style={{width:"100%", padding:"14px 16px 14px 42px", border:"1px solid var(--line)", borderRadius:12, fontSize:14, outline:"none"}}
-                  onFocus={e=>e.target.style.borderColor="var(--brand)"}
-                  onBlur={e=>e.target.style.borderColor="var(--line)"}
-                />
-                <span style={{position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--muted)"}}><Icon.Share size={16}/></span>
-              </div>
-              <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
-                <span style={{fontSize:11, color:"var(--muted)", fontWeight:600, alignSelf:"center", marginRight:4}}>SUPORTE</span>
-                {["CSV público","Google Sheets","JSON endpoint","S3 pré-assinado"].map(s=>(
-                  <span key={s} className="chip">{s}</span>
-                ))}
-              </div>
-              <div style={{flex:1}}/>
-              <button className="btn btn-primary" style={{justifyContent:"center"}}
-                disabled
-                title="Disponível em breve — por enquanto use upload, colar ou amostra"
-                onClick={(e)=>e.preventDefault()}>
-                <Icon.Arrow size={14}/> Buscar e analisar (em breve)
-              </button>
-            </div>
-          )}
-          {tab === "sample" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column", gap:12}}>
-              <div style={{fontWeight:700, fontSize:15}}>Quer testar sem dados próprios?</div>
-              <div style={{fontSize:13, color:"var(--muted)", marginBottom:6}}>Escolha um dataset de exemplo. Você pode trocar depois.</div>
-              {[
-                {n:"vendas_exemplo.csv", d:"linhas · 10 colunas · marketplace BR", t:"E-commerce", c:"var(--brand)", text: DASH_SAMPLE_CSV},
-                {n:"churn_saas.json", d:"array de objetos · testa o suporte a JSON", t:"SaaS", c:"var(--violet)", text: DASH_SAMPLE_JSON},
-                {n:"funil_marketing.csv", d:"top of funnel → MQL → SQL", t:"Marketing", c:"#0a8a4a", text: DASH_SAMPLE_CSV},
-                {n:"financeiro_q3.csv", d:"DRE simplificado", t:"Finanças", c:"#ff7849", text: DASH_SAMPLE_CSV},
-              ].map(s=>(
-                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, text: s.text})}
-                  style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"white", cursor:"pointer", textAlign:"left"}}>
-                  <div style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center"}}>
-                    <Icon.Doc size={16}/>
-                  </div>
-                  <div style={{flex:1}}>
-                    <div className="mono" style={{fontSize:13, fontWeight:600}}>{s.n}</div>
-                    <div style={{fontSize:12, color:"var(--muted)"}}>{s.d}</div>
-                  </div>
-                  <span className="chip" style={{background:"var(--line-2)"}}>{s.t}</span>
-                  <Icon.Arrow size={14}/>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: formats panel */}
-        <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column", background:"#fafbfe"}}>
-          <div style={{padding:"18px 20px 14px", borderBottom:"1px solid var(--line)"}}>
-            <div style={{fontWeight:700, fontSize:15}}>Formatos aceitos</div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Clique para ver o formato esperado.</div>
-          </div>
-          <div style={{padding:14, display:"flex", flexDirection:"column", gap:8}}>
-            {formats.map(f=>(
-              <button key={f.k} onClick={()=>setPreview(f)}
-                style={{
-                  display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-                  borderRadius:10, border:`1px solid ${preview.k===f.k ? "var(--brand)":"var(--line)"}`,
-                  background: preview.k===f.k ? "white" : "transparent",
-                  boxShadow: preview.k===f.k ? "0 6px 16px -8px rgba(47,107,255,.25)" : "none",
-                  cursor:"pointer", textAlign:"left", transition:"all .2s"
-                }}>
-                <div style={{width:34, height:34, borderRadius:8, background:`color-mix(in oklch, ${f.c} 18%, white)`, color:f.c, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
-                  <Icon.Doc size={14}/>
-                </div>
-                <div style={{flex:1, minWidth:0}}>
-                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                    <span style={{fontWeight:700, fontSize:14}}>{f.n}</span>
-                    <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{f.ext}</span>
-                    {f.pro && <span className="chip" style={{padding:"1px 6px", fontSize:10, background:"var(--ink)", color:"white"}}>Pro</span>}
-                  </div>
-                  <div style={{fontSize:12, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{f.desc}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-          {/* Preview */}
-          <div style={{margin:"0 14px 14px", border:"1px solid var(--line)", borderRadius:10, background:"white", overflow:"hidden"}}>
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom:"1px solid var(--line-2)"}}>
-              <div className="mono" style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{preview.n} · estrutura esperada</div>
-              <div style={{display:"flex", gap:8, fontSize:11, color:"var(--muted)"}}>
-                <span>{preview.max}</span>
-                <span>·</span>
-                <span>{preview.rows}</span>
-              </div>
-            </div>
-            <pre className="mono" style={{margin:0, padding:"12px 14px", fontSize:11.5, lineHeight:1.55, color:"var(--ink-2)", whiteSpace:"pre-wrap", maxHeight:140, overflow:"auto"}}>
-{preview.sample}
-            </pre>
-          </div>
-        </div>
-      </div>
-
-      {/* Requirements + trust */}
-      <div className="rv resp-collapse" style={{marginTop: 20, display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:20}}>
-        <div className="card" style={{padding:22}}>
-          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom: 14}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"var(--brand-soft)", color:"var(--brand-2)", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Check size={16} stroke={2.6}/>
-            </span>
-            <div>
-              <div style={{fontWeight:700, fontSize:15}}>Como organizar seus dados</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Quanto mais limpo o arquivo, melhor a análise.</div>
-            </div>
-          </div>
-          <ul className="resp-collapse" style={{listStyle:"none", padding:0, margin:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-            {[
-              {t:"Cabeçalho na primeira linha", d:"Use nomes claros: data, produto, valor."},
-              {t:"Uma observação por linha", d:"Evite linhas mescladas ou totais no meio."},
-              {t:"Datas em formato consistente", d:"ISO (2026-07-12) é o ideal."},
-              {t:"Números sem separador de milhar", d:"2980 em vez de 2.980."},
-            ].map(r=>(
-              <li key={r.t} style={{display:"flex", gap:10, alignItems:"flex-start"}}>
-                <span style={{width:18, height:18, borderRadius:5, background:"var(--brand-soft)", color:"var(--brand)", display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2}}>
-                  <Icon.Check size={11} stroke={3}/>
-                </span>
-                <div>
-                  <div style={{fontWeight:600, fontSize:13}}>{r.t}</div>
-                  <div style={{fontSize:12, color:"var(--muted)"}}>{r.d}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="card" style={{padding:22, background:"linear-gradient(180deg, #fafbfe, white)"}}>
-          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:14}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Lock size={16}/>
-            </span>
-            <div>
-              <div style={{fontWeight:700, fontSize:15}}>Privado por padrão</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Nada é enviado sem você pedir.</div>
-            </div>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:13, color:"var(--ink-2)"}}>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> O arquivo é lido e processado no seu navegador.</div>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> A análise da IA (planos pagos) só roda quando você clica: envia nomes de colunas, indicadores e até 20 linhas.</div>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Conformidade com LGPD. Você apaga o arquivo quando quiser.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProcessingPanel({ filename, progress, step }){
-  const stages = [
-    { k:"reading", n:"Lendo arquivo", i:<Icon.Upload size={14}/> },
-    { k:"parsing", n:"Identificando colunas e tipos", i:<Icon.Doc size={14}/> },
-    { k:"analyzing", n:"IA sugerindo melhores métricas", i:<Icon.Sparkle size={14}/> },
-    { k:"done", n:"Pronto", i:<Icon.Check size={14} stroke={3}/> },
-  ];
-  const order = ["reading","parsing","analyzing","done"];
-  const curIdx = order.indexOf(step);
-  return (
-    <div style={{textAlign:"left", maxWidth: 420, margin:"0 auto", width:"100%"}}>
-      <div style={{display:"flex", alignItems:"center", gap:14, marginBottom: 18}}>
-        <div style={{
-          width:48, height:48, borderRadius:12,
-          background: step==="done" ? "linear-gradient(180deg, #0a8a4a, #006b3a)" : "linear-gradient(180deg, var(--brand), var(--brand-2))",
-          color:"white", display:"flex", alignItems:"center", justifyContent:"center"
-        }}>
-          {step==="done" ? <Icon.Check size={22} stroke={3}/> : <Icon.Doc size={20}/>}
-        </div>
-        <div style={{flex:1, minWidth:0}}>
-          <div className="mono" style={{fontSize:14, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{filename.name}</div>
-          <div style={{fontSize:12, color:"var(--muted)"}}>
-            {filename.sizeKB} KB
-            {filename.rows>0 && <> · {filename.rows.toLocaleString("pt-BR")} linhas · {filename.cols} colunas</>}
-          </div>
-        </div>
-      </div>
-      <div style={{height:8, background:"var(--line-2)", borderRadius:99, overflow:"hidden", marginBottom: 18}}>
-        <div style={{width:`${progress}%`, height:"100%", background:"linear-gradient(90deg, var(--brand), var(--violet))", transition:"width .35s ease"}}/>
-      </div>
-      <div style={{display:"flex", flexDirection:"column", gap:10}}>
-        {stages.map((s, i)=>{
-          const state = i < curIdx ? "done" : i === curIdx ? "active" : "pending";
-          return (
-            <div key={s.k} style={{display:"flex", alignItems:"center", gap:12, opacity: state==="pending"?0.4:1}}>
-              <span style={{
-                width:24, height:24, borderRadius:7,
-                background: state==="done" ? "#e7f7ef" : state==="active" ? "var(--brand-soft)" : "var(--line-2)",
-                color: state==="done" ? "#0a8a4a" : state==="active" ? "var(--brand)" : "var(--muted)",
-                display:"inline-flex", alignItems:"center", justifyContent:"center"
-              }}>
-                {state==="done" ? <Icon.Check size={12} stroke={3}/> : s.i}
-              </span>
-              <span style={{fontSize:13, fontWeight: state==="active"?600:500, color: state==="active" ? "var(--ink)" : "var(--ink-2)"}}>{s.n}</span>
-              {state==="active" && <span className="mono" style={{fontSize:11, color:"var(--muted)", marginLeft:"auto"}}>em andamento…</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PromptView({ onGenerate, onBack, fileInfo }){
-  const fname = fileInfo?.name || "vendas_exemplo.csv";
-  const rows = fileInfo?.rows || 120;
-  const cols = fileInfo?.cols || 10;
-
-  // Detected schema — comes from the real parser (fileInfo.schema). When the
-  // user reaches this view via Tweaks without an upload, fall back to a small
-  // illustrative shape so the UI still demos.
-  const schema = (fileInfo?.schema && fileInfo.schema.length)
-    ? fileInfo.schema.map(c => ({
-        n: c.name,
-        t: c.type,
-        ex: (c.examples && c.examples[0]) || "—",
-        nulls: c.nullCount || 0,
-        uniq: c.uniqCount || 0,
-      }))
-    : [
-        { n:"data", t:"date", ex:"2026-07-12", nulls:0 },
-        { n:"produto", t:"dimension", ex:"Mesa Ajustável", nulls:0, uniq:18 },
-        { n:"regiao", t:"dimension", ex:"Centro-Oeste", nulls:0, uniq:5 },
-        { n:"valor_total", t:"measure", ex:"R$ 4.420", nulls:0 },
-      ];
-  const typeMeta = {
-    date:      { c:"#7a5cff", bg:"color-mix(in oklch, #7a5cff 14%, white)", n:"data" },
-    dimension: { c:"#2f6bff", bg:"var(--brand-soft)", n:"dim" },
-    measure:   { c:"#0a8a4a", bg:"#e7f7ef", n:"métrica" },
-  };
-
-  // AI-suggested metrics — real ones from the profiler when an upload exists,
-  // otherwise the illustrative demo set (Tweaks-only entry path).
-  const realMetrics = (fileInfo && fileInfo.profiles && fileInfo.profiles.length && window.dashSuggestMetrics)
-    ? window.dashSuggestMetrics(fileInfo.profiles, fileInfo.data || [])
-    : null;
-
-  const demoGroups = [
-    { k:"kpi", n:"KPIs principais", i:<Icon.Sparkle size={14}/>, c:"var(--brand)",
-      items: [
-        { id:"k1", n:"Valor total", d:"SOMA(valor_total)", conf:98 },
-        { id:"k2", n:"Ticket médio", d:"MÉDIA(valor_total)", conf:96 },
-        { id:"k3", n:"Total de pedidos", d:"CONTAGEM(linhas)", conf:95 },
-        { id:"k4", n:"Quantidade vendida", d:"SOMA(quantidade)", conf:90 },
-      ]},
-    { k:"trend", n:"Tendências no tempo", i:<Icon.Line size={14}/>, c:"#7a5cff",
-      items: [
-        { id:"t1", n:"Evolução diária do valor", d:"valor_total por data", conf:97 },
-        { id:"t2", n:"Receita mensal", d:"SOMA(valor_total) por mês", conf:94 },
-        { id:"t3", n:"Volume semanal", d:"CONTAGEM por semana", conf:88 },
-      ]},
-    { k:"dim", n:"Quebras por dimensão", i:<Icon.Bars size={14}/>, c:"#0a8a4a",
-      items: [
-        { id:"d1", n:"Vendas por região", d:"SOMA(valor_total) por regiao", conf:96 },
-        { id:"d2", n:"Top produtos", d:"SOMA(valor_total) por produto · top 10", conf:95 },
-        { id:"d3", n:"Mix por categoria", d:"SOMA(valor_total) por categoria · donut", conf:93 },
-        { id:"d4", n:"Canais de venda", d:"SOMA(valor_total) por canal", conf:90 },
-        { id:"d5", n:"Ranking de vendedores", d:"SOMA(valor_total) por vendedor", conf:84 },
-      ]},
-    { k:"adv", n:"Análises avançadas", i:<Icon.Bolt size={14}/>, c:"#ff7849",
-      items: [
-        { id:"a1", n:"Efeito do desconto", d:"correlação(desconto_pct, valor_total)", conf:81 },
-        { id:"a2", n:"Outliers de pedido", d:"pedidos > p99 em valor", conf:78 },
-        { id:"a3", n:"Curva ABC de produtos", d:"pareto por valor_total", conf:74, pro:true },
-      ]},
-  ];
-
-  const groups = realMetrics ? (()=>{
-    const kindDesc = { sum:"SOMA", avg:"MÉDIA", count:"CONTAGEM", count_unique:"CONTAGEM DISTINTA",
-      percent_positive:"% POSITIVO", trend:"evolução por período", top_n:"ranking",
-      distribution:"distribuição", frequency_by_item:"frequência por item" };
-    const famOf = (kind)=> (["sum","avg","count","count_unique","percent_positive"].indexOf(kind) >= 0) ? "kpi"
-      : kind === "trend" ? "trend" : "dim";
-    const meta = {
-      kpi:   { k:"kpi",   n:"KPIs principais",     i:<Icon.Sparkle size={14}/>, c:"var(--brand)" },
-      trend: { k:"trend", n:"Tendências no tempo",  i:<Icon.Line size={14}/>,    c:"#7a5cff" },
-      dim:   { k:"dim",   n:"Quebras por dimensão", i:<Icon.Bars size={14}/>,    c:"#0a8a4a" },
-    };
-    const buckets = { kpi:[], trend:[], dim:[] };
-    realMetrics.forEach((m, idx)=>{
-      const fam = famOf(m.kind);
-      buckets[fam].push({
-        id: m.kind + "-" + (m.columns.primary || "all") + "-" + idx,
-        n: m.label,
-        d: (kindDesc[m.kind] || m.kind) + (m.columns.primary ? " · " + m.columns.primary : ""),
-        conf: Math.min(99, m.priority),
-      });
-    });
-    return ["kpi","trend","dim"].filter(f => buckets[f].length).map(f => ({ ...meta[f], items: buckets[f] }));
-  })() : demoGroups;
-
-  const allIds = groups.flatMap(g=>g.items.map(i=>i.id));
-  const defaultPick = new Set(realMetrics ? allIds.slice(0, 6) : ["k1","k2","t1","d1","d2","d3"]);
-  const [picked, setPicked] = React.useState(defaultPick);
-  const [val, setVal] = React.useState("Resumo geral de vendas: total, ticket médio, evolução ao longo do tempo e quebras por região, produto e canal.");
-
-  const togglePick = (id)=>{
-    setPicked(prev=>{
-      const next = new Set(prev);
-      if(next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const suggestions = [
-    "Mostre vendas totais, receita por categoria e tendência mensal",
-    "Top 10 produtos por valor e distribuição por região",
-    "Análise por canal de venda e por vendedor no último trimestre",
-  ];
-
-  return (
-    <div style={{maxWidth: 1100, margin:"32px auto 0", padding:"0 24px 80px"}}>
-      {/* Header */}
-      <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:20, gap:24, flexWrap:"wrap"}}>
-        <div>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Check size={16} stroke={3}/>
-            </span>
-            <span style={{fontWeight:700, fontSize:14}}>Arquivo carregado com sucesso</span>
-          </div>
-          <h1 style={{margin:"0 0 4px", fontSize:28, fontWeight:800, letterSpacing:"-.02em"}} className="mono">{fname}</h1>
-          <div style={{fontSize:13, color:"var(--muted)"}}>{rows.toLocaleString("pt-BR")} linhas · {cols} colunas · análise da IA concluída em 2,4s</div>
-        </div>
-        <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onBack}><Icon.Refresh size={14}/> Trocar arquivo</button>
-      </div>
-
-      <div style={{display:"grid", gridTemplateColumns:"1.4fr 1fr", gap: 20}}>
-        {/* LEFT: metrics + prompt */}
-        <div style={{display:"flex", flexDirection:"column", gap: 16}}>
-          {/* AI metrics card */}
-          <div className="rv card" style={{padding:24}}>
-            <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom: 6}}>
-              <div style={{display:"flex", alignItems:"center", gap:10}}>
-                <div style={{width:36, height:36, borderRadius:10, background:"linear-gradient(135deg, var(--brand), var(--violet))", color:"white", display:"flex", alignItems:"center", justifyContent:"center"}}>
-                  <Icon.Sparkle size={16}/>
-                </div>
-                <div>
-                  <div style={{fontWeight:700, fontSize:16}}>Métricas que a IA encontrou na sua base</div>
-                  <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>{groups.reduce((s,g)=>s+g.items.length,0)} sugestões · marque o que quer no dashboard.</div>
-                </div>
-              </div>
-              <div style={{display:"flex", gap:6}}>
-                <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12}}
-                  onClick={()=>setPicked(new Set(allIds))}>Todas</button>
-                <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12}}
-                  onClick={()=>setPicked(new Set())}>Nenhuma</button>
-              </div>
-            </div>
-            <div style={{display:"flex", flexDirection:"column", gap:18, marginTop:14}}>
-              {groups.map(g=>(
-                <div key={g.k}>
-                  <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
-                    <span style={{width:24, height:24, borderRadius:7, background:`color-mix(in oklch, ${g.c} 15%, white)`, color:g.c, display:"inline-flex", alignItems:"center", justifyContent:"center"}}>{g.i}</span>
-                    <span style={{fontWeight:700, fontSize:13}}>{g.n}</span>
-                    <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{g.items.filter(i=>picked.has(i.id)).length}/{g.items.length}</span>
-                  </div>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-                    {g.items.map(it=>{
-                      const on = picked.has(it.id);
-                      return (
-                        <button key={it.id} onClick={()=>togglePick(it.id)} style={{
-                          textAlign:"left", padding:"10px 12px", borderRadius:10,
-                          border: `1px solid ${on ? "var(--brand)" : "var(--line)"}`,
-                          background: on ? "var(--brand-soft)" : "white",
-                          cursor:"pointer", display:"flex", alignItems:"flex-start", gap:10
-                        }}>
-                          <span style={{
-                            width:18, height:18, borderRadius:5, flexShrink:0, marginTop:1,
-                            border: `1.5px solid ${on?"var(--brand)":"#c8cee0"}`,
-                            background: on?"var(--brand)":"white",
-                            color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center"
-                          }}>{on && <Icon.Check size={11} stroke={3.5}/>}</span>
-                          <div style={{flex:1, minWidth:0}}>
-                            <div style={{display:"flex", alignItems:"center", gap:6}}>
-                              <span style={{fontWeight:600, fontSize:13}}>{it.n}</span>
-                              {it.pro && <span className="chip" style={{padding:"0 6px", fontSize:9, background:"var(--ink)", color:"white"}}>Pro</span>}
-                            </div>
-                            <div className="mono" style={{fontSize:11, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.d}</div>
-                          </div>
-                          <span className="mono" style={{fontSize:10, color:"var(--muted)", flexShrink:0, alignSelf:"flex-start"}}>{it.conf}%</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Prompt card */}
-          <div className="rv card" style={{padding:24}}>
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14}}>
-              <div>
-                <div style={{fontWeight:700, fontSize:15}}>Refine em linguagem natural</div>
-                <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Opcional. Diga o que quer ver — a IA combina com as métricas selecionadas.</div>
-              </div>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Gemini 2.5</span>
-            </div>
-            <textarea
-              value={val} onChange={e=>setVal(e.target.value)} rows={3}
-              style={{width:"100%", padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, resize:"none", fontFamily:"inherit", fontSize:14, lineHeight:1.5, color:"var(--ink)", outline:"none"}}
-              onFocus={e=>e.target.style.borderColor="var(--brand)"}
-              onBlur={e=>e.target.style.borderColor="var(--line)"}
-            />
-            <div style={{display:"flex", flexWrap:"wrap", gap:6, marginTop:10}}>
-              {suggestions.map(s=>(
-                <button key={s} onClick={()=>setVal(s)} className="chip" style={{cursor:"pointer", background:"white", border:"1px solid var(--line)"}}>{s}</button>
-              ))}
-            </div>
-          </div>
-
-          <button className="btn btn-primary" style={{padding:"16px", justifyContent:"center", fontSize:15}} onClick={onGenerate}>
-            <Icon.Sparkle size={16}/> Gerar dashboard com {picked.size} {picked.size===1?"métrica":"métricas"}
-            <Icon.Arrow size={14}/>
-          </button>
-        </div>
-
-        {/* RIGHT: schema panel */}
-        <div className="rv card" style={{padding:0, overflow:"hidden", display:"flex", flexDirection:"column", height: "fit-content", position:"sticky", top: 80}}>
-          <div style={{padding:"18px 20px 14px", borderBottom:"1px solid var(--line)"}}>
-            <div style={{fontWeight:700, fontSize:15}}>Esquema detectado</div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Tipos inferidos automaticamente pela IA.</div>
-          </div>
-          <div style={{padding:"10px 14px 14px", display:"flex", flexDirection:"column"}}>
-            {/* Schema legend */}
-            <div style={{display:"flex", gap:10, padding:"6px 4px 12px", borderBottom:"1px dashed var(--line-2)", marginBottom:8}}>
-              {Object.entries(typeMeta).map(([k,m])=>(
-                <span key={k} style={{display:"inline-flex", alignItems:"center", gap:6, fontSize:11, color:"var(--muted)"}}>
-                  <span style={{width:8, height:8, borderRadius:2, background:m.c}}/> {m.n}
-                </span>
-              ))}
-              <div style={{flex:1}}/>
-              <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{schema.length} colunas</span>
-            </div>
-            {schema.map((c,i)=>{
-              const m = typeMeta[c.t];
-              return (
-                <div key={c.n} style={{
-                  display:"grid", gridTemplateColumns:"auto 1fr auto", gap:10, alignItems:"center",
-                  padding:"8px 6px", borderTop: i===0?"none":"1px solid var(--line-2)"
-                }}>
-                  <span style={{
-                    fontSize:9, fontWeight:700, padding:"3px 6px", borderRadius:5,
-                    background: m.bg, color: m.c, letterSpacing:".06em"
-                  }}>{m.n.toUpperCase()}</span>
-                  <div style={{minWidth:0}}>
-                    <div className="mono" style={{fontSize:13, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.n}</div>
-                    <div style={{fontSize:11, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                      ex: {c.ex}{c.uniq && ` · ${c.uniq} únicos`}{c.nulls>0 && ` · ${c.nulls} nulos`}
-                    </div>
-                  </div>
-                  <span className="icon-btn" title="Visualizar" style={{width:24, height:24, borderRadius:6}}><Icon.Eye size={11}/></span>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{padding:"12px 16px", borderTop:"1px solid var(--line)", background:"#fafbfe", fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:8}}>
-            <Icon.Sparkle size={12} color="var(--brand)"/>
-            {(()=>{
-              const nd = schema.filter(c=>c.t==="date").length;
-              const ndim = schema.filter(c=>c.t==="dimension").length;
-              const nm = schema.filter(c=>c.t==="measure").length;
-              const seg = (n, sing, plur)=> `${n} ${n===1?sing:plur}`;
-              return `A IA detectou ${seg(nd,"coluna de data","colunas de data")}, ${seg(ndim,"dimensão","dimensões")} e ${seg(nm,"métrica numérica","métricas numéricas")}.`;
-            })()}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* Mini sparklines / chart utilities for KPIs */
 function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
   const { label, value, delta, deltaDir, sub, data, color, suffix, format } = kpi;
@@ -1370,12 +605,15 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
         ) : (
           <span className="ticker" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
         )}
-        <span className="chip mono" style={{
-          background: deltaDir==="up" ? "#e7f7ef" : "#fde7ee",
-          color: deltaDir==="up" ? "#0a8a4a" : "#c9234a", fontSize:11, cursor: editing?"pointer":"default"
-        }} onClick={()=> editing && set({deltaDir: deltaDir==="up"?"down":"up"})}>
-          {deltaDir==="up" ? "▲" : "▼"} {delta}
-        </span>
+        {/* Sem variação calculada ("—") o chip "▲ —" só fazia ruído. */}
+        {(editing || (delta && delta !== "—")) && (
+          <span className="chip mono" style={{
+            background: deltaDir==="up" ? "#e7f7ef" : "#fde7ee",
+            color: deltaDir==="up" ? "#0a8a4a" : "#c9234a", fontSize:11, cursor: editing?"pointer":"default"
+          }} onClick={()=> editing && set({deltaDir: deltaDir==="up"?"down":"up"})}>
+            {deltaDir==="up" ? "▲" : "▼"} {delta}
+          </span>
+        )}
       </div>
       <div style={{fontSize:12, color:"var(--muted)"}}>{sub}</div>
       {editing && (
@@ -1550,8 +788,8 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
           )}
         </div>
         <div style={{display:"flex", alignItems:"center", gap:6, flexShrink:0}}>
-          {!editing && dim && <span className="chip mono" style={{background:"var(--line-2)"}}>{dim}</span>}
-          {!editing && agg && <span className="chip mono" style={{background:"var(--line-2)"}}>{agg}</span>}
+          {!editing && dim && <span className="chip mono cc-meta" style={{background:"var(--line-2)"}}>{dim}</span>}
+          {!editing && agg && <span className="chip mono cc-meta" style={{background:"var(--line-2)"}}>{agg}</span>}
           <ChartTypeMenu value={type} onChange={k=>set({type:k})}/>
           {!editing && <span className="icon-btn"><Icon.More size={14}/></span>}
         </div>
@@ -1583,9 +821,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
           type==="bar" ? <BarChart data={data} height={height} color={chart.color || color}/> :
           type==="line" ? <LineChart data={data} height={height} color={chart.color || color}/> :
           type==="area" ? <LineChart data={data} height={height} color={chart.color || color} fill={true}/> :
-          <div style={{display:"flex", alignItems:"center", justifyContent:"center", height}}>
-            <Donut data={data.map((d,i)=>({v:d.v, color: i===0? (chart.color||color) : ["#94b7ff","#7a5cff","#0a8a4a","#1b2240","#ff7849"][i%5]}))} size={Math.min(height-20, 200)}/>
-          </div>
+          <DonutLegend data={data} height={height} color={chart.color || color} unit={chart.unit}/>
         )}
       </div>
     </div>
@@ -1652,7 +888,7 @@ function AINarrative({ tweaks, live, limits, anon }){
           </div>
         </div>
       </div>
-      {!anon && !quota && (
+      {!anon && !quota && data && (
         <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
           onClick={reload} title="Gerar uma nova análise com a IA">
           <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
@@ -1757,21 +993,29 @@ function AINarrative({ tweaks, live, limits, anon }){
   // Idle — nada é enviado até o clique. O aviso diz exatamente o que sai do
   // navegador (dashFetchNarrative: colunas, KPIs e até 20 linhas) e o custo.
   if(!data){
+    const focus = live && live.focus;
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
-        {Header}
-        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
-          <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
-            <div style={{fontWeight:700, marginBottom:4}}>Gere um resumo executivo com a IA</div>
-            Ao gerar, enviamos ao Google Gemini os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas desta base. O restante do arquivo continua só no seu navegador.
-            {cap != null && <div style={{fontSize:12, color:"var(--muted)", marginTop:6}}>
-              {isFreePlan
-                ? "Seu plano Free inclui 1 análise por mês" + (used != null ? ` (${used} de ${cap} usada${cap === 1 ? "" : "s"})` : "") + "."
-                : "Usa 1 análise da sua cota mensal" + (used != null ? ` (${used} de ${cap} usadas)` : "") + "."}
-            </div>}
-          </div>
-          <button className="btn btn-primary" onClick={reload}><Icon.Sparkle size={13}/> Gerar análise</button>
+      <div className="card soft-shadow ai-idle" style={{padding:"18px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap",
+        background:`linear-gradient(90deg, color-mix(in oklch, ${accent} 6%, white), white 55%)`}}>
+        <div style={{width:44, height:44, borderRadius:12, flexShrink:0, background:`linear-gradient(135deg, ${accent}, var(--violet))`, display:"flex", alignItems:"center", justifyContent:"center", color:"white"}}>
+          <Icon.Sparkle size={20}/>
         </div>
+        <div style={{flex:"1 1 360px", minWidth:0}}>
+          <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+            <span style={{fontWeight:700, fontSize:15}}>Análise por IA</span>
+            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
+            {cap != null && <span style={{fontSize:12, color:"var(--muted)"}}>
+              {isFreePlan
+                ? "1 análise grátis por mês" + (used != null ? ` · ${used} de ${cap} usada${cap === 1 ? "" : "s"}` : "")
+                : "Usa 1 da sua cota mensal" + (used != null ? ` · ${used} de ${cap} usadas` : "")}
+            </span>}
+          </div>
+          <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5, marginTop:3}}>
+            Resumo executivo, insights e recomendações sobre esta base{focus ? <> com foco em <b>“{focus}”</b></> : null}.
+            {" "}<span style={{color:"var(--muted)"}}>Envia ao Google Gemini os nomes das colunas, os indicadores e até 20 linhas; o resto do arquivo fica no seu navegador.</span>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar análise</button>
       </div>
     );
   }
@@ -2103,10 +1347,21 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const suggestedMetrics = React.useMemo(()=>
     (profiles.length && window.dashSuggestMetrics) ? window.dashSuggestMetrics(profiles, dataset) : [],
     [profiles, dataset]);
-  const generated = React.useMemo(()=>
+  // Métricas marcadas na tela anterior (PromptView). null = todas (padrão).
+  const metricPick = (fileInfo && Array.isArray(fileInfo.metricPick)) ? fileInfo.metricPick : null;
+  const pickedMetrics = React.useMemo(()=>{
+    if(!metricPick || !window.dashMetricKey) return suggestedMetrics;
+    const want = new Set(metricPick);
+    return suggestedMetrics.filter((m, i)=> want.has(window.dashMetricKey(m, i)));
+  }, [suggestedMetrics, metricPick]);
+  const generatedAll = React.useMemo(()=>
     (profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, suggestedMetrics, filteredData) : null,
     [profiles, suggestedMetrics, filteredData]);
-  const useGenerated = !!(generated && generated.overallConfidence > 0.7 && (generated.kpis.length || generated.charts.length));
+  const generated = React.useMemo(()=>
+    (metricPick && profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, pickedMetrics, filteredData) : generatedAll,
+    [metricPick, profiles, pickedMetrics, filteredData, generatedAll]);
+  // A confiança vem da base inteira: marcar menos métricas não troca o modo do painel.
+  const useGenerated = !!(generatedAll && generatedAll.overallConfidence > 0.7 && generated && (generated.kpis.length || generated.charts.length));
   const salesShape = !!presetCompat.salesShape;
   const hasDatetimeProfile = profiles.some(p => p.pattern === "datetime");
   // Descoberta leads only when generated AND not a sales shape; sales data keeps
@@ -2157,7 +1412,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     const metricsPayload = (generated && Array.isArray(generated.kpis) ? generated.kpis : [])
       .map(k => ({ label: k.props.label, value: k.props.value, format: k.props.format }));
     const sampleRows = dataset.slice(0, 20);
-    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados")
+    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados", fileInfo && fileInfo.aiFocus)
       .then(result => {
         if(reqId !== narrativeReqRef.current) return; // a newer request superseded this one
         if(result && result.quotaExceeded){ // 429 — quota do mês esgotada: card de upgrade, não erro genérico
@@ -2213,9 +1468,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       return {
         n: String(p.l),
         c: (row && dataCols.category && row[dataCols.category]) || "—",
-        r: (row && dataCols.region   && row[dataCols.region])   || "—",
         v: p.v,
         pct: Math.round(p.v/maxV*100),
+        s: totalAll ? Math.round(p.v/totalAll*1000)/10 : null, // participação no total (%)
       };
     });
     // Period-over-period delta: split sorted-by-date in halves.
@@ -2446,10 +1701,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v0-k3", kind:"kpi", span:3, props: k3Props },
         { id:"v0-k4", kind:"kpi", span:3, props: k4Props },
         { id:"v0-c1", kind:"chart", span:8, props:{ title:"Evolução diária do valor total", sub:"Tendência por dia · "+periodMeta.label.toLowerCase(), type:"area", dim:"data", agg:"sum", color: tweaks.accent, height: 280, data: tendency }},
-        { id:"v0-c2", kind:"chart", span:4, props:{ title:"Canais de venda", sub:"Participação no valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 280, data: canal }},
+        { id:"v0-c2", kind:"chart", span:4, props:{ title:"Canais de venda", sub:"Participação no valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 280, data: canal, unit: "%" }},
         { id:"v0-c3", kind:"chart", span:6, props:{ title:"Vendas por categoria & produto", sub:"Top 6 produtos por valor total", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 240, data: categoria }},
         { id:"v0-c4", kind:"chart", span:6, props:{ title:"Vendas por região", sub:"Comparativo entre as 5 regiões", type:"bar", dim:"regiao", agg:"sum", color: tweaks.accent, height: 240, data: regiao }},
-        { id:"v0-rank", kind:"ranking", span:12, props:{ items: rankProduto }},
+        { id:"v0-rank", kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined }},
       ],
     },
     region: {
@@ -2475,7 +1730,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v2-k4", kind:"kpi", span:3, props: productKpis[3] },
         { id:"v2-c1", kind:"chart", span:7, props:{ title:"Top produtos por valor", sub:"Soma de receita por produto", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoria }},
         { id:"v2-c2", kind:"chart", span:5, props:{ title:"Mix por produto", sub:"Top 5 · participação no valor total", type:"donut", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoriaMix }},
-        { id:"v2-rank", kind:"ranking", span:12, props:{ items: rankProduto }},
+        { id:"v2-rank", kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined }},
       ],
     },
     channel: {
@@ -2486,7 +1741,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v3-k2", kind:"kpi", span:3, props: channelKpis[1] },
         { id:"v3-k3", kind:"kpi", span:3, props: channelKpis[2] },
         { id:"v3-k4", kind:"kpi", span:3, props: channelKpis[3] },
-        { id:"v3-c1", kind:"chart", span:6, props:{ title:"Participação por canal", sub:"% do valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 260, data: canal }},
+        { id:"v3-c1", kind:"chart", span:6, props:{ title:"Participação por canal", sub:"% do valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 260, data: canal, unit: "%" }},
         { id:"v3-c2", kind:"chart", span:6, props:{ title:"Evolução por canal", sub:"Soma de receita por mês", type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
         { id:"v3-c3", kind:"chart", span:12, props:{ title:"Volume por dia da semana", sub:"Soma de receita por dia da semana", type:"bar", dim:"data", agg:"sum", color: tweaks.accent, height: 240, data: dowVolume }},
       ],
@@ -2547,10 +1802,24 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       if(hasDatetimeProfile && all.advanced) out.advanced = all.advanced;
       return out;
     }
+    // Base de vendas com seleção própria na tela de métricas: a primeira visão
+    // é exatamente o que a pessoa marcou; as visões prontas continuam ao lado.
+    if(metricPick && generated && (generated.kpis.length || generated.charts.length)){
+      const selection = {
+        name: "Sua seleção", icon: <Icon.Check size={13}/>,
+        desc: "As métricas que você marcou antes de gerar o dashboard.",
+        blocks: dashFitBlocks([
+          { id:"sel-insights", kind:"insights", span:12, props:{ generated: generated.insights } },
+          ...generated.kpis,
+          ...generated.charts,
+        ]),
+      };
+      return { selection: selection, ...all };
+    }
     return all;
   };
-  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile, isUpload]);
-  const defaultViewKey = dataDrivenMode ? "discovery" : "overview";
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile, isUpload, metricPick]);
+  const defaultViewKey = dataDrivenMode ? "discovery" : presets.selection ? "selection" : "overview";
   // Visão salva só volta se ainda existir e o plano ainda a liberar.
   const savedViewOk = !!(savedLayout && presets[savedLayout.viewKey] && !(presets[savedLayout.viewKey].badge === "Pro" && isFree));
   const [viewKey, setViewKey] = React.useState(()=> savedViewOk ? savedLayout.viewKey : defaultViewKey);
@@ -2636,7 +1905,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       const sparks = [820,860,920,1020,1100,1160,1200,1250];
       setBlocks(bs => [...bs, { id, kind:"kpi", span:3, props:{ label:"Novo KPI", value:"R$ 100k", delta:"5,0%", deltaDir:"up", sub:"vs período anterior", data:sparks, color: palette[bs.filter(b=>b.kind==="kpi").length % palette.length] }}]);
     } else if(type === "ranking"){
-      setBlocks(bs => [...bs, { id, kind:"ranking", span:12, props:{ items: rankProduto } }]);
+      setBlocks(bs => [...bs, { id, kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined } }]);
     } else if(type === "insights"){
       setBlocks(bs => [...bs, { id, kind:"insights", span:12 }]);
     } else {
@@ -2759,7 +2028,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       // Real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
       const inner = isUpload
-        ? <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
+        ? <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, focus: fileInfo && fileInfo.aiFocus, onReload: ()=>loadNarrative(true) }}/>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2769,7 +2038,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     }
     if(b.kind === "ranking"){
       return <BlockShell editing={editing} kind="Ranking / Tabela" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
-        <RankingTable items={b.props.items} accent={tweaks.accent}/>
+        <RankingTable items={b.props.items} accent={tweaks.accent} title={b.props.title} measure={b.props.measure}/>
       </BlockShell>;
     }
     if(b.kind === "cta"){
@@ -2967,23 +2236,23 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
       {/* Floating action toolbar */}
       <div className="fab-bar" style={{transform: `translateX(-50%) translateY(${exportOpen ? 80 : 0}px)`}}>
-        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (planos pagos)" : "Editar layout (E)"}>
-          {isFree ? <><Icon.Lock size={14}/> Editar</> : (editing ? <><Icon.Check size={14}/> Concluir</> : <><Icon.Wand size={14}/> Editar</>)}
+        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (planos pagos)" : "Editar layout (E)"} aria-label={editing ? "Concluir edição" : "Editar layout"}>
+          {isFree ? <><Icon.Lock size={14}/> <span className="fab-label">Editar</span></> : (editing ? <><Icon.Check size={14}/> <span className="fab-label">Concluir</span></> : <><Icon.Wand size={14}/> <span className="fab-label">Editar</span></>)}
         </button>
         <div style={{position:"relative"}}>
-          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (planos pagos)" : "Adicionar (A)"} className={pickerOpen?"active":""}>
-            {isFree ? <><Icon.Lock size={14}/> Adicionar</> : <><Icon.Plus size={14}/> Adicionar</>}
+          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (planos pagos)" : "Adicionar (A)"} aria-label="Adicionar bloco" className={pickerOpen?"active":""}>
+            {isFree ? <Icon.Lock size={14}/> : <Icon.Plus size={14}/>} <span className="fab-label">Adicionar</span>
           </button>
           {pickerOpen && !isFree && (
             <AddPicker onPick={addBlock} onClose={()=>setPickerOpen(false)} accent={tweaks.accent} placement="above-center"/>
           )}
         </div>
         <div className="div"/>
-        <button onClick={()=>{ if(requirePro("share")) return; setEditing(false); setPickerOpen(false); setShareOpen(true); }} title={tweaks.plan === "pro" ? "Compartilhar por link" : "Compartilhar por link (plano Pro)"}>
-          {tweaks.plan === "pro" ? <Icon.Share size={14}/> : <Icon.Lock size={14}/>} Compartilhar
+        <button onClick={()=>{ if(requirePro("share")) return; setEditing(false); setPickerOpen(false); setShareOpen(true); }} title={tweaks.plan === "pro" ? "Compartilhar por link" : "Compartilhar por link (plano Pro)"} aria-label="Compartilhar por link">
+          {tweaks.plan === "pro" ? <Icon.Share size={14}/> : <Icon.Lock size={14}/>} <span className="fab-label">Compartilhar</span>
         </button>
-        <button onClick={()=>{ setEditing(false); setPickerOpen(false); setExportOpen(true); }} className="primary" title="Exportar (X)">
-          <Icon.Download size={14}/> Exportar
+        <button onClick={()=>{ setEditing(false); setPickerOpen(false); setExportOpen(true); }} className="primary" title="Exportar (X)" aria-label="Exportar">
+          <Icon.Download size={14}/> <span className="fab-label">Exportar</span>
         </button>
       </div>
 
@@ -3263,7 +2532,7 @@ function AddPicker({ onPick, onClose, accent, placement="top-right" }){
   );
 }
 
-function RankingTable({ items, accent }){
+function RankingTable({ items, accent, title, sub, measure }){
   const ref = React.useRef(null);
   const [vis, setVis] = React.useState(false);
   React.useEffect(()=>{
@@ -3271,65 +2540,75 @@ function RankingTable({ items, accent }){
     if(ref.current) io.observe(ref.current);
     return ()=> io.disconnect();
   },[]);
+  items = items || [];
+  // Coluna só aparece se algum item tem o dado (antes: "—" em todas as linhas).
+  const hasCat = items.some(p => p.c && p.c !== "—");
+  const hasShare = items.some(p => p.s != null);
+  const cols = "40px minmax(0, 2.2fr)" + (hasCat ? " minmax(0, 1fr)" : "") + " minmax(0, 1.6fr) minmax(90px, .9fr)";
+  const money = (v)=>{
+    const a = Math.abs(v);
+    if(a >= 1e6) return "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + " mi";
+    if(a >= 1e3) return "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + " mil";
+    return "R$ " + Math.round(v).toLocaleString("pt-BR");
+  };
+  const initials = (n)=> String(n).split(/\s+/).filter(Boolean).map(x=>x[0]).slice(0,2).join("").toUpperCase() || "#";
   return (
     <div ref={ref} className="chart-card lift" style={{
       opacity: vis?1:0, transform: vis?"none":"translateY(20px)", transition:"all .7s cubic-bezier(.2,.7,.2,1)"
     }}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start"}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap"}}>
         <div>
           <div style={{display:"flex", alignItems:"center", gap:8}}>
             <span style={{width:8, height:8, borderRadius:"50%", background:accent}}/>
-            <span style={{fontWeight:700, fontSize:15}}>Top produtos</span>
+            <span style={{fontWeight:700, fontSize:15}}>{title || "Top produtos"}</span>
           </div>
-          <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Os 5 itens com maior valor total no período</div>
+          <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>{sub || ("Os " + items.length + " itens com maior valor no período")}</div>
         </div>
-        <div style={{display:"flex", gap:6}}>
-          <span className="chip mono" style={{background:"var(--line-2)"}}>valor_total</span>
-          <span className="chip mono" style={{background:"var(--line-2)"}}>Soma</span>
-          <span className="icon-btn"><Icon.Download size={14}/></span>
-          <span className="icon-btn"><Icon.More size={14}/></span>
-        </div>
+        {measure && <span className="chip mono" style={{background:"var(--line-2)"}}>soma · {measure}</span>}
       </div>
-      <div style={{display:"grid", gridTemplateColumns:"36px 2.4fr 1fr .6fr 1.4fr 1fr", gap:12, alignItems:"center", marginTop:6}}>
-        {["#","Produto","Categoria","Região","Distribuição","Valor"].map((h,i)=>(
-          <div key={h} className="mono" style={{fontSize:11, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i>=5? "right":"left"}}>{h}</div>
-        ))}
-      </div>
-      <div style={{display:"flex", flexDirection:"column"}}>
-        {items.map((p, i)=>(
-          <div key={p.n} style={{
-            display:"grid", gridTemplateColumns:"36px 2.4fr 1fr .6fr 1.4fr 1fr", gap:12, alignItems:"center",
-            padding:"12px 0", borderTop:"1px solid var(--line-2)",
-            opacity: vis?1:0, transform: vis?"none":"translateX(10px)",
-            transition:`all .5s ${i*0.08}s cubic-bezier(.2,.7,.2,1)`
-          }}>
-            <div className="mono" style={{fontSize:13, color:"var(--muted)"}}>{String(i+1).padStart(2,"0")}</div>
-            <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <div style={{width:32, height:32, borderRadius:8, background:`linear-gradient(135deg, ${accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700}}>{p.n.split(" ").map(x=>x[0]).slice(0,2).join("")}</div>
-              <div>
-                <div style={{fontWeight:600, fontSize:14}}>{p.n}</div>
-                <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>SKU-{1000+i*23}</div>
+      <div style={{overflowX:"auto"}}>
+        <div style={{minWidth:520}}>
+          <div style={{display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center", marginTop:10, padding:"0 0 8px"}}>
+            {["#","Item"].concat(hasCat ? ["Categoria"] : [], [hasShare ? "Participação" : "Comparativo", "Valor"]).map((h,i,arr)=>(
+              <div key={h} className="mono" style={{fontSize:10.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i===arr.length-1 ? "right":"left"}}>{h}</div>
+            ))}
+          </div>
+          {items.map((p, i)=>(
+            <div key={p.n + i} style={{
+              display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center",
+              padding:"11px 0", borderTop:"1px solid var(--line-2)",
+              opacity: vis?1:0, transform: vis?"none":"translateX(10px)",
+              transition:`all .5s ${i*0.08}s cubic-bezier(.2,.7,.2,1)`
+            }}>
+              <div className="mono" style={{fontSize:12.5, color: i < 3 ? "var(--ink)" : "var(--muted)", fontWeight: i < 3 ? 700 : 500}}>{String(i+1).padStart(2,"0")}</div>
+              <div style={{display:"flex", alignItems:"center", gap:10, minWidth:0}}>
+                <div style={{width:30, height:30, borderRadius:8, flexShrink:0, background:`color-mix(in oklch, ${accent} ${i === 0 ? 100 : 14}%, white)`, color: i === 0 ? "white" : accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11.5, fontWeight:700}}>{initials(p.n)}</div>
+                <div style={{fontWeight:600, fontSize:13.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}} title={p.n}>{p.n}</div>
               </div>
+              {hasCat && <div style={{fontSize:13, color:"var(--ink-2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.c}</div>}
+              <div style={{display:"flex", alignItems:"center", gap:10}}>
+                <div style={{flex:1, height:7, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
+                  <div style={{
+                    width: vis ? p.pct+"%" : "0%", height:"100%", borderRadius:99,
+                    background: `linear-gradient(90deg, ${accent}, var(--violet))`,
+                    transition:`width 1s ${0.3 + i*0.1}s cubic-bezier(.2,.7,.2,1)`
+                  }}/>
+                </div>
+                {p.s != null && <span className="mono" style={{fontSize:11.5, color:"var(--muted)", minWidth:42, textAlign:"right"}}>{p.s.toLocaleString("pt-BR", {maximumFractionDigits:1})}%</span>}
+              </div>
+              <div className="ticker" style={{textAlign:"right", fontWeight:700, fontSize:13.5}}>{money(p.v)}</div>
             </div>
-            <div style={{fontSize:13}}>{p.c}</div>
-            <div className="mono" style={{fontSize:12, color:"var(--muted)"}}>{p.r}</div>
-            <div style={{position:"relative", height:8, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
-              <div style={{
-                width: vis ? p.pct+"%" : "0%", height:"100%",
-                background: `linear-gradient(90deg, ${accent}, var(--violet))`,
-                transition:`width 1s ${0.3 + i*0.1}s cubic-bezier(.2,.7,.2,1)`
-              }}/>
-            </div>
-            <div style={{textAlign:"right", fontWeight:700, fontVariantNumeric:"tabular-nums"}}>R$ {(p.v/1000).toFixed(1)}k</div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 Object.assign(window, {
-  Dashboard, UploadView, PromptView,
+  Dashboard,
+  // Usados pelo fluxo de envio (dashboard-flow.jsx).
+  dashJsonToParsed, dashXlsxToParsed, dashEnsureXLSX, dashDecodeText, DASH_SAMPLE_JSON,
   // Exposed so App can drive a "Ver demonstração" flow without re-implementing
   // the CSV pipeline.
   dashParseCSV, dashParseNumber, dashParseDate, dashInferSchema, dashRowsToObjects, dashResolveColumns,

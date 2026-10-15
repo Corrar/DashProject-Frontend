@@ -72,7 +72,8 @@ components/
 ├── app.jsx                    # raiz e navegação entre telas
 ├── api.js                     # cliente da API (auth, planos, IA)
 ├── landing.jsx                # página inicial
-├── dashboard.jsx              # upload, análise e editor do dashboard
+├── dashboard.jsx              # parsers e editor do dashboard
+├── dashboard-flow.jsx         # fluxo de geração: envio, escolha de métricas e foco da IA
 ├── dashboard-discovery.jsx    # perfil das colunas e geração dos blocos
 ├── dashboard-export.jsx       # exportação PDF/PNG
 ├── dashboard-saved.jsx        # dashboards salvos no navegador (IndexedDB)

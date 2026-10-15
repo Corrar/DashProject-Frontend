@@ -221,6 +221,7 @@ function dashSanitizeSharedBlock(b, accent){
       title: str(p.title, 120), sub: str(p.sub, 160),
       type: ["bar","line","area","donut"].indexOf(p.type) >= 0 ? p.type : "bar",
       dim: str(p.dim, 40), agg: str(p.agg, 20),
+      unit: p.unit === "%" ? "%" : undefined,
       height: Math.max(160, Math.min(420, num(p.height) || 240)),
       color: dashSafeColor(p.color, accent),
       data: Array.isArray(p.data) ? p.data.slice(0, 400).map(d => ({
@@ -231,9 +232,12 @@ function dashSanitizeSharedBlock(b, accent){
   }
   if(b.kind === "ranking"){
     return { id: str(b.id, 80), kind:"ranking", span, props: {
+      title: p.title ? str(p.title, 80) : undefined,
+      measure: p.measure ? str(p.measure, 40) : undefined,
       items: Array.isArray(p.items) ? p.items.slice(0, 20).map(it => ({
-        n: str(it && it.n, 80), c: str(it && it.c, 60), r: str(it && it.r, 60),
+        n: str(it && it.n, 80), c: str(it && it.c, 60),
         v: num(it && it.v), pct: Math.max(0, Math.min(100, num(it && it.pct))),
+        s: (it && typeof it.s === "number" && Number.isFinite(it.s)) ? Math.max(0, Math.min(100, it.s)) : null,
       })) : [],
     }};
   }
@@ -340,7 +344,7 @@ function SharedView({ slug, tweaks, onLeave }){
             <div key={b.id} className="block-wrap" style={{gridColumn:`span ${b.span}`}}>
               {b.kind === "kpi" && <KPI kpi={{...b.props, span:b.span}} editing={false} palette={kpiPalette}/>}
               {b.kind === "chart" && <ChartCard chart={{id:b.id, ...b.props, span:b.span}} color={b.props.color} editing={false} dims={[]} aggs={[]} palette={[]}/>}
-              {b.kind === "ranking" && <RankingTable items={b.props.items} accent={accent}/>}
+              {b.kind === "ranking" && <RankingTable items={b.props.items} accent={accent} title={b.props.title} measure={b.props.measure}/>}
             </div>
           ))}
         </div>
