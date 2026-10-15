@@ -293,7 +293,9 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
         <div className="rv" style={{maxWidth: 760, margin:"0 auto"}}>
           <div style={{textAlign:"center", marginBottom: 24}}>
             <h2 style={{margin:"0 0 6px", fontSize:26, fontWeight:800, letterSpacing:"-.02em"}}>Perguntas frequentes</h2>
-            <div style={{fontSize:13, color:"var(--muted)"}}>Não achou sua dúvida? <a style={{color:"var(--brand)", fontWeight:600, cursor:"pointer"}}>Fale com a gente</a></div>
+            {window.__CONTACT_EMAIL && (
+              <div style={{fontSize:13, color:"var(--muted)"}}>Não achou sua dúvida? <a href={"mailto:" + window.__CONTACT_EMAIL} style={{color:"var(--brand)", fontWeight:600}}>Fale com a gente</a></div>
+            )}
           </div>
           <div style={{display:"flex", flexDirection:"column", gap:8}}>
             {faqs.map((f,i)=> <FaqRow key={i} q={f.q} a={f.a}/>)}

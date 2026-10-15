@@ -242,6 +242,14 @@ function dashSanitizeSharedBlock(b, accent){
 
 function SharedView({ slug, tweaks, onLeave }){
   const [state, setState] = React.useState({ status:"loading" });
+  // Dashboard de usuário não deve parar no Google: noindex enquanto a página
+  // pública estiver aberta.
+  React.useEffect(()=>{
+    const m = document.createElement("meta");
+    m.name = "robots"; m.content = "noindex, nofollow";
+    document.head.appendChild(m);
+    return ()=> m.remove();
+  }, []);
   React.useEffect(()=>{
     let alive = true;
     window.DashAPI.getShare(slug)

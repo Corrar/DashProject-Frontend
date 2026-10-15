@@ -68,17 +68,21 @@ components/
 ├── landing.jsx                # página inicial
 ├── dashboard.jsx              # upload, análise e editor do dashboard
 ├── dashboard-discovery.jsx    # perfil das colunas e geração dos blocos
+├── dashboard-export.jsx       # exportação PDF/PNG
+├── share-view.jsx             # link público (Pro) e página compartilhada
 ├── charts.jsx · icons.jsx     # gráficos em SVG e ícones
 ├── auth-view.jsx · auth-modal.jsx
 ├── plans-view.jsx             # planos e assinatura
 ├── account-view.jsx           # conta, faturamento e histórico
 └── dashboard-tests.js         # testes do parser (rodar no console do navegador)
 tweaks-panel.jsx               # painel de ajustes visuais para desenvolvimento
+termos.html · privacidade.html # páginas legais (rascunho: preencher dados da empresa)
+vercel.json                    # headers de segurança (CSP, HSTS…)
+favicon.svg · og-image.png     # ícone e prévia ao compartilhar o site
 ```
 
 ## 🗺️ Próximos passos
 
-- [ ] Download da exportação em PDF/PNG (a prévia já está pronta)
 - [ ] Entrar com Google
 - [ ] Importar de URL e do Google Sheets
 - [ ] Workspace para equipes

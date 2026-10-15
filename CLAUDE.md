@@ -38,7 +38,7 @@ Regras inegociáveis:
 - **Nunca** introduzir bundler / build step / framework pesado (Next, Vite, Webpack).
 - **Nunca** importar libs de gráfico externas (Recharts, Chart.js, D3, Plotly). Gráficos novos devem ser construídos com SVG inline seguindo o padrão de `components/charts.jsx`.
 - **Nunca** usar Tailwind, CSS-in-JS runtime ou Emotion. Estilo é CSS no `<style>` global do `Dash.html` + `style={{}}` inline em componentes.
-- Usar **as versões pinadas** do React/Babel já presentes em `Dash.html` (com `integrity` attributes). Não atualizar sem motivo.
+- Usar **as versões pinadas** do React/Babel já presentes em `Dash.html` (com `integrity` attributes). Não atualizar sem motivo. O React carrega o build de **produção** (`*.production.min.js`); para depurar com mensagens completas, troque temporariamente pelos `*.development.js` (hashes no comentário do `index.html`).
 - **JSX só funciona em `<script type="text/babel">`**. Importar com `<script type="text/babel" src="...">` no `Dash.html`, na ordem correta (icons → charts → landing → dashboard → app).
 - Componentes que precisam ser usados em outros arquivos JSX **devem ser exportados via `Object.assign(window, { Foo, Bar })`** no final do arquivo. Cada `<script type="text/babel">` é um escopo isolado após transpile.
 - Evite `const styles = { … }` em arquivos JSX — em escopo global colide com outros arquivos. Use nomes específicos (`dashboardStyles`) ou inline.
@@ -54,7 +54,9 @@ components/
   icons.jsx                # Icon.{Logo, Sparkle, …, User} — SVG inline. Lista canônica em §23.
   charts.jsx               # LineChart, BarChart, Donut, Sparkline (SVG)
   landing.jsx              # Landing page + AuthBubble (Nav/Topbar dropdown da conta)
-  dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, ExportModal, MiniBlock, PaywallModal, …
+  dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, PaywallModal, …
+  dashboard-export.jsx     # ExportModal + MiniBlock: PDF (impressão do navegador) e PNG (html-to-image lazy) do #dash-export-root
+  share-view.jsx           # ShareModal (cria/lista/desativa link, Pro) + SharedView (página pública ?s=<slug>)
   auth-modal.jsx           # AuthModal (popover) — fallback para fluxos que preferem modal
   auth-view.jsx            # AuthView (rota auth) — sign-in / sign-up / reset, full-screen
   plans-view.jsx           # PlansView (rota plans) — pricing + comparativo
@@ -245,14 +247,14 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
   - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base).
   - **TODO pré-lançamento** (bloqueia ir a usuários reais):
     - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Análise por IA", estado inicial).
-    - Atualizar Termos de Uso citando o Google como processador de dados.
-    - Política de Privacidade explicando o fluxo de dados (navegador → Edge Function → Gemini).
+    - Termos de Uso e Política de Privacidade: rascunhos em `termos.html` / `privacidade.html`. **Preencher os campos entre colchetes (razão social, CNPJ, endereço, e-mails) e revisar com advogado** antes de lançar.
 - Quando aceitar URL pública (Importar de URL), validar contra `data:`, `javascript:`, hosts de loopback; só permitir `https://`.
 - `<input type="file">` com `accept` restrito (`.csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls,.parquet`).
 - Sanitizar nomes de arquivo antes de mostrar.
 - Não logar conteúdo do usuário em `console.log` em produção.
 - Não armazenar dados em `localStorage` exceto preferências de UI (período, tema, layout).
-- Headers de segurança (quando hospedar): `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. Permitir só `https://unpkg.com` e `https://fonts.googleapis.com/gstatic.com` na CSP.
+- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção.
+- **Links públicos (Pro)**: guardam só o retrato agregado dos blocos (`dashBuildShareSnapshot`), nunca linhas do arquivo. A página pública sanitiza tudo (`dashSanitizeSharedBlock`) e tem `noindex`.
 - **LGPD**: copy precisa deixar claro que análise é local e que metadados podem ser enviados para a IA com opt-in.
 
 ---

@@ -285,7 +285,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                     <input type="checkbox" checked={terms} onChange={e=>{ setTerms(e.target.checked); setErrors(x=>({...x, terms:""})); }}
                       style={{accentColor:"var(--brand)", marginTop:2}}/>
                     <span style={{lineHeight:1.5}}>
-                      Concordo com os <a style={{color:"var(--brand)", fontWeight:600}}>Termos</a> e a <a style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>.
+                      Concordo com os <a href="termos.html" target="_blank" rel="noopener" style={{color:"var(--brand)", fontWeight:600}}>Termos de Uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener" style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>.
                     </span>
                   </label>
                 )}

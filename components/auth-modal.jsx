@@ -261,7 +261,7 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
               <label style={{display:"flex", alignItems:"flex-start", gap:8, margin:"4px 0 16px", cursor:"pointer", fontSize:13, color:"var(--ink-2)"}}>
                 <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}
                   style={{marginTop:3, accentColor:"var(--brand)"}}/>
-                <span>Aceito os termos de uso e a política de privacidade.</span>
+                <span>Aceito os <a href="termos.html" target="_blank" rel="noopener" style={{color:"var(--brand)"}}>termos de uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener" style={{color:"var(--brand)"}}>política de privacidade</a>.</span>
               </label>
               <button type="submit" className="btn btn-primary" disabled={loading || !acceptedTerms}
                 style={{width:"100%", justifyContent:"center", padding:"12px", opacity: acceptedTerms ? 1 : .6}}>

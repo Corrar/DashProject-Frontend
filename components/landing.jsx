@@ -763,8 +763,8 @@ function Footer({ tweaks }){
           <a href="#exemplos">Exemplos</a>
           <a href="#recursos">Recursos</a>
           <a href="#planos">Planos</a>
-          <a>Privacidade</a>
-          <a>Termos</a>
+          <a href="privacidade.html">Privacidade</a>
+          <a href="termos.html">Termos</a>
         </div>
         <div style={{fontSize:12, color:"var(--muted)"}}>© 2026 {tweaks.brandName}. Feito com IA, para humanos.</div>
       </div>
