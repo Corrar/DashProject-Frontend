@@ -6,19 +6,32 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
   const fmtPrice = (v)=> v === 0 ? "0" : v.toFixed(2).replace(".", ","); // 29.9 → "29,90"
 
   const PLAN_DATA = {
-    free:      { price:0 },
-    essencial: { price:29.90 },
-    pro:       { price:49.90 },
+    free:      { price:0,     rank:0 },
+    essencial: { price:29.90, rank:1 },
+    pro:       { price:49.90, rank:2 },
+  };
+  const currentRank = (PLAN_DATA[tweaks.plan] || PLAN_DATA.free).rank;
+
+  // Um clique = um checkout no Asaas. Trava os botões enquanto a URL não volta
+  // (duplo clique criava duas sessões de checkout). onSelectPlan devolve false
+  // em erro (o App já mostrou a mensagem) para destravar.
+  const [busy, setBusy] = React.useState(null);
+  const pick = async (plan, method)=>{
+    if(busy) return;
+    setBusy(plan + ":" + method);
+    const ok = await onSelectPlan(plan, method);
+    if(!ok) setBusy(null);
   };
 
   const planList = [
     {
       k:"free", name:"Free", tagline:"Para experimentar.",
       features: [
-        { ok:true,  t:"Upload CSV" },
-        { ok:true,  t:"Dashboard gerado por IA" },
-        { ok:true,  t:"3 análises da IA por mês" },
+        { ok:true,  t:"Upload CSV, Excel e JSON" },
+        { ok:true,  t:"Dashboard montado automaticamente" },
         { ok:true,  t:"Até 5 mil linhas por base" },
+        { ok:false, t:"Análises da IA" },
+        { ok:false, t:"Editar e adicionar blocos" },
         { ok:false, t:"Exportar PDF/PNG" },
         { ok:false, t:"Compartilhamento por link" },
         { ok:false, t:"Remover marca “Dash”" },
@@ -28,8 +41,8 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
       k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.",
       features: [
         { ok:true,  t:"Tudo do Free, e mais:", bold:true },
-        { ok:true,  t:"CSV, Excel e JSON" },
         { ok:true,  t:"50 análises da IA por mês" },
+        { ok:true,  t:"Editar e adicionar blocos" },
         { ok:true,  t:"Até 100 mil linhas por base" },
         { ok:true,  t:"Exportar PDF/PNG" },
         { ok:true,  t:"Suporte por e-mail" },
@@ -51,16 +64,17 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
   ];
 
   const faqs = [
-    { q:"Como funciona a cobrança?", a:"No cartão, a assinatura é mensal e renova automaticamente — cancele quando quiser e mantenha acesso até o fim do ciclo já pago. No Pix, a cobrança é mensal e avulsa: perto do vencimento o sistema envia o link da próxima cobrança e, após o pagamento, seu acesso é estendido por mais 30 dias." },
-    { q:"Meus dados ficam seguros?", a:"Sim. O processamento dos arquivos é feito no seu navegador. Apenas metadados (nomes de colunas e tipos) podem ser enviados para a IA com seu consentimento. Estamos em conformidade com LGPD e SOC 2." },
-    { q:"Posso cancelar quando quiser?", a:"Sem fidelidade. Cancele no painel e mantenha acesso até o fim do ciclo já pago. Seus dashboards continuam disponíveis em modo de visualização." },
+    { q:"Como funciona a cobrança?", a:"No cartão, a assinatura é mensal e renova automaticamente. No Pix, a cobrança é mensal e avulsa: perto do vencimento o sistema envia o link da próxima cobrança e, após o pagamento, seu acesso é estendido por mais 30 dias." },
+    { q:"Meus dados ficam seguros?", a:"Seus arquivos são lidos e processados no próprio navegador — não ficam guardados nos nossos servidores. Quando você pede uma análise da IA (planos pagos), enviamos os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas para o Google Gemini gerar o texto." },
+    { q:"Posso cancelar quando quiser?", a:"Sim, sem fidelidade. No cartão, cancele em Conta → Faturamento: a renovação para e a conta volta para o plano Free. No Pix não há renovação automática — basta não pagar a próxima cobrança." },
     { q:"Posso exportar em outro formato?", a:"Os planos Essencial e Pro incluem exportação em PDF e PNG com layout customizado." },
   ];
 
   const compare = [
-    { f:"Dashboards gerados por IA", free:true,        essencial:true,               pro:true },
-    { f:"Bases de dados aceitas",    free:"CSV",        essencial:"CSV, Excel, JSON", pro:"CSV, Excel, JSON" },
-    { f:"Análises da IA por mês",    free:"3",          essencial:"50",               pro:"300" },
+    { f:"Dashboard montado automaticamente", free:true, essencial:true,           pro:true },
+    { f:"Bases de dados aceitas",    free:"CSV, Excel, JSON", essencial:"CSV, Excel, JSON", pro:"CSV, Excel, JSON" },
+    { f:"Análises da IA por mês",    free:false,        essencial:"50",               pro:"300" },
+    { f:"Editar e adicionar blocos", free:false,        essencial:true,               pro:true },
     { f:"Linhas por base",           free:"5 mil",      essencial:"100 mil",          pro:"1 milhão" },
     { f:"Exportar PDF/PNG",          free:false,        essencial:true,               pro:true },
     { f:"Compartilhamento por link", free:false,        essencial:false,              pro:true },
@@ -137,6 +151,9 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
         <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
           {planList.map(p=>{
             const isCurrent = p.k === tweaks.plan; // free | essencial | pro
+            // Tier abaixo do atual: o plano já cobre — sem botão de compra (o
+            // backend também recusa com 409 plano_ja_ativo).
+            const isIncluded = !isCurrent && PLAN_DATA[p.k].rank < currentRank;
             const hl = p.highlight;
             return (
               <div key={p.k} className={hl?"lift":""} style={{
@@ -182,20 +199,20 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
                   ))}
                 </ul>
 
-                {isCurrent ? (
+                {isCurrent || isIncluded ? (
                   <button disabled className={`btn ${hl?"btn-primary":"btn-ghost"}`}
                     style={{width:"100%", justifyContent:"center", padding:"12px", opacity:0.6, cursor:"default"}}>
-                    Plano atual
+                    {isCurrent ? "Plano atual" : "Incluído no seu plano"}
                   </button>
                 ) : p.k !== "free" ? (
                   <div style={{display:"flex", flexDirection:"column", gap:8}}>
-                    <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px"}}
-                      onClick={()=> onSelectPlan(p.k, "card")}>
-                      <Icon.Crown size={14}/> Assinar no cartão
+                    <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
+                      disabled={!!busy} onClick={()=> pick(p.k, "card")}>
+                      <Icon.Crown size={14}/> {busy === p.k + ":card" ? "Abrindo checkout…" : "Assinar no cartão"}
                     </button>
-                    <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center", padding:"12px"}}
-                      onClick={()=> onSelectPlan(p.k, "pix")}>
-                      Pagar no Pix
+                    <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
+                      disabled={!!busy} onClick={()=> pick(p.k, "pix")}>
+                      {busy === p.k + ":pix" ? "Abrindo checkout…" : "Pagar no Pix"}
                     </button>
                     <div style={{textAlign:"center", marginTop:2, fontSize:11, color:"var(--muted)", lineHeight:1.45}}>
                       Renovação automática só no cartão. No Pix, a cobrança do próximo mês é enviada perto do vencimento.
@@ -256,8 +273,8 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
         {/* Logos / trust */}
         <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:16, marginBottom: 48}}>
           {[
-            {i:<Icon.Lock size={16}/>, t:"100% no navegador", d:"Seus dados não saem do seu dispositivo durante a análise."},
-            {i:<Icon.Check size={16} stroke={3}/>, t:"LGPD & SOC 2", d:"Conformidade e auditoria contínua."},
+            {i:<Icon.Lock size={16}/>, t:"Processamento local", d:"Seus arquivos são lidos no navegador. Só a análise da IA, quando você pede, envia uma amostra."},
+            {i:<Icon.Check size={16} stroke={3}/>, t:"Pagamento seguro", d:"Cartão e Pix processados pelo Asaas. Não guardamos dados de cartão."},
             {i:<Icon.Bolt size={16}/>, t:"Velocidade", d:"Tempo médio de primeiro insight: 12 segundos."},
             {i:<Icon.Refresh size={16}/>, t:"Sem fidelidade", d:"Cancele a qualquer momento, sem multas."},
           ].map((it,i)=>(
@@ -297,17 +314,17 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
               {tweaks.plan === "pro" ? "Você já está no Pro." : "Pronto para ver tudo que o Pro libera?"}
             </h3>
             <p style={{margin:0, fontSize:14, color:"rgba(255,255,255,.85)"}}>
-              {tweaks.plan === "pro" ? "Explore os dashboards avançados e a IA." : "Assine no cartão ou Pix · cancele quando quiser"}
+              {tweaks.plan === "pro" ? "Todos os recursos e a maior cota de IA já estão liberados." : "Assine no cartão ou Pix · cancele quando quiser"}
             </p>
           </div>
           <div style={{display:"flex", gap:8}}>
             {tweaks.plan !== "pro" && (
-              <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> onSelectPlan("pro", "card")}>
+              <button className="btn" style={{background:"white", color:"var(--ink)"}} disabled={!!busy} onClick={()=> pick("pro", "card")}>
                 <Icon.Crown size={14}/> Assinar o Pro no cartão
               </button>
             )}
             <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}} onClick={onClose}>
-              {tweaks.plan === "pro" ? "Ir ao dashboard" : "Continuar no Free"}
+              {tweaks.plan === "pro" ? "Voltar" : tweaks.plan === "essencial" ? "Continuar no Essencial" : "Continuar no Free"}
             </button>
           </div>
         </div>

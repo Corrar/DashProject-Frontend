@@ -55,7 +55,10 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
         <div style={{textAlign:"center", maxWidth:360}}>
           <div style={{fontWeight:700, fontSize:18, marginBottom:6}}>Faça login para acessar a Conta</div>
           <div style={{fontSize:13, color:"var(--muted)", marginBottom:18}}>Esta área mostra seus dados, faturamento e histórico — só fica disponível quando você está logado.</div>
-          <button className="btn btn-ghost" onClick={onClose}><Icon.Arrow size={13} style={{transform:"rotate(180deg)"}}/> Voltar</button>
+          <div style={{display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap"}}>
+            <button className="btn btn-primary" onClick={()=> window.__dashOpenAuth?.("login")}>Entrar</button>
+            <button className="btn btn-ghost" onClick={onClose}><Icon.Arrow size={13} style={{transform:"rotate(180deg)"}}/> Voltar</button>
+          </div>
         </div>
       </div>
     );
@@ -72,7 +75,7 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
     { k:"workspace", n:"Workspace",            i:<Icon.Grid size={14}/>,    d:"Equipe e permissões", lockReason:"team" },
     { k:"billing",   n:"Faturamento",          i:<Icon.Doc size={14}/>,     d:"Plano, pagamento e notas" },
     { k:"history",   n:"Histórico de análises",i:<Icon.Refresh size={14}/>, d:"Linha do tempo da IA" },
-    { k:"referral",  n:"Indique e ganhe",      i:<Icon.Sparkle size={14}/>, d:"Ganhe 30 dias Pro" },
+    { k:"referral",  n:"Indique e ganhe",      i:<Icon.Sparkle size={14}/>, d:"Em breve" },
   ];
   const cur = sections.find(s => s.k === section) || sections[0];
 
@@ -91,7 +94,7 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
               <span className="mono" style={{fontSize:10, color:"var(--muted)"}}>DASHBOARDS · IA</span>
             </div>
           </button>
-          <div style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)"}}>
+          <div className="tb-crumb" style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)"}}>
             <span>Configurações</span>
             <Icon.Caret size={12}/>
             <span style={{color:"var(--ink-2)", fontWeight:600}}>{cur.n}</span>
@@ -102,9 +105,9 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
         </div>
       </div>
 
-      <div style={{maxWidth: 1280, margin:"0 auto", padding:"32px 24px 80px", display:"grid", gridTemplateColumns:"260px 1fr", gap:32}}>
+      <div className="acct-grid" style={{maxWidth: 1280, margin:"0 auto", padding:"32px 24px 80px", display:"grid", gridTemplateColumns:"260px minmax(0, 1fr)", gap:32}}>
         {/* Sidebar */}
-        <aside style={{position:"sticky", top: 80, alignSelf:"flex-start", display:"flex", flexDirection:"column", gap:14}}>
+        <aside className="acct-aside" style={{position:"sticky", top: 80, alignSelf:"flex-start", display:"flex", flexDirection:"column", gap:14}}>
           {/* User mini */}
           <div style={{padding:"14px 16px", background:"white", border:"1px solid var(--line)", borderRadius:14, display:"flex", gap:10, alignItems:"center"}}>
             <div style={{
@@ -118,11 +121,11 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
               <div style={{marginTop:4}}>
                 <span className="chip" style={{
                   padding:"1px 8px",
-                  background: tweaks.plan === "pro" ? "#e7f7ef" : "var(--line-2)",
-                  color: tweaks.plan === "pro" ? "#0a5a30" : "var(--ink-2)",
+                  background: !isFree ? "#e7f7ef" : "var(--line-2)",
+                  color: !isFree ? "#0a5a30" : "var(--ink-2)",
                   fontSize:10, fontWeight:700, gap:4,
                 }}>
-                  {tweaks.plan === "pro" ? <><Icon.Crown size={10}/> Pro</> : "Free"}
+                  {!isFree && <Icon.Crown size={10}/>} {dashPlanLabel(tweaks.plan)}
                 </span>
               </div>
             </div>
@@ -165,15 +168,17 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
               color:"white", position:"relative", overflow:"hidden"
             }}>
               <Icon.Crown size={18}/>
-              <div style={{fontWeight:700, fontSize:14, margin:"8px 0 4px"}}>Desbloqueie tudo</div>
+              <div style={{fontWeight:700, fontSize:14, margin:"8px 0 4px"}}>{isFree ? "Desbloqueie tudo" : "Vá de Pro"}</div>
               <div style={{fontSize:12, opacity:.9, lineHeight:1.5, marginBottom:12}}>
-                Edição completa, análises da IA, exportação avançada.
+                {isFree
+                  ? "Edição completa, análises da IA e exportação."
+                  : "300 análises da IA por mês e bases de até 1 milhão de linhas."}
               </div>
               <button onClick={()=> window.__dashUpgrade && window.__dashUpgrade()} style={{
                 width:"100%", padding:"8px 12px", background:"white", color:"var(--ink)",
                 border:0, borderRadius:8, fontWeight:600, fontSize:12, cursor:"pointer",
                 display:"flex", alignItems:"center", justifyContent:"center", gap:6
-              }}>Experimentar Pro <Icon.Arrow size={11}/></button>
+              }}>Ver planos <Icon.Arrow size={11}/></button>
             </div>
           )}
         </aside>
@@ -451,7 +456,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
 
       <ComingSoonOverlay>
       <SettingsCard title="Perfil" sub="Como você aparece para sua equipe.">
-        <div style={{display:"grid", gridTemplateColumns:"96px 1fr", gap:24, alignItems:"flex-start"}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"96px 1fr", gap:24, alignItems:"flex-start"}}>
           <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:8}}>
             <div style={{
               width:96, height:96, borderRadius:"50%",
@@ -475,7 +480,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
               fontSize:11, color:"var(--muted)", cursor:"pointer", fontWeight:600
             }}>Remover</button>
           </div>
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14}}>
+          <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14}}>
             <TextField label="Nome completo" value={name} onChange={v=>set(()=>setName(v))}/>
             <TextField label="Cargo" value={role} onChange={v=>set(()=>setRole(v))}/>
             <TextField label="Email" value={email} onChange={v=>set(()=>setEmail(v))} type="email" hint="Usado para login e notificações"/>
@@ -487,7 +492,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
 
       <ComingSoonOverlay>
       <SettingsCard title="Preferências" sub="Formatos, idioma e fuso horário.">
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
           <SelectField label="Idioma" value={lang} onChange={v=>set(()=>setLang(v))}
             options={[{v:"pt-BR", n:"Português (BR)"},{v:"en-US", n:"English (US)"},{v:"es-419", n:"Español"}]}/>
           <SelectField label="Fuso horário" value={tz} onChange={v=>set(()=>setTz(v))}
@@ -500,7 +505,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
 
       <ComingSoonOverlay>
       <SettingsCard title="Segurança" sub="Senha, autenticação em 2 fatores e dispositivos conectados.">
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:18}}>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:18}}>
           <TextField label="Senha" value="••••••••••••" readOnly hint="Atualizada há 32 dias"/>
           <div style={{display:"flex", alignItems:"flex-end"}}>
             <button className="btn btn-ghost" style={{padding:"10px 14px"}}>Alterar senha</button>
@@ -521,7 +526,7 @@ function AccountSection({ tweaks, setTweak, currentUser, onClose }){
           </div>
           <div style={{display:"flex", flexDirection:"column"}}>
             {sessions.map((s,i)=>(
-              <div key={i} style={{display:"grid", gridTemplateColumns:"24px 1.4fr 1fr .7fr auto", gap:10, alignItems:"center", padding:"10px 0", borderTop: i===0?"none":"1px solid var(--line-2)"}}>
+              <div key={i} className="resp-collapse" style={{display:"grid", gridTemplateColumns:"24px 1.4fr 1fr .7fr auto", gap:10, alignItems:"center", padding:"10px 0", borderTop: i===0?"none":"1px solid var(--line-2)"}}>
                 <span style={{width:8, height:8, borderRadius:"50%", background: s.current?"#0a8a4a":"var(--muted)"}}/>
                 <div>
                   <div style={{fontWeight:600, fontSize:13}}>{s.device} {s.current && <span className="chip" style={{padding:"1px 6px", fontSize:10, background:"#e7f7ef", color:"#0a8a4a", marginLeft:6}}>esta sessão</span>}</div>
@@ -585,40 +590,42 @@ function BillingSection({ tweaks, setTweak, currentUser }){
 
   // Cancela a assinatura no backend (Asaas). O downgrade pra free vem pelo
   // webhook — NÃO mexer em tweaks.plan aqui.
+  // O webhook SUBSCRIPTION_DELETED volta o plano para Free assim que o Asaas
+  // confirma — o texto não pode prometer acesso até o fim do período.
   const onCancel = async ()=>{
-    if(!window.confirm("Cancelar a assinatura? Você mantém o acesso até o fim do período pago.")) return;
+    if(!window.confirm("Cancelar a assinatura? A renovação automática é interrompida e sua conta volta para o plano Free assim que o cancelamento for confirmado.")) return;
     try {
       await window.DashAPI.cancel();
-      window.alert("Assinatura cancelada. Seu acesso continua até o fim do período.");
+      window.alert("Assinatura cancelada. Sua conta volta para o plano Free em instantes.");
+      // Reidrata o plano (CLAUDE_CODE.md B7); o webhook pode levar alguns segundos.
+      window.DashAPI.me().catch(()=>{});
+      setTimeout(()=> window.DashAPI.me().catch(()=>{}), 5000);
     } catch(err){
-      window.alert((err && err.data && err.data.error) === "sem_customer_stripe"
-        ? "Não há assinatura ativa para cancelar."
-        : "Não foi possível cancelar agora. Tente novamente.");
+      const code = err && err.data && err.data.error;
+      window.alert(code === "sem_assinatura_asaas"
+        ? "Seu plano não tem renovação automática (pagamento via Pix): basta não pagar a próxima cobrança e ele volta para o Free no fim do período."
+        : "Não foi possível cancelar agora. Tente novamente em instantes.");
     }
   };
 
-  // Free users have no real billing history yet — showing fake "Pro · Mensal"
-  // rows here would be misleading. The empty-state below kicks in when the
-  // list is empty. When Stripe lands, populate from the real invoice API.
-  const invoices = isPro ? [
-    { id:"INV-2026-005", date:"01/mai/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
-    { id:"INV-2026-004", date:"01/abr/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
-    { id:"INV-2026-003", date:"01/mar/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
-    { id:"INV-2026-002", date:"01/fev/2026", amount:29.00, st:"paid", desc:"Pro · Mensal" },
-    { id:"INV-2026-001", date:"15/jan/2026", amount:0.00, st:"paid", desc:"Pro · Trial" },
-  ] : [];
+  // Não há API de faturas ainda: a lista fica vazia (empty state abaixo) em vez
+  // de mostrar faturas inventadas para quem paga de verdade.
+  const invoices = [];
 
-  // Análises da IA: dados reais de currentUser.limits quando disponíveis
-  // (aiUsed/aiMonthly); fallback nos números de exibição se limits ausente.
-  const aiUsed    = limits ? (limits.aiUsed || 0)    : (isPro ? 86 : 5);
-  const aiMonthly = limits ? (limits.aiMonthly || 0) : (isPro ? 1000 : 10);
+  // Só números reais de currentUser.limits (/me). Sem limits (falha no /me),
+  // mostra "—" em vez de inventar valores.
+  const aiUsed    = limits ? (limits.aiUsed || 0) : null;
+  const aiMonthly = limits ? (limits.aiMonthly || 0) : null;
   const aiPct     = aiMonthly > 0 ? Math.min(100, Math.round((aiUsed / aiMonthly) * 100)) : 0;
-  const canExport = limits ? !!limits.canExport : isPro;
+  const canExport = limits ? !!limits.canExport : isPaid;
+  const maxRows   = limits && limits.maxRows ? limits.maxRows : null;
 
   const usage = [
-    { l:"Dashboards", v: isPro ? 14 : 3, max: isPro ? "ilimitado" : 5, pct: isPro ? 18 : 60, c: tweaks.accent },
-    { l:"Análises da IA neste mês", v: aiUsed, max: aiMonthly, pct: aiPct, c: "#7a5cff" },
-    { l:"Exportações no mês", v: isPro ? 32 : 0, max: isPro ? "ilimitado" : 0, pct: isPro ? 18 : 0, c: "#0a8a4a", locked: !canExport },
+    aiMonthly === 0
+      ? { l:"Análises da IA neste mês", v:"—", max:"só nos planos pagos", pct:0, c:"#7a5cff", locked:true }
+      : { l:"Análises da IA neste mês", v: aiUsed == null ? "—" : aiUsed, max: aiMonthly == null ? "—" : aiMonthly, pct: aiPct, c:"#7a5cff" },
+    { l:"Linhas por base", v: maxRows ? maxRows.toLocaleString("pt-BR") : "—", max:"limite do plano", pct:100, c: tweaks.accent },
+    { l:"Exportar PDF/PNG", v: canExport ? "Incluído" : "—", max: canExport ? "no seu plano" : "só nos planos pagos", pct: canExport ? 100 : 0, c:"#0a8a4a", locked: !canExport },
   ];
 
   return (
@@ -670,8 +677,8 @@ function BillingSection({ tweaks, setTweak, currentUser }){
       </div>
 
       {/* Usage */}
-      <SettingsCard title="Uso neste mês" sub="Limites por plano. Resetam todo dia 1º.">
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
+      <SettingsCard title="Uso e limites" sub="A cota de análises da IA reinicia todo dia 1º.">
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
           {usage.map((u,i)=>(
             <div key={i} style={{padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background: u.locked ? "#fafbfe" : "white", opacity: u.locked ? .7 : 1}}>
               <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
@@ -680,7 +687,7 @@ function BillingSection({ tweaks, setTweak, currentUser }){
               </div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginBottom:6}}>
                 <span style={{fontSize:24, fontWeight:800, letterSpacing:"-.02em", color: u.c}}>{u.v}</span>
-                <span style={{fontSize:12, color:"var(--muted)"}}>/ {u.max}</span>
+                <span style={{fontSize:12, color:"var(--muted)"}}>{typeof u.max === "number" ? "/ " + u.max.toLocaleString("pt-BR") : u.max}</span>
               </div>
               <div style={{height:6, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
                 <div style={{width: `${Math.min(100, u.pct)}%`, height:"100%", background: u.c, transition:"width .8s ease"}}/>
@@ -692,41 +699,42 @@ function BillingSection({ tweaks, setTweak, currentUser }){
 
       {/* Payment method */}
       <SettingsCard title="Método de pagamento"
-        sub={isPro ? "Cartão usado para a assinatura." : "Cadastre quando fizer upgrade."}
-        action={isPro && <ComingSoonOverlay><button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}}>Atualizar</button></ComingSoonOverlay>}>
-        {isPro ? (
+        sub={isPaid ? "Pagamento processado pelo Asaas." : "Escolha cartão ou Pix ao assinar."}>
+        {isPaid ? (
           <div style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
-            <div style={{
-              width:56, height:36, borderRadius:6,
-              background:"linear-gradient(135deg, #1b2240, #0b1020)", color:"white",
-              display:"flex", alignItems:"center", justifyContent:"center",
-              fontWeight:700, fontSize:11, fontFamily:"'Geist Mono', monospace"
-            }}>VISA</div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:600, fontSize:14, fontFamily:"'Geist Mono', monospace"}}>•••• •••• •••• 4242</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Maria Andrade · expira 12/2028</div>
+            <span style={{
+              width:36, height:36, borderRadius:10, flexShrink:0, background:"var(--brand-soft)", color:"var(--brand)",
+              display:"inline-flex", alignItems:"center", justifyContent:"center"
+            }}><Icon.Lock size={16}/></span>
+            <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5}}>
+              Os dados do cartão ou do Pix ficam com o Asaas — nunca passam pelos nossos servidores.
+              No cartão a renovação é automática; no Pix, a cobrança do mês seguinte chega por e-mail perto do vencimento.
             </div>
-            <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}>Padrão</span>
           </div>
         ) : (
           <div style={{padding:16, border:"1px dashed var(--line)", borderRadius:12, textAlign:"center", color:"var(--muted)", fontSize:13}}>
-            Nenhum cartão cadastrado. <a style={{color:"var(--brand)", fontWeight:600, cursor:"pointer"}} onClick={()=> window.__dashUpgrade && window.__dashUpgrade()}>Adicionar agora</a>
+            Nenhuma assinatura ativa. <a style={{color:"var(--brand)", fontWeight:600, cursor:"pointer"}} onClick={()=> window.__dashUpgrade && window.__dashUpgrade()}>Ver planos</a>
           </div>
         )}
       </SettingsCard>
 
       {/* Billing address */}
+      {/* Os dados do pagador (CPF/CNPJ, endereço) são coletados na página do
+          Asaas e não voltam para o /me — sem dados reais, fica como "Em breve"
+          com campos vazios em vez de uma empresa fictícia. */}
+      <ComingSoonOverlay>
       <SettingsCard title="Endereço de cobrança" sub="Aparece nas notas fiscais emitidas.">
-        <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:14, marginBottom: 14}}>
-          <TextField label="Razão social / Nome" value="North Star Tecnologia LTDA" readOnly/>
-          <TextField label="CNPJ" value="12.345.678/0001-90" suffix="BR" readOnly/>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:14, marginBottom: 14}}>
+          <TextField label="Razão social / Nome" value="" readOnly/>
+          <TextField label="CPF/CNPJ" value="" readOnly/>
         </div>
-        <div style={{display:"grid", gridTemplateColumns:"2fr 1fr 1fr", gap:14}}>
-          <TextField label="Endereço" value="Av. Paulista, 1000, sala 1801" readOnly/>
-          <TextField label="Cidade" value="São Paulo" readOnly/>
-          <TextField label="CEP" value="01310-100" readOnly/>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"2fr 1fr 1fr", gap:14}}>
+          <TextField label="Endereço" value="" readOnly/>
+          <TextField label="Cidade" value="" readOnly/>
+          <TextField label="CEP" value="" readOnly/>
         </div>
       </SettingsCard>
+      </ComingSoonOverlay>
 
       {/* Invoices */}
       <SettingsCard title="Notas fiscais"
@@ -744,9 +752,11 @@ function BillingSection({ tweaks, setTweak, currentUser }){
             }}>
               <Icon.Doc size={20}/>
             </div>
-            <div style={{fontWeight:700, fontSize:14, marginBottom:6}}>Sem faturas ainda</div>
+            <div style={{fontWeight:700, fontSize:14, marginBottom:6}}>{isPaid ? "Histórico em breve" : "Sem faturas ainda"}</div>
             <div style={{fontSize:12.5, color:"var(--muted)", lineHeight:1.5, maxWidth:340, margin:"0 auto"}}>
-              Suas cobranças aparecerão aqui quando você ativar o Pro.
+              {isPaid
+                ? "O histórico de cobranças ainda não aparece aqui. Os comprovantes ficam com o Asaas, que processa seus pagamentos."
+                : "Suas cobranças aparecerão aqui quando você assinar um plano."}
             </div>
           </div>
         ) : (
@@ -834,12 +844,11 @@ function HistorySection({ tweaks }){
   return (
     <div>
       <SectionHeader title="Histórico de análises"
-        sub="Linha do tempo de tudo que a IA e sua equipe fizeram."
-        action={
-          <button className="btn btn-ghost" style={{padding:"8px 12px", fontSize:13}} disabled={isFree} title={isFree?"Disponível no Pro":""}>
-            {isFree && <Icon.Lock size={13}/>} <Icon.Download size={13}/> Exportar CSV
-          </button>
-        }/>
+        sub="Linha do tempo de tudo que a IA e sua equipe fizeram."/>
+
+      {/* Ainda não há API de eventos: os itens abaixo são ilustrativos. Fica sob
+          "Em breve" (inerte) para não parecer histórico real da conta. */}
+      <ComingSoonOverlay>
 
       {/* Stats */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:14, marginBottom:18}}>
@@ -992,6 +1001,7 @@ function HistorySection({ tweaks }){
           </div>
         </div>
       )}
+      </ComingSoonOverlay>
     </div>
   );
 }
@@ -1025,7 +1035,11 @@ function ReferralSection({ tweaks }){
   return (
     <div>
       <SectionHeader title="Indique e ganhe"
-        sub="Ganhe 30 dias de Pro grátis a cada amigo que assinar."/>
+        sub="O programa de indicação está chegando. Os dados abaixo são ilustrativos."/>
+
+      {/* Sem backend de indicação: link, indicações e saldos são de exemplo.
+          Inerte sob "Em breve" para ninguém copiar e divulgar um link que não existe. */}
+      <ComingSoonOverlay>
 
       {/* Hero */}
       <div style={{
@@ -1162,6 +1176,7 @@ function ReferralSection({ tweaks }){
         </div>
         Recompensa é creditada quando o amigo converte do trial para assinatura paga. Sem limite de indicações. Saldos ficam disponíveis por 12 meses após o crédito. Não vale para auto-indicação ou contas duplicadas.
       </div>
+      </ComingSoonOverlay>
     </div>
   );
 }

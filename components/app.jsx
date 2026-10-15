@@ -202,7 +202,8 @@ function App(){
       {view==="upload" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
           <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
-          <UploadView onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}/>
+          <UploadView maxRows={(currentUser && currentUser.limits && currentUser.limits.maxRows) || 5000}
+            onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}/>
         </div>
       )}
       {view==="prompt" && (
@@ -217,12 +218,20 @@ function App(){
         onSuccess={()=> setView(returnView && returnView !== "landing" ? returnView : "upload")}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
-        onSelectPlan={(plan, method)=>{
+        onSelectPlan={async (plan, method)=>{
           // plan: 'essencial'|'pro'  method: 'card'|'pix'
           // Anônimo → cadastro primeiro. O flip de plano acontece no servidor
           // via webhook — nunca mutar currentUser.plan no cliente.
-          if(!currentUser) return onSignUp();
-          window.DashAPI.checkout(plan, method); // redireciona pro Asaas
+          // Retorna true quando o redirect pro Asaas começou (PlansView mantém
+          // os botões travados) e false em erro.
+          if(!currentUser){ onSignUp(); return false; }
+          try {
+            await window.DashAPI.checkout(plan, method); // redireciona pro Asaas
+            return true;
+          } catch(err){
+            window.alert(checkoutErrorMessage(err));
+            return false;
+          }
         }}
         onClose={closeSecondary}/>}
       {view==="account" && <AccountView tweaks={effectiveTweaks} setTweak={setTweak} currentUser={currentUser}
@@ -263,6 +272,17 @@ function App(){
   );
 }
 
+// Mensagens dos erros de POST /billing/checkout (sem isso o clique falhava em
+// silêncio — promessa rejeitada sem catch).
+function checkoutErrorMessage(err){
+  const code = err && err.data && err.data.error;
+  if(code === "plano_ja_ativo") return "Seu plano atual já inclui este plano.";
+  if(code === "assinatura_ativa") return "Você já tem uma assinatura no cartão. Para trocar de plano, cancele a atual em Conta → Faturamento e assine o novo plano.";
+  if(err && err.status === 401) return "Sua sessão expirou. Entre novamente para continuar.";
+  if(!err || !err.status) return "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.";
+  return "Não foi possível abrir o pagamento agora. Tente novamente em instantes.";
+}
+
 // Minimal account info modal. Triggered by AuthBubble's "Meu perfil" item.
 // Shows the user's email, plan, and a Sair button. Future iteration: link to
 // Stripe Customer Portal for plan management, delete-account flow (LGPD).
@@ -279,7 +299,7 @@ function ProfileModal({ open, currentUser, onClose, onSignOut, tweaks }){
   }, [open, onClose]);
   if(!open || !currentUser) return null;
   const accent = (tweaks && tweaks.accent) || "var(--brand)";
-  const isPro = currentUser.plan === "pro";
+  const isPaid = currentUser.plan === "pro" || currentUser.plan === "essencial";
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, zIndex:125,
@@ -317,16 +337,13 @@ function ProfileModal({ open, currentUser, onClose, onSignOut, tweaks }){
             <ProfileRow label="E-mail" value={currentUser.email || "—"}/>
             <ProfileRow label="Plano" value={
               <span className="chip" style={{
-                background: isPro ? "#e7f7ef" : "var(--line-2)",
-                color: isPro ? "#0a5a30" : "var(--ink-2)",
+                background: isPaid ? "#e7f7ef" : "var(--line-2)",
+                color: isPaid ? "#0a5a30" : "var(--ink-2)",
                 fontSize:11, fontWeight:700,
               }}>
-                {isPro ? <><Icon.Crown size={11}/> Pro</> : "Free"}
+                {isPaid && <Icon.Crown size={11}/>} {dashPlanLabel(currentUser.plan)}
               </span>
             }/>
-            {currentUser.stripeCustomerId && (
-              <ProfileRow label="Stripe ID" value={<span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{currentUser.stripeCustomerId}</span>}/>
-            )}
           </div>
           <button onClick={onSignOut} className="btn btn-ghost"
             style={{width:"100%", justifyContent:"center", padding:"10px"}}>

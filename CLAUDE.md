@@ -156,6 +156,7 @@ Todo conteúdo do dashboard é um **bloco** num grid de 12 colunas. Modelo:
 - Chart default `span: 6` (½). ⅔=8, full=12.
 - Insights / Ranking / CTA preferencialmente `span: 12`.
 - Adicionar novo tipo de bloco? Crie a entrada em `renderBlock` + atualize `MiniBlock` no `ExportModal` (caso contrário a prévia quebra) + adicione no `AddPicker`.
+- **Dados de exemplo nunca se misturam com dados do usuário.** Com upload (`isUpload`), os arrays mock do `Dashboard` viram `[]`, KPI sem dado real recebe `props: null` e `dashFitBlocks` remove o bloco e fecha o grid. Presets cuja coluna não existe (região/produto/canal) somem. Mocks só existem no caminho de dev sem upload (Tweaks).
 
 ### Drag-and-drop nativo
 
@@ -240,9 +241,10 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - **Sampling para IA** (decisão [DECISION 2026-06-03], substitui a regra antiga de "1-3 linhas anonimizadas"):
   - **20 linhas cruas (sem anonimização)** são enviadas para o Gemini (via Edge Function `gemini-narrative`), junto com perfis de coluna + KPIs computados.
   - **Decisão**: priorizar qualidade da análise sobre minimização de dados. Insights mais ricos e específicos compensam o trade-off.
-  - **Free não envia nenhum dado** — o paywall bloqueia antes da chamada (a IA só roda para Pro).
+  - **Free não envia nenhum dado** — o paywall bloqueia antes da chamada (a IA só roda nos planos pagos: Essencial e Pro; o backend responde 402 para Free).
+  - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base).
   - **TODO pré-lançamento** (bloqueia ir a usuários reais):
-    - Adicionar aviso visual antes do primeiro uso da IA.
+    - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Análise por IA", estado inicial).
     - Atualizar Termos de Uso citando o Google como processador de dados.
     - Política de Privacidade explicando o fluxo de dados (navegador → Edge Function → Gemini).
 - Quando aceitar URL pública (Importar de URL), validar contra `data:`, `javascript:`, hosts de loopback; só permitir `https://`.
