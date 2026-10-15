@@ -1635,7 +1635,7 @@ function AINarrative({ tweaks, live, limits }){
           </div>
         </div>
       </div>
-      <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
+      <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
         onClick={reload} title="Gerar uma nova análise com a IA">
         <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
       </button>
@@ -2710,7 +2710,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
       <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
-      <div style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
+      {/* #dash-export-root = o que vai para o PDF/PNG (dashboard-export.jsx).
+          .no-export some na exportação; .export-only só aparece nela. */}
+      <div id="dash-export-root" style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
         {/* Header */}
         <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 22, gap:24, flexWrap:"wrap"}}>
           <div>
@@ -2724,19 +2726,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               {fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas
               {fileInfo?.isDemo && <span style={{marginLeft:6, fontWeight:600, color:"var(--warn)"}}>· Dados de demonstração · não são reais</span>}
             </div>
+            <div className="export-only" style={{fontSize:12, color:"var(--muted)", marginTop:4}}>
+              Exportado em {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"})}
+            </div>
           </div>
-          <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+          {/* "Atualizar" saiu: não tinha ação (os dados vêm do arquivo enviado). */}
+          <div className="no-export" style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
             <div className="seg">
               {[["7d","7d"],["30d","30d"],["90d","90d"],["all","Tudo"]].map(([k,n])=>(
                 <button key={k} className={period===k?"on":""} onClick={()=>setPeriod(k)}>{n}</button>
               ))}
             </div>
-            <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Refresh size={14}/> Atualizar</button>
           </div>
         </div>
 
         {/* View presets — Dashboards avançados */}
-        <div className="rv" style={{
+        <div className="rv no-export" style={{
           display:"flex", alignItems:"center", gap:8, marginBottom: 18,
           padding:"6px", background:"white", border:"1px solid var(--line)",
           borderRadius: 14, overflowX:"auto"
@@ -2783,7 +2788,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
         {/* View description */}
         {presets[viewKey] && (
-          <div className="rv" style={{
+          <div className="rv no-export" style={{
             display:"flex", alignItems:"center", gap:10, marginBottom: 16,
             fontSize: 13, color:"var(--muted)"
           }}>
@@ -2816,7 +2821,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             const showBefore = dragOver?.id === b.id && dragOver.position === "before" && dragId !== b.id;
             const showAfter  = dragOver?.id === b.id && dragOver.position === "after"  && dragId !== b.id;
             return (
-              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id}
+              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id} data-kind={b.kind}
                 className={"block-wrap rv"}
                 style={{
                   gridColumn: `span ${b.span}`,
@@ -2866,6 +2871,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             </button>
           )}
         </div>
+        <div className="export-only export-brand" style={{alignItems:"center", gap:8, marginTop:18, paddingTop:12, borderTop:"1px solid var(--line)", fontSize:12, color:"var(--muted)"}}>
+          <Icon.Logo size={18}/> Gerado com {tweaks.brandName} · dashboards com IA
+        </div>
       </div>
 
       {/* Floating action toolbar */}
@@ -2882,12 +2890,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           )}
         </div>
         <div className="div"/>
-        <button onClick={()=>setExportOpen(true)} className="primary" title="Exportar (X)">
+        <button onClick={()=>{ setEditing(false); setPickerOpen(false); setExportOpen(true); }} className="primary" title="Exportar (X)">
           <Icon.Download size={14}/> Exportar
         </button>
       </div>
 
-      {exportOpen && <ExportModal onClose={()=>setExportOpen(false)} blocks={blocks} tweaks={tweaks} fileInfo={fileInfo}/>}
+      {exportOpen && <ExportModal onClose={()=>setExportOpen(false)} blocks={blocks} tweaks={tweaks} fileInfo={fileInfo}
+        meta={{
+          title: dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas",
+          period: periodMeta.label,
+          rows: rowsForPeriod.toLocaleString("pt-BR") + " linhas",
+          aiSummary: narrative ? String(narrative.narrative || narrative.summary || narrative.rawText || "").slice(0, 400) : null,
+        }}
+        canExport={!isFree && !(currentUser && currentUser.limits && currentUser.limits.canExport === false)}
+        canRemoveBranding={!!(currentUser && currentUser.limits ? currentUser.limits.removeBranding : tweaks.plan === "pro")}
+        hasAI={!isFree && !!narrative}
+        onLocked={()=>{ setExportOpen(false); setPaywallReason("export"); }}/>}
       {paywallReason && <PaywallModal reason={paywallReason} onClose={()=>setPaywallReason(null)} tweaks={tweaks}/>}
     </div>
   );
@@ -2905,6 +2923,7 @@ function PaywallModal({ reason, onClose, tweaks }){
     add:      { t:"Adicionar blocos é um recurso pago", d:"Criar novos KPIs, gráficos, ranking e blocos de insights fica disponível a partir do plano Essencial." },
     insights: { t:"Análises da IA nos planos pagos", d:"Resumo executivo, insights e recomendações gerados por IA ficam disponíveis a partir do plano Essencial." },
     advanced: { t:"Visão avançada nos planos pagos", d:"Sazonalidade, vendedores e mix por categoria ficam disponíveis a partir do plano Essencial." },
+    export:   { t:"Exportar é um recurso pago", d:"Baixe o dashboard em PDF ou PNG a partir do plano Essencial." },
   }[reason] || { t:"Recurso pago", d:"Este recurso está disponível a partir do plano Essencial." };
 
   const features = [
@@ -3126,372 +3145,6 @@ function AddPicker({ onPick, onClose, accent, placement="top-right" }){
         </button>
       ))}
     </div>
-  );
-}
-
-function ExportModal({ onClose, blocks, tweaks, fileInfo }){
-  const [format, setFormat] = React.useState("pdf"); // pdf, png
-  const [paper, setPaper] = React.useState("a4"); // a4, letter, wide
-  const [orient, setOrient] = React.useState("portrait");
-  const [opts, setOpts] = React.useState({ summary:true, filters:true, branding:true });
-
-  // Filter blocks for the preview
-  const visibleBlocks = blocks.filter(b => b.kind !== "cta");
-  const charts = blocks.filter(b => b.kind === "chart");
-  const kpis = blocks.filter(b => b.kind === "kpi");
-
-  const paperSizes = {
-    a4: { p:[2480, 3508], n:"A4" },
-    letter: { p:[2550, 3300], n:"Carta" },
-    wide: { p:[2880, 1620], n:"Apresentação 16:9" },
-  };
-  const sz = paperSizes[paper].p;
-  const [pw, ph] = orient==="portrait" ? sz : [sz[1], sz[0]];
-  const ratio = pw/ph;
-
-  // Preview page dimensions
-  const previewW = paper === "wide" ? 720 : (orient==="portrait" ? 500 : 700);
-  const previewH = previewW / ratio;
-  const pad = paper === "wide" ? 22 : 18;
-  const contentW = previewW - pad*2;
-
-  React.useEffect(()=>{
-    const onKey = e=>{ if(e.key==="Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return ()=>{ window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
-  }, []);
-
-  const togOpt = (k)=> setOpts(o=>({...o, [k]:!o[k]}));
-
-  return (
-    <div onClick={onClose} style={{
-      position:"fixed", inset:0, zIndex:100,
-      background:"rgba(11,16,32,.5)", backdropFilter:"blur(6px)",
-      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
-      animation:"fade .2s ease"
-    }}>
-      <style>{`@keyframes fade{ from{ opacity:0 } } @keyframes pop{ from{ opacity:0; transform: translateY(8px) scale(.98); } }`}</style>
-      <div onClick={e=>e.stopPropagation()} style={{
-        width:"min(1240px, 100%)", maxHeight:"94vh", background:"white", borderRadius:18,
-        boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)",
-        display:"grid", gridTemplateColumns:"320px 1fr", overflow:"hidden",
-        animation:"pop .3s cubic-bezier(.2,.7,.2,1)"
-      }}>
-        {/* Sidebar */}
-        <div style={{padding:24, borderRight:"1px solid var(--line)", background:"#fafbfe", display:"flex", flexDirection:"column", gap:20, overflowY:"auto"}}>
-          <div>
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-              <h2 style={{margin:0, fontSize:18, fontWeight:800, letterSpacing:"-.01em"}}>Exportar</h2>
-              <button onClick={onClose} className="icon-btn" style={{width:28, height:28}}><Icon.X size={14}/></button>
-            </div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Veja a prévia antes de baixar.</div>
-          </div>
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>FORMATO</div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-              {[
-                {k:"pdf", n:"PDF", d:"Multi-página, texto selecionável"},
-                {k:"png", n:"PNG", d:"Imagem única em alta resolução"},
-              ].map(o=>(
-                <button key={o.k} onClick={()=>setFormat(o.k)} style={{
-                  padding:"12px 12px", borderRadius:10, textAlign:"left", cursor:"pointer",
-                  border: format===o.k ? "1.5px solid var(--brand)" : "1px solid var(--line)",
-                  background: format===o.k ? "var(--brand-soft)" : "white"
-                }}>
-                  <div style={{fontWeight:700, fontSize:13, color: format===o.k ? "var(--brand-2)" : "var(--ink)"}}>{o.n}</div>
-                  <div style={{fontSize:11, color:"var(--muted)", marginTop:2}}>{o.d}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>TAMANHO</div>
-            <div style={{display:"flex", flexDirection:"column", gap:6}}>
-              {[
-                {k:"a4", n:"A4", d:"210 × 297 mm"},
-                {k:"letter", n:"Carta US", d:"216 × 279 mm"},
-                {k:"wide", n:"Apresentação", d:"16:9 widescreen"},
-              ].map(o=>(
-                <label key={o.k} style={{
-                  display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, cursor:"pointer",
-                  background: paper===o.k ? "white" : "transparent", border: paper===o.k ? "1px solid var(--brand)" : "1px solid transparent"
-                }}>
-                  <input type="radio" name="paper" checked={paper===o.k} onChange={()=>setPaper(o.k)} style={{accentColor:"var(--brand)"}}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600, fontSize:13}}>{o.n}</div>
-                    <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>{o.d}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {paper !== "wide" && (
-            <div>
-              <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>ORIENTAÇÃO</div>
-              <div className="seg" style={{padding:3, background:"var(--line-2)"}}>
-                <button onClick={()=>setOrient("portrait")} className={orient==="portrait"?"on":""}>Retrato</button>
-                <button onClick={()=>setOrient("landscape")} className={orient==="landscape"?"on":""}>Paisagem</button>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>INCLUIR</div>
-            <div style={{display:"flex", flexDirection:"column", gap:6}}>
-              {[
-                ["summary","Capa com resumo executivo"],
-                ["filters","Filtros aplicados"],
-                ["branding","Marca do Dash no rodapé"],
-              ].map(([k,n])=>(
-                <label key={k} style={{display:"flex", alignItems:"center", gap:10, padding:"6px 4px", cursor:"pointer"}}>
-                  <input type="checkbox" checked={opts[k]} onChange={()=>togOpt(k)} style={{accentColor:"var(--brand)"}}/>
-                  <span style={{fontSize:13}}>{n}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{marginTop:"auto", paddingTop:16, borderTop:"1px solid var(--line)"}}>
-            <div style={{display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--muted)", marginBottom:4}}>
-              <span>Resolução final</span>
-              <span className="mono">{pw} × {ph} px</span>
-            </div>
-            <div style={{display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--muted)", marginBottom:8}}>
-              <span>Blocos</span>
-              <span className="mono">{kpis.length} KPI · {charts.length} gráficos</span>
-            </div>
-            <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px"}}>
-              <Icon.Download size={14}/> Baixar {format.toUpperCase()}
-            </button>
-            <button onClick={onClose} className="btn btn-ghost" style={{width:"100%", justifyContent:"center", marginTop:8, padding:"10px"}}>Cancelar</button>
-          </div>
-        </div>
-
-        {/* Preview */}
-        <div style={{padding:28, overflowY:"auto", background:"#eef0f7", display:"flex", flexDirection:"column", alignItems:"center", gap:14}}>
-          <div style={{display:"flex", justifyContent:"space-between", width:"100%", alignItems:"center", maxWidth: previewW}}>
-            <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <span className="chip" style={{background:"white", border:"1px solid var(--line)"}}><Icon.Eye size={11}/> Pré-visualização fiel</span>
-              <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{paperSizes[paper].n} · {orient==="portrait"?"retrato":"paisagem"}</span>
-            </div>
-          </div>
-          <div style={{
-            background:"white", boxShadow:"0 30px 60px -30px rgba(11,16,32,.4)",
-            width: previewW, height: previewH, padding: pad, overflow:"hidden",
-            display:"flex", flexDirection:"column", gap: 8,
-          }}>
-            {/* Header */}
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", paddingBottom:8, borderBottom:"1px solid var(--line-2)"}}>
-              <div>
-                <div style={{fontSize:8, color:"var(--muted)", letterSpacing:".08em", fontWeight:600}} className="mono">VISÃO GERAL DE VENDAS</div>
-                <div style={{fontWeight:800, fontSize:14, letterSpacing:"-.01em"}}>{fileInfo?.name || "vendas_exemplo.csv"}</div>
-              </div>
-              <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2}}>
-                {opts.branding && <Icon.Logo size={18}/>}
-                <span className="mono" style={{fontSize:8, color:"var(--muted)"}}>20/mai/2026 · {(fileInfo?.rows||120).toLocaleString("pt-BR")} linhas</span>
-              </div>
-            </div>
-
-            {opts.filters && (
-              <div style={{display:"flex", gap:4, fontSize:8.5, alignItems:"center", flexWrap:"wrap"}}>
-                <span className="mono" style={{color:"var(--muted)", fontWeight:600}}>FILTROS:</span>
-                <span style={{padding:"1px 6px", background:"var(--brand-soft)", color:"var(--brand-2)", borderRadius:99}}>regiao: CO, NE</span>
-                <span style={{padding:"1px 6px", background:"var(--brand-soft)", color:"var(--brand-2)", borderRadius:99}}>canal: Marketplace</span>
-                <span style={{color:"var(--muted)", marginLeft:"auto"}} className="mono">72/120 linhas</span>
-              </div>
-            )}
-
-            {opts.summary && (
-              <div style={{padding:"6px 8px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:6}}>
-                <div className="mono" style={{fontSize:7, fontWeight:700, color:"var(--muted)", marginBottom:2}}>RESUMO EXECUTIVO</div>
-                <div style={{fontSize:8.5, lineHeight:1.45, color:"var(--ink-2)"}}>Panorama saudável com forte expressão em Móveis e Eletrônicos, dominância do canal Marketplace e crescimento no Centro-Oeste. Alerta no ticket médio (−23%).</div>
-              </div>
-            )}
-
-            {/* Block grid — mirrors the dashboard */}
-            <div style={{display:"grid", gridTemplateColumns:"repeat(12, 1fr)", gap:5, flex:1, minHeight:0, overflow:"hidden"}}>
-              {visibleBlocks.map(b => (
-                <div key={b.id} style={{gridColumn:`span ${Math.min(12, b.span)}`, minHeight: 0}}>
-                  <MiniBlock block={b} accent={tweaks.accent} contentW={contentW}/>
-                </div>
-              ))}
-            </div>
-
-            {opts.branding && (
-              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:5, borderTop:"1px solid var(--line-2)", fontSize:7.5, color:"var(--muted)", flexShrink:0}}>
-                <span>Gerado com {tweaks.brandName} · IA Gemini 2.5</span>
-                <span className="mono">página 1/1</span>
-              </div>
-            )}
-          </div>
-          <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>
-            Os blocos seguem a mesma ordem e proporção do dashboard.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniBlock({ block, accent, contentW }){
-  if(block.kind === "kpi"){
-    const k = block.props;
-    return (
-      <div style={{
-        padding:"5px 7px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", display:"flex", flexDirection:"column", justifyContent:"space-between", overflow:"hidden"
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:3}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:k.color, flexShrink:0}}/>
-          <span style={{fontSize:7, color:"var(--muted)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.label}</span>
-        </div>
-        <div style={{display:"flex", alignItems:"baseline", gap:3, flexWrap:"nowrap"}}>
-          <span style={{fontWeight:800, fontSize:13, color:"var(--ink)", letterSpacing:"-.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.value}{k.suffix || ""}</span>
-          <span style={{fontSize:7, fontWeight:700, color: k.deltaDir==="up"?"#0a8a4a":"#c9234a", flexShrink:0}}>{k.deltaDir==="up"?"▲":"▼"} {k.delta}</span>
-        </div>
-        <div style={{fontSize:6.5, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.sub}</div>
-        <div style={{marginTop:2}}>
-          <Sparkline data={k.data} color={k.color} width={Math.max(80, Math.round(contentW*(block.span/12)))} height={18} fill={true}/>
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "chart"){
-    const c = block.props;
-    const cardW = Math.round(contentW * (block.span/12));
-    const chartH = block.span >= 8 ? 70 : block.span >= 6 ? 64 : 56;
-    return (
-      <div style={{
-        padding:"5px 7px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", display:"flex", flexDirection:"column", gap:3, overflow:"hidden"
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:c.color || accent, flexShrink:0}}/>
-          <div style={{fontSize:8, fontWeight:700, color:"var(--ink)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1}}>{c.title}</div>
-          <span style={{fontSize:7, color:"var(--muted)", fontFamily:"'Geist Mono', monospace", flexShrink:0}}>{c.dim}</span>
-        </div>
-        <div style={{fontSize:7, color:"var(--muted)", marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.sub}</div>
-        <div style={{flex:1, minHeight: chartH}}>
-          <MiniChart chart={c} color={c.color || accent} width={cardW-14} height={chartH}/>
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "insights"){
-    // Mirror the generated insights when present so the export preview matches
-    // the real block (CLAUDE.md §5); otherwise show the sales demo strip.
-    const gen = block.props && block.props.generated;
-    const items = (Array.isArray(gen) && gen.length)
-      ? gen.slice(0, 4).map(it => ({ t: it.t, d: it.ev || it.tag, risk: it.risk }))
-      : [
-          {t:"Móveis e Eletrônicos lideram", d:"42% do valor total"},
-          {t:"Centro-Oeste em alta", d:"R$ 212k · ↑22%"},
-          {t:"Marketplace dominante", d:"38% das vendas"},
-          {t:"Ticket caiu 23%", d:"alerta de receita", risk:true},
-        ];
-    return (
-      <div style={{
-        padding:"6px 8px", background:"linear-gradient(135deg, var(--brand-soft), white)",
-        border:"1px solid var(--brand-soft)", borderRadius:5, height:"100%", overflow:"hidden",
-        display:"flex", flexDirection:"column", gap:3
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <Icon.Sparkle size={9} color="var(--brand)"/>
-          <span className="mono" style={{fontSize:7.5, fontWeight:700, color:"var(--brand-2)"}}>ANÁLISES DA IA</span>
-          <span className="chip" style={{padding:"0 4px", fontSize:6.5, background:"#e7f7ef", color:"#0a8a4a"}}>89%</span>
-        </div>
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4, flex:1, minHeight:0}}>
-          {items.map((it,i)=>(
-            <div key={i} style={{
-              padding:"4px 6px", borderRadius:4, background: it.risk?"#fff7f9":"white",
-              border:`1px solid ${it.risk?"#ffd2dd":"var(--line-2)"}`, minHeight: 0
-            }}>
-              <div style={{fontSize:7.5, fontWeight:700, color: it.risk?"#c9234a":"var(--ink)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.t}</div>
-              <div style={{fontSize:7, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.d}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "ranking"){
-    const items = (block.props?.items || []).slice(0,5);
-    return (
-      <div style={{
-        padding:"6px 8px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", overflow:"hidden", display:"flex", flexDirection:"column", gap:3
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:accent}}/>
-          <span style={{fontSize:8, fontWeight:700}}>Top produtos</span>
-        </div>
-        <div style={{display:"flex", flexDirection:"column", gap:2, flex:1}}>
-          {items.map((p,i)=>(
-            <div key={i} style={{display:"grid", gridTemplateColumns:"12px 1.6fr 1fr 60px", gap:5, alignItems:"center", fontSize:7}}>
-              <span className="mono" style={{color:"var(--muted)"}}>{String(i+1).padStart(2,"0")}</span>
-              <span style={{fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.n}</span>
-              <div style={{position:"relative", height:4, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
-                <div style={{width:p.pct+"%", height:"100%", background:`linear-gradient(90deg, ${accent}, var(--violet))`}}/>
-              </div>
-              <span style={{textAlign:"right", fontWeight:700, fontVariantNumeric:"tabular-nums"}}>R$ {(p.v/1000).toFixed(1)}k</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return null;
-}
-
-function MiniChart({ chart, color, width, height }){
-  const { type, data } = chart;
-  if(type==="line" || type==="area"){
-    return <LineChart data={data} width={width||200} height={height} color={color} fill={type==="area"} showAxis={false} animate={false}/>;
-  }
-  if(type==="donut"){
-    return (
-      <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100%", gap:6}}>
-        <Donut data={data.map((d,i)=>({v:d.v, color: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a","#1b2240","#ff7849"][i%5]}))} size={Math.min(height-4, 48)} thickness={6} animDelay={999}/>
-        <div style={{display:"flex", flexDirection:"column", gap:1, fontSize:6.5}}>
-          {data.slice(0,3).map((d,i)=>(
-            <div key={i} style={{display:"flex", alignItems:"center", gap:3}}>
-              <span style={{width:4, height:4, borderRadius:"50%", background: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a"][i%3]}}/>
-              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth: 60}}>{d.l}</span>
-              <span className="mono" style={{color:"var(--muted)", marginLeft:"auto"}}>{d.v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return <MiniBars data={data} color={color} width={width||200} height={height}/>;
-}
-
-function MiniBars({ data, color, width, height }){
-  const pad = { l: 2, r: 2, t: 2, b: 10 };
-  const W = width - pad.l - pad.r;
-  const H = height - pad.t - pad.b;
-  const max = Math.max(...data.map(d=>d.v));
-  const barW = W / data.length * 0.7;
-  const gap = W / data.length * 0.3;
-  return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      {data.map((d,i)=>{
-        const h = (d.v/max)*H;
-        const x = pad.l + i*(barW+gap) + gap/2;
-        const y = pad.t + H - h;
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={barW} height={h} rx="1.5" fill={color}/>
-            <text x={x+barW/2} y={height-2} fontSize="5.5" textAnchor="middle" fill="#8c93a6">{String(d.l).slice(0,5)}</text>
-          </g>
-        );
-      })}
-    </svg>
   );
 }
 

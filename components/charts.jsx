@@ -42,11 +42,6 @@ function ChartEmpty({ width, height }){
 function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, showAxis=true, animate=true, animDelay=0 }){
   const series = React.useMemo(()=> chartDownsample(data, 200), [data]);
   const id = React.useMemo(()=> "g"+Math.random().toString(36).slice(2,8), []);
-  const pathRef = React.useRef(null);
-  const [len, setLen] = React.useState(0);
-  React.useEffect(()=>{
-    if(pathRef.current){ setLen(pathRef.current.getTotalLength()); }
-  }, [series]);
   if(!series.length) return <ChartEmpty width={width} height={height}/>;
   data = series;
   const pad = { l: 36, r: 12, t: 12, b: 22 };
@@ -88,13 +83,16 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
         <text key={i} x={xAt(i)} y={height-6} fontSize="10" textAnchor="middle" fill="#8c93a6" fontFamily="Geist Mono">{d.l}</text>
       ))}
       {fill && <path d={area} fill={`url(#${id})`}/>}
-      <path ref={pathRef} d={path} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round"
-        style={animate && len ? {strokeDasharray: len, strokeDashoffset: len, animation: `dash 1.6s ${animDelay}s cubic-bezier(.2,.7,.2,1) forwards`} : {}}/>
+      {/* pathLength=1 normaliza o traço: dispensa medir o path. Estado final é
+          o estilo base e a animação só define o início (fill both), então
+          "animation: none" (exportação) mostra a linha inteira. */}
+      <path d={path} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" pathLength="1"
+        style={animate ? {strokeDasharray: 1, animation: `lineDraw 1.6s ${animDelay}s cubic-bezier(.2,.7,.2,1) both`} : {}}/>
       {(showDots || points.length === 1) && points.map((p,i)=>(
         <circle key={i} cx={p[0]} cy={p[1]} r="2.6" fill="white" stroke={color} strokeWidth="1.6"
-          style={animate ? {opacity:0, animation:`fadein .3s ${animDelay+1.4 + i*0.04}s forwards`} : {}}/>
+          style={animate ? {animation:`dotIn .3s ${animDelay+1.4 + i*0.04}s both`} : {}}/>
       ))}
-      <style>{`@keyframes dash{ to{ stroke-dashoffset: 0; } } @keyframes fadein{ to{ opacity:1; } }`}</style>
+      <style>{`@keyframes lineDraw{ from{ stroke-dashoffset: 1; } to{ stroke-dashoffset: 0; } } @keyframes dotIn{ from{ opacity:0; } }`}</style>
     </svg>
   );
 }
@@ -109,6 +107,7 @@ function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, h
   const gap = W / data.length * 0.4;
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      <style>{`@keyframes barGrow{ from{ transform: scaleY(0); } to{ transform: scaleY(1); } }`}</style>
       {[0,1,2,3].map(i=>{
         const y = pad.t + (H/3)*i;
         const v = Math.round(max - (max/3)*i);
@@ -126,11 +125,11 @@ function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, h
         const c = d.color || color;
         return (
           <g key={i}>
-            <rect x={x} y={pad.t+H} width={barW} height={0} rx="6" fill={c}
-              style={{animation: `grow .9s ${animDelay + i*0.06}s cubic-bezier(.2,.7,.2,1) forwards`}}>
-              <animate attributeName="height" from="0" to={h} dur=".9s" begin={`${animDelay + i*0.06}s`} fill="freeze"/>
-              <animate attributeName="y" from={pad.t+H} to={y} dur=".9s" begin={`${animDelay + i*0.06}s`} fill="freeze"/>
-            </rect>
+            {/* Geometria final nos atributos + crescimento por CSS (scaleY).
+                Antes era SMIL (<animate>) partindo de height=0: cópias do SVG
+                (exportação PNG) perdiam barras que ficavam com altura 0. */}
+            <rect x={x} y={y} width={barW} height={Math.max(0, h)} rx="6" fill={c}
+              style={{transformBox:"fill-box", transformOrigin:"50% 100%", animation:`barGrow .9s ${animDelay + i*0.06}s cubic-bezier(.2,.7,.2,1) both`}}/>
             <text x={x+barW/2} y={height-6} fontSize="10" textAnchor="middle" fill="#5b6478">{d.l}</text>
           </g>
         );
@@ -159,13 +158,12 @@ function Donut({ data, size=180, thickness=22, animDelay=0 }){
             strokeDasharray={`${dash} ${C-dash}`} strokeDashoffset={-offset}
             transform={`rotate(-90 ${size/2} ${size/2})`}
             style={{
-              strokeDasharray: `0 ${C}`,
-              animation: `donut-${uid}-${i} 1s ${animDelay+i*0.15}s cubic-bezier(.2,.7,.2,1) forwards`
+              animation: `donut-${uid}-${i} 1s ${animDelay+i*0.15}s cubic-bezier(.2,.7,.2,1) both`
             }}>
           </circle>
         );
         const styleTag = (
-          <style key={"s"+i}>{`@keyframes donut-${uid}-${i}{ to{ stroke-dasharray: ${dash} ${C-dash}; } }`}</style>
+          <style key={"s"+i}>{`@keyframes donut-${uid}-${i}{ from{ stroke-dasharray: 0 ${C}; } to{ stroke-dasharray: ${dash} ${C-dash}; } }`}</style>
         );
         offset += dash;
         return <React.Fragment key={"f"+i}>{styleTag}{el}</React.Fragment>;
