@@ -47,6 +47,7 @@ function dashParseCSV(text){
 
 function dashParseNumber(v){
   if(v == null) return null;
+  if(typeof v === "number") return Number.isFinite(v) ? v : null;
   let s = String(v).trim();
   if(!s) return null;
   // Strip currency symbols, percent and whitespace (incl. nbsp).
@@ -67,16 +68,15 @@ function dashParseNumber(v){
     norm = s.lastIndexOf(",") > s.lastIndexOf(".")
       ? s.replace(/\./g, "").replace(",", ".")   // BR 1.234,56 → 1234.56
       : s.replace(/,/g, "");                       // US 1,234.56 → 1234.56
-  } else if(hasComma){
-    const parts = s.split(",");
-    // One comma + 1-2 trailing digits → decimal (1,5 / 1,50); a 3-digit group
-    // or several groups → thousands (1,500 / 1,234,567 → 1234567).
-    norm = (parts.length === 2 && parts[1].length <= 2) ? s.replace(",", ".") : s.replace(/,/g, "");
-  } else if(hasDot){
-    const parts = s.split(".");
-    // Mirror the comma rule: single dot + 1-2 digits → US decimal (1500.50);
-    // a 3-digit group or several → BR thousands ("R$ 1.500" → 1500, not 1.5).
-    norm = (parts.length === 2 && parts[1].length <= 2) ? s : s.replace(/\./g, "");
+  } else if(hasComma || hasDot){
+    // One separator kind only. Several groups (1.234.567) → thousands. A single
+    // separator is thousands ONLY in the "1.500" / "12,345" shape: 1-3 leading
+    // digits (not 0) + exactly 3 digits. Anything else is a decimal — before,
+    // "0.048" virava 48, "3.14159" virava 314159 e "12.5000" virava 125000.
+    const sep = hasComma ? "," : ".";
+    const parts = s.split(sep);
+    const thousands = parts.length > 2 || (/^[1-9]\d{0,2}$/.test(parts[0]) && parts[1].length === 3);
+    norm = thousands ? parts.join("") : parts[0] + "." + parts[1];
   } else {
     norm = s;
   }
@@ -89,14 +89,38 @@ function dashParseDate(v){
   if(v == null) return null;
   const s = String(v).trim();
   if(!s) return null;
+  // Valida dia/mês: new Date(2026, 14, 3) "transborda" para 2027 em silêncio
+  // (ex.: "3/15/26" no formato americano). Data impossível → null.
+  const mk = (y, mo, d)=>{
+    if(mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(y, mo-1, d);
+    return dt.getMonth() === mo-1 && dt.getDate() === d ? dt : null;
+  };
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  if(m) return mk(Number(m[1]), Number(m[2]), Number(m[3]));
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if(m){
     const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-    return new Date(y, Number(m[2])-1, Number(m[1]));
+    return mk(y, Number(m[2]), Number(m[1]));
   }
   return null;
+}
+
+/* Número do JS (JSON/Excel) → texto que dashParseNumber lê sem ambiguidade.
+ * String(12.345) = "12.345", que no padrão BR é doze mil — um zero à direita
+ * ("12.3450") mantém o valor e tira a ambiguidade. */
+function dashNumberCell(n){
+  if(!Number.isFinite(n)) return "";
+  const s = String(n);
+  return /^-?[1-9]\d{0,2}\.\d{3}$/.test(s) ? s + "0" : s;
+}
+
+/* Texto de arquivo → string. Excel-BR salva "CSV (separado por vírgulas)" em
+ * Windows-1252; ler como UTF-8 transformava "região" em "regi�o" e quebrava a
+ * detecção de colunas. Tenta UTF-8 estrito e cai para Windows-1252. */
+function dashDecodeText(buffer){
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buffer); }
+  catch(e){ return new TextDecoder("windows-1252").decode(buffer); }
 }
 
 function dashInferSchema(header, rawRows){
@@ -156,15 +180,40 @@ function dashEnsureXLSX(){
   return _xlsxLoad;
 }
 
-/* Excel ArrayBuffer → texto CSV (primeira aba). De propósito devolve CSV para
- * reaproveitar dashParseCSV → o xlsx entra no MESMO pipeline de um upload CSV. */
-function dashXlsxToText(arrayBuffer, XLSX){
-  const wb = XLSX.read(arrayBuffer, { type:"array" });
+/* Excel ArrayBuffer → { header, rows } (primeira aba), no MESMO formato do
+ * dashParseCSV. Lê o valor bruto de cada célula em vez do texto formatado
+ * (sheet_to_csv): data vira AAAA-MM-DD (o texto vinha "3/15/26", formato
+ * americano, lido como dia/mês) e número vira texto sem ambiguidade de milhar. */
+function dashXlsxToParsed(arrayBuffer, XLSX){
+  const wb = XLSX.read(arrayBuffer, { type:"array", cellNF:true });
   const sheetName = wb.SheetNames && wb.SheetNames[0];
   if(!sheetName) throw new Error("A planilha está vazia.");
-  const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], { blankrows:false });
-  if(!csv.trim()) throw new Error("A primeira aba não tem dados.");
-  return csv;
+  const ws = wb.Sheets[sheetName];
+  if(!ws || !ws["!ref"]) throw new Error("A primeira aba não tem dados.");
+  const pad = (n)=> String(n).padStart(2, "0");
+  const cellText = (cell)=>{
+    if(!cell || cell.v == null || cell.t === "e") return "";
+    if(cell.t === "n" && cell.z && XLSX.SSF.is_date(cell.z)){
+      const d = XLSX.SSF.parse_date_code(cell.v);
+      if(d) return d.y + "-" + pad(d.m) + "-" + pad(d.d);
+    }
+    if(cell.t === "d" && cell.v instanceof Date){
+      return cell.v.getFullYear() + "-" + pad(cell.v.getMonth()+1) + "-" + pad(cell.v.getDate());
+    }
+    if(cell.t === "n") return dashNumberCell(cell.v);
+    if(cell.t === "b") return cell.v ? "true" : "false";
+    return String(cell.v);
+  };
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const all = [];
+  for(let r = range.s.r; r <= range.e.r; r++){
+    const row = [];
+    for(let c = range.s.c; c <= range.e.c; c++) row.push(cellText(ws[XLSX.utils.encode_cell({ r, c })]));
+    if(row.some(v => v !== "")) all.push(row);
+  }
+  if(!all.length) throw new Error("A primeira aba não tem dados.");
+  const header = all.shift().map(h => String(h).trim());
+  return { header, rows: all };
 }
 
 /* JSON / NDJSON texto → { header, rows } no MESMO formato que dashParseCSV
@@ -188,7 +237,9 @@ function dashJsonToParsed(text, ndjson){
   if(!header.length) throw new Error("JSON sem campos reconhecíveis (esperado array de objetos).");
   const rows = arr.map(o => header.map(k => {
     const v = o ? o[k] : null;
-    return v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+    if(v == null) return "";
+    if(typeof v === "number") return dashNumberCell(v);
+    return typeof v === "object" ? JSON.stringify(v) : String(v);
   }));
   return { header, rows };
 }
@@ -232,6 +283,32 @@ function dashResolveColumns(schema){
   };
 }
 
+/* Limpa os blocos de um preset montado sobre dados reais: tira KPI sem props,
+ * gráfico sem pontos e ranking vazio; os KPIs restantes dividem a linha e, em
+ * cada linha de gráficos que ficou incompleta, o último estica até fechar 12. */
+function dashFitBlocks(blocks){
+  const kept = (blocks || []).filter(b => {
+    if(!b) return false;
+    if(b.kind === "kpi") return !!b.props;
+    if(b.kind === "chart") return !!(b.props && Array.isArray(b.props.data) && b.props.data.length);
+    if(b.kind === "ranking") return !!(b.props && b.props.items && b.props.items.length);
+    return true;
+  }).map(b => ({ ...b }));
+  const kpiSpan = { 1:12, 2:6, 3:4, 4:3 }[kept.filter(b => b.kind === "kpi").length];
+  if(kpiSpan) kept.forEach(b => { if(b.kind === "kpi") b.span = kpiSpan; });
+  const fill = (row, sum)=>{ if(row.length && sum < 12) row[row.length-1].span += 12 - sum; };
+  for(let i = 0; i < kept.length;){
+    if(kept[i].kind !== "chart"){ i++; continue; }
+    let row = [], sum = 0;
+    while(i < kept.length && kept[i].kind === "chart"){
+      if(sum + kept[i].span > 12){ fill(row, sum); row = []; sum = 0; }
+      row.push(kept[i]); sum += kept[i].span; i++;
+    }
+    fill(row, sum);
+  }
+  return kept;
+}
+
 function dashSum(rows, key){
   if(!key) return 0;
   let s = 0;
@@ -260,20 +337,26 @@ function dashTimeSeries(rows, dateKey, measureKey){
   for(const r of rows){
     const d = r[dateKey];
     if(!(d instanceof Date) || isNaN(d.getTime())) continue;
-    const k = d.toISOString().slice(0,10);
+    // Chave pelos campos LOCAIS: toISOString (UTC) + new Date("AAAA-MM-DD")
+    // (também UTC) rotulavam cada ponto com o dia anterior no Brasil (UTC−3).
+    const k = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
     const v = r[measureKey]; if(typeof v !== "number") continue;
     map.set(k, (map.get(k) || 0) + v);
   }
   return [...map.entries()].sort(([a],[b]) => a<b?-1:1).map(([k, v])=>{
-    const dt = new Date(k);
-    return { l: String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"), v, date: k };
+    return { l: k.slice(8,10) + "/" + k.slice(5,7), v, date: k };
   });
 }
 function dashFilterByPeriod(rows, dateKey, days){
   if(!dateKey || days == null) return rows;
-  const ts = rows.map(r => r[dateKey]).filter(d => d instanceof Date && !isNaN(d.getTime())).map(d => d.getTime());
-  if(!ts.length) return rows;
-  const maxMs = Math.max.apply(null, ts);
+  // Laço em vez de Math.max.apply: com ~120k+ linhas o apply estoura a pilha
+  // (RangeError) no meio do render e derruba a página inteira.
+  let maxMs = -Infinity;
+  for(const r of rows){
+    const d = r[dateKey];
+    if(d instanceof Date){ const t = d.getTime(); if(t > maxMs) maxMs = t; }
+  }
+  if(maxMs === -Infinity) return rows;
   const minMs = maxMs - days * 86400000;
   return rows.filter(r => {
     const d = r[dateKey];
@@ -309,9 +392,12 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
     });
     return result; // { narrative, model }
   } catch(err){
-    if(err && err.status === 402){            // plano insuficiente (free)
-      if(window.__dashOpenPlans) window.__dashOpenPlans();
-      return null;
+    if(err && err.status === 402){            // plano insuficiente (ex.: plano venceu no meio da sessão)
+      // Não navega sozinho para Planos (voltar remontava o dashboard, que pedia
+      // de novo e quicava de volta). Reidrata o plano: com ele Free, o bloco
+      // mostra o paywall normal.
+      window.DashAPI.me().catch(function(){});
+      return { planRequired: true };
     }
     if(err && err.status === 429){            // quota de IA do mês excedida
       return { quotaExceeded: true, limite: err.data && err.data.limite, usados: err.data && err.data.usados };
@@ -375,27 +461,34 @@ const DASH_SAMPLE_JSON = JSON.stringify([
 ], null, 2);
 
 function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
-  const fname = fileInfo?.name || "vendas_exemplo.csv";
+  // Sem arquivo (tela de upload) não há o que mostrar no breadcrumb — antes
+  // aparecia um "vendas_exemplo.csv" fictício.
+  const fname = fileInfo?.name || null;
+  const isPro = tweaks.plan === "pro";
   return (
     <div className="topbar">
-      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 24px", maxWidth: 1480, margin:"0 auto"}}>
-        <div style={{display:"flex", alignItems:"center", gap:14}}>
+      <div className="tb-row" style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"14px 24px", maxWidth: 1480, margin:"0 auto"}}>
+        <div style={{display:"flex", alignItems:"center", gap:14, minWidth:0}}>
           <Icon.Logo size={28}/>
-          <div style={{display:"flex", flexDirection:"column", lineHeight:1}}>
+          <div className="tb-brand" style={{display:"flex", flexDirection:"column", lineHeight:1}}>
             <span style={{fontWeight:700, fontSize:14}}>{tweaks.brandName}</span>
             <span className="mono" style={{fontSize:10, color:"var(--muted)"}}>DASHBOARDS · IA</span>
           </div>
-          <div style={{width:1, height:24, background:"var(--line)", margin:"0 6px"}}/>
-          <div style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)"}}>
-            <span>Workspace</span>
-            <Icon.Caret size={12}/>
-            <span style={{color:"var(--ink-2)", fontWeight:600}}>{fname}</span>
-          </div>
+          {fname && (
+            <div className="tb-crumb" style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)", minWidth:0}}>
+              <div style={{width:1, height:24, background:"var(--line)", margin:"0 6px"}}/>
+              <span>Workspace</span>
+              <Icon.Caret size={12}/>
+              <span style={{color:"var(--ink-2)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:260}}>{fname}</span>
+            </div>
+          )}
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose}><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Início</button>
-          <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Share size={14}/> Compartilhar</button>
-          <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashUpgrade?.()}><Icon.Crown size={14}/> Fazer upgrade</button>
+        <div style={{display:"flex", alignItems:"center", gap:10, flexShrink:0}}>
+          <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose} title="Início" aria-label="Início"><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> <span className="tb-label">Início</span></button>
+          {/* "Compartilhar" saiu: não havia handler (link público ainda não existe). */}
+          {!isPro && (
+            <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashUpgrade?.()} title="Fazer upgrade" aria-label="Fazer upgrade"><Icon.Crown size={14}/> <span className="tb-label">Fazer upgrade</span></button>
+          )}
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
         </div>
       </div>
@@ -403,7 +496,7 @@ function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, on
   );
 }
 
-function UploadView({ onUploaded }){
+function UploadView({ onUploaded, maxRows }){
   const [drag, setDrag] = React.useState(false);
   const [tab, setTab] = React.useState("file"); // file, paste, url, sample
 
@@ -411,7 +504,7 @@ function UploadView({ onUploaded }){
     {
       k:"csv", ext:".csv", n:"CSV", c:"#0a8a4a",
       desc:"Valores separados por vírgula ou ponto-e-vírgula. UTF-8.",
-      max:"50 MB", rows:"até 500k linhas",
+      max:"50 MB", rows:"linhas conforme o plano",
       sample: `data,produto,regiao,valor
 2026-07-12,Mesa Ajustável,CO,2980
 2026-07-12,Notebook Pro 14,SE,8120`,
@@ -427,7 +520,7 @@ function UploadView({ onUploaded }){
     {
       k:"json", ext:".json · .ndjson", n:"JSON", c:"#7a5cff",
       desc:"Array de objetos ou JSON line-delimited (uma linha por registro).",
-      max:"30 MB", rows:"até 250k objetos",
+      max:"30 MB", rows:"objetos conforme o plano",
       sample: `[
   { "data":"2026-07-12", "produto":"Mesa", "valor":2980 },
   { "data":"2026-07-12", "produto":"Notebook", "valor":8120 }
@@ -482,6 +575,12 @@ function UploadView({ onUploaded }){
         fail("Não consegui detectar cabeçalho ou linhas no arquivo.");
         return;
       }
+      // Limite de linhas do plano (limits.maxRows do /me; anônimo = Free).
+      if(maxRows && rows.length > maxRows){
+        fail(<>Esta base tem {rows.length.toLocaleString("pt-BR")} linhas e o seu plano permite até {maxRows.toLocaleString("pt-BR")} por base.{" "}
+          <a onClick={()=> window.__dashUpgrade?.()} style={{color:"var(--brand)", fontWeight:700, cursor:"pointer", textDecoration:"underline"}}>Ver planos</a></>);
+        return;
+      }
       const schema = dashInferSchema(header, rows);
       setProgress(70); setStep("analyzing");
       setTimeout(()=>{
@@ -524,8 +623,11 @@ function UploadView({ onUploaded }){
       dashEnsureXLSX().then(XLSX=>{
         const reader = new FileReader();
         reader.onload = (e)=>{
-          try { ingestText(dashXlsxToText(e.target?.result, XLSX)); }
-          catch(err){ fail("Não consegui ler o Excel (arquivo corrompido ou protegido por senha?)" + (err && err.message ? " — " + err.message : "")); }
+          let p;
+          try { p = dashXlsxToParsed(e.target?.result, XLSX); }
+          catch(err){ fail("Não consegui ler o Excel (arquivo corrompido ou protegido por senha?)" + (err && err.message ? " — " + err.message : "")); return; }
+          setProgress(35);
+          setTimeout(()=> ingestParsed(p.header, p.rows), 400);
         };
         reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
         reader.readAsArrayBuffer(file);
@@ -537,9 +639,9 @@ function UploadView({ onUploaded }){
       if(file && typeof file.text === "string"){ ingestJSON(file.text); }
       else if(file instanceof Blob){
         const reader = new FileReader();
-        reader.onload = (e)=> ingestJSON(String(e.target?.result || ""));
+        reader.onload = (e)=> ingestJSON(dashDecodeText(e.target?.result));
         reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
-        reader.readAsText(file);
+        reader.readAsArrayBuffer(file);
       } else { fail("Fonte sem dados anexados."); }
       return;
     }
@@ -556,9 +658,9 @@ function UploadView({ onUploaded }){
       ingestText(file.text);
     } else if(file instanceof Blob){
       const reader = new FileReader();
-      reader.onload = (e)=> ingestText(String(e.target?.result || ""));
+      reader.onload = (e)=> ingestText(dashDecodeText(e.target?.result));
       reader.onerror = ()=>{ fail("Não foi possível ler o arquivo."); };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     } else {
       // URL tab still calls this without a real payload — bail out cleanly.
       fail("Fonte sem dados anexados.");
@@ -581,14 +683,14 @@ function UploadView({ onUploaded }){
     <div style={{maxWidth: 1100, margin:"40px auto 0", padding:"0 24px 80px"}}>
       <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls" style={{display:"none"}} onChange={onFileChosen}/>
       <div style={{textAlign:"center", marginBottom: 36}}>
-        <div className="rv eyebrow" style={{marginBottom:18}}><Icon.Sparkle size={12}/> Powered by IA · seus dados nunca saem do navegador</div>
+        <div className="rv eyebrow" style={{marginBottom:18}}><Icon.Sparkle size={12}/> Powered by IA · seu arquivo é processado no navegador</div>
         <h1 className="rv h-section" style={{margin:"0 0 12px", fontSize: 44}}>Envie seus dados e a IA monta o <span style={{color:"var(--brand)"}}>dashboard</span>.</h1>
         <p className="rv lede" style={{margin:"0 auto", maxWidth: 580}}>Escolha uma fonte abaixo. Em segundos você tem KPIs, gráficos e análises prontas.</p>
       </div>
 
       {/* Tabs */}
       <div className="rv" style={{display:"flex", justifyContent:"center", marginBottom: 18}}>
-        <div className="seg" style={{padding:4, borderRadius:12, background:"white", border:"1px solid var(--line)"}}>
+        <div className="seg" style={{padding:4, borderRadius:12, background:"white", border:"1px solid var(--line)", flexWrap:"wrap", justifyContent:"center"}}>
           {[
             {k:"file", i:<Icon.Upload size={14}/>, n:"Enviar arquivo"},
             {k:"paste", i:<Icon.Doc size={14}/>, n:"Colar dados"},
@@ -613,7 +715,7 @@ function UploadView({ onUploaded }){
           <Icon.Bolt size={14}/> <span>{parseError}</span>
         </div>
       )}
-      <div style={{display:"grid", gridTemplateColumns: "1.2fr 1fr", gap: 20}}>
+      <div className="resp-collapse" style={{display:"grid", gridTemplateColumns: "1.2fr 1fr", gap: 20}}>
         {/* Left: input area */}
         <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column"}}>
           {tab === "file" && (
@@ -672,7 +774,12 @@ function UploadView({ onUploaded }){
               />
               <button className="btn btn-primary" style={{marginTop:14, justifyContent:"center"}}
                 disabled={!pasteText.trim()}
-                onClick={()=>runProcessing({name:"colado.csv", text: pasteText})}>
+                onClick={()=>{
+                  // Mesmo texto, porta certa: JSON colado ia para o parser de CSV
+                  // e virava uma coluna "[".
+                  const t = pasteText.trim();
+                  runProcessing({ name: (t[0] === "[" || t[0] === "{") ? "colado.json" : "colado.csv", text: pasteText });
+                }}>
                 <Icon.Sparkle size={14}/> Analisar dados colados
               </button>
             </div>
@@ -780,7 +887,7 @@ function UploadView({ onUploaded }){
       </div>
 
       {/* Requirements + trust */}
-      <div className="rv" style={{marginTop: 20, display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:20}}>
+      <div className="rv resp-collapse" style={{marginTop: 20, display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:20}}>
         <div className="card" style={{padding:22}}>
           <div style={{display:"flex", alignItems:"center", gap:10, marginBottom: 14}}>
             <span style={{width:32, height:32, borderRadius:8, background:"var(--brand-soft)", color:"var(--brand-2)", display:"flex", alignItems:"center", justifyContent:"center"}}>
@@ -791,7 +898,7 @@ function UploadView({ onUploaded }){
               <div style={{fontSize:12, color:"var(--muted)"}}>Quanto mais limpo o arquivo, melhor a análise.</div>
             </div>
           </div>
-          <ul style={{listStyle:"none", padding:0, margin:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+          <ul className="resp-collapse" style={{listStyle:"none", padding:0, margin:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
             {[
               {t:"Cabeçalho na primeira linha", d:"Use nomes claros: data, produto, valor."},
               {t:"Uma observação por linha", d:"Evite linhas mescladas ou totais no meio."},
@@ -817,12 +924,12 @@ function UploadView({ onUploaded }){
             </span>
             <div>
               <div style={{fontWeight:700, fontSize:15}}>Privado por padrão</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Nada é enviado sem seu consentimento.</div>
+              <div style={{fontSize:12, color:"var(--muted)"}}>Nada é enviado sem você pedir.</div>
             </div>
           </div>
           <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:13, color:"var(--ink-2)"}}>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Processamento 100% no navegador.</div>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Apenas metadados (nomes de colunas) vão para a IA — opcional.</div>
+            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> O arquivo é lido e processado no seu navegador.</div>
+            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> A análise da IA (planos pagos) só roda quando você clica: envia nomes de colunas, indicadores e até 20 linhas.</div>
             <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Conformidade com LGPD. Você apaga o arquivo quando quiser.</div>
           </div>
         </div>
@@ -1183,7 +1290,10 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
   // "M"/"k" from the source value so pre-scaled labels like "R$ 1,1M" keep
   // their suffix in the display.
   let display;
-  if(format === "brl"){
+  // Valor textual ("Segunda", "SP") não tem o que animar: mostra como veio.
+  if(typeof value === "string" && !/\d/.test(value)){
+    display = value;
+  } else if(format === "brl"){
     const abs = Math.abs(v);
     if(abs >= 1e6)      display = "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
     else if(abs >= 1e3) display = "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
@@ -1246,7 +1356,7 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
       </div>
       <div style={{display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap"}}>
         {editing ? (
-          <input value={value} onChange={e=>set({value:e.target.value})} style={{
+          <input value={typeof value === "number" ? String(Math.round(value*100)/100) : value} onChange={e=>set({value:e.target.value})} style={{
             padding:"2px 6px", border:"1px dashed var(--line)", borderRadius:6,
             fontSize:24, fontWeight:800, letterSpacing:"-.02em", outline:"none", background:"transparent",
             fontFamily:"inherit", width:"min(140px, 100%)"
@@ -1483,7 +1593,11 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
  * executive summary + insight cards + numbered recommendations. The Edge
  * Function may return list items as plain strings OR objects, so we normalize
  * both — never assume a shape that could render `undefined` into the tree. */
-function AINarrative({ tweaks, live }){
+// Cache da sessão: narrativa por base (chave = arquivo + forma das colunas).
+// Sobrevive a remontagens do Dashboard (ir à Conta e voltar não gasta cota).
+const _dashNarrativeCache = new Map();
+
+function AINarrative({ tweaks, live, limits }){
   const accent = tweaks.accent;
   const data = (live && live.data) || null;
   const loading = !!(live && live.loading);
@@ -1523,7 +1637,7 @@ function AINarrative({ tweaks, live }){
       </div>
       <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
         onClick={reload} title="Gerar uma nova análise com a IA">
-        <Icon.Refresh size={12}/> {loading ? "Gerando…" : "Recarregar análise"}
+        <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
       </button>
     </div>
   );
@@ -1598,13 +1712,21 @@ function AINarrative({ tweaks, live }){
     );
   }
 
-  // No data yet (not loading, not error) — defensive idle state.
+  // Idle — nada é enviado até o clique. O aviso diz exatamente o que sai do
+  // navegador (dashFetchNarrative: colunas, KPIs e até 20 linhas) e o custo.
   if(!data){
+    const used = limits && limits.aiUsed != null ? limits.aiUsed : null;
+    const cap = limits && limits.aiMonthly ? limits.aiMonthly : null;
     return (
       <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
         {Header}
-        <div style={{padding:18, textAlign:"center", color:"var(--muted)", fontSize:13, border:"1px dashed var(--line-2)", borderRadius:12}}>
-          Clique em “Recarregar análise” para gerar os insights da IA a partir dos seus dados.
+        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
+            <div style={{fontWeight:700, marginBottom:4}}>Gere um resumo executivo com a IA</div>
+            Ao gerar, enviamos ao Google Gemini os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas desta base. O restante do arquivo continua só no seu navegador.
+            {cap != null && <div style={{fontSize:12, color:"var(--muted)", marginTop:6}}>Usa 1 análise da sua cota mensal{used != null ? ` (${used} de ${cap} usadas)` : ""}.</div>}
+          </div>
+          <button className="btn btn-primary" onClick={reload}><Icon.Sparkle size={13}/> Gerar análise</button>
         </div>
       </div>
     );
@@ -1892,16 +2014,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const dataset = React.useMemo(()=> (fileInfo && fileInfo.data) || [], [fileInfo]);
   const baseSchema = React.useMemo(()=> (fileInfo && fileInfo.schema) || [], [fileInfo]);
   const dataCols = React.useMemo(()=> dashResolveColumns(baseSchema), [baseSchema]);
-  const hasRealData = dataset.length > 0 && !!dataCols.value;
+  // isUpload: o usuário trouxe dados (upload ou demonstração). Daqui pra baixo,
+  // com isUpload os arrays de exemplo NUNCA entram — bloco sem dado real some.
+  // hasRealData exige também uma coluna de valor (alimenta realAgg).
+  const isUpload = dataset.length > 0;
+  const hasRealData = isUpload && !!dataCols.value;
+  // Filtra sempre que houver dados — antes, base sem coluna numérica virava []
+  // e o pipeline de descoberta rodava sobre zero linhas.
   const filteredData = React.useMemo(()=>{
-    if(!hasRealData) return [];
+    if(!isUpload) return [];
     return (periodMeta.days != null && dataCols.date)
       ? dashFilterByPeriod(dataset, dataCols.date, periodMeta.days)
       : dataset;
-  }, [dataset, dataCols.date, dataCols.value, periodMeta.days, hasRealData]);
+  }, [dataset, dataCols.date, periodMeta.days, isUpload]);
 
-  const totalRows = (fileInfo && fileInfo.rows) || (hasRealData ? dataset.length : 120);
-  const rowsForPeriod = hasRealData
+  const totalRows = (fileInfo && fileInfo.rows) || (isUpload ? dataset.length : 120);
+  const rowsForPeriod = isUpload
     ? filteredData.length
     : Math.max(8, Math.round(totalRows * periodMeta.rowsPct));
 
@@ -1923,7 +2051,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const hasDatetimeProfile = profiles.some(p => p.pattern === "datetime");
   // Descoberta leads only when generated AND not a sales shape; sales data keeps
   // its tailored presets so the sample CSV stays byte-for-byte the same.
-  const dataDrivenMode = useGenerated && !salesShape;
+  // Base sem coluna de valor não alimenta os presets de vendas: se a descoberta
+  // gerou algo, ela lidera mesmo abaixo do limiar de confiança.
+  const dataDrivenMode = (useGenerated && !salesShape) ||
+    (isUpload && !hasRealData && !!(generated && (generated.kpis.length || generated.charts.length)));
 
   // ── AI narrative (Gemini Edge Function) ─────────────────────────────────
   // The real narrative replaces the mock "Análises da IA" for Pro users with a
@@ -1938,12 +2069,23 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const narrativeKeyRef = React.useRef(null); // profile shape of the cached result
   const narrativeReqRef = React.useRef(0);    // guards against stale responses
   const narrativeKey = React.useMemo(()=>{
-    if(!hasRealData || !profiles.length) return null;
+    if(!isUpload || !profiles.length) return null;
     return ((fileInfo && fileInfo.name) || "dados") + "::" + profiles.map(p => p.name + ":" + p.pattern).join("|");
-  }, [hasRealData, profiles, fileInfo]);
+  }, [isUpload, profiles, fileInfo]);
+
+  // A IA só roda com clique explícito (CLAUDE.md §8/§14: nada de dados crus
+  // para a IA sem opt-in) — antes ela disparava sozinha ao abrir o dashboard,
+  // a cada remontagem e de novo se o período mudasse com a 1ª chamada em voo,
+  // gastando cota. O resultado fica no cache da sessão por base de dados.
+  React.useEffect(()=>{
+    if(narrativeKey && _dashNarrativeCache.has(narrativeKey)){
+      narrativeKeyRef.current = narrativeKey;
+      setNarrative(_dashNarrativeCache.get(narrativeKey));
+    }
+  }, [narrativeKey]);
 
   const loadNarrative = React.useCallback((force)=>{
-    if(!narrativeKey) return;
+    if(!narrativeKey || narrativeLoading) return;
     if(!force && narrativeKeyRef.current === narrativeKey) return; // same data → keep cache
     const reqId = ++narrativeReqRef.current;
     setNarrativeLoading(true); setNarrativeError(false); setNarrativeQuota(null);
@@ -1960,22 +2102,23 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           setNarrativeError(false); setNarrativeLoading(false);
           return;
         }
+        if(result && result.planRequired){ setNarrativeError(true); setNarrativeLoading(false); return; }
         const ok = result && (result.narrative || result.rawText ||
           (Array.isArray(result.insights) && result.insights.length) ||
           (Array.isArray(result.recommendations) && result.recommendations.length));
-        if(ok){ narrativeKeyRef.current = narrativeKey; setNarrative(result); setNarrativeError(false); }
+        if(ok){
+          narrativeKeyRef.current = narrativeKey;
+          _dashNarrativeCache.set(narrativeKey, result);
+          setNarrative(result); setNarrativeError(false);
+          window.DashAPI.me().catch(()=>{}); // atualiza o contador de uso (limits.aiUsed)
+        }
         else { setNarrativeError(true); }
         setNarrativeLoading(false);
       })
       .catch(()=>{ // dashFetchNarrative already swallows errors, but stay defensive
         if(reqId === narrativeReqRef.current){ setNarrativeError(true); setNarrativeLoading(false); }
       });
-  }, [narrativeKey, profiles, dataset, generated, fileInfo]);
-
-  React.useEffect(()=>{
-    if(isFree || !narrativeKey) return; // Pro-only; free path renders the paywall
-    loadNarrative(false);
-  }, [narrativeKey, isFree, loadNarrative]);
+  }, [narrativeKey, narrativeLoading, profiles, dataset, generated, fileInfo]);
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -2087,49 +2230,52 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     return { l: day+"/jul", v: 12 + Math.sin(i/5)*6 + i*0.6 + (i>60? (i-60)*0.8 : 0) };
   });
   const sliceDays = periodMeta.days != null ? periodMeta.days : fullTendency.length;
+  // `mock(x)`: exemplo só no caminho sem upload (Tweaks/dev).
+  const mock = (x)=> isUpload ? [] : x;
   const tendency = realAgg && realAgg.tendency.length
     ? realAgg.tendency
-    : fullTendency.slice(-Math.min(fullTendency.length, sliceDays));
+    : mock(fullTendency.slice(-Math.min(fullTendency.length, sliceDays)));
   const categoria = realAgg && realAgg.produto.length
     ? realAgg.produto.slice(0,6).map(p => ({
         l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
         v: p.v,
       }))
-    : [
+    : mock([
         {l:"Mesa Ajust.", v:328},{l:"Notebook", v:276},{l:"Cad. Gamer", v:84},
         {l:"Fone BT", v:62},{l:"Mouse", v:42},{l:"Headset", v:36},
-      ];
+      ]);
   const regiao = realAgg && realAgg.regiao.length
     ? realAgg.regiao.map(r => ({ l: String(r.l), v: r.v }))
-    : [{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}];
+    : mock([{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}]);
   const canal = realAgg && realAgg.canal.length
     ? realAgg.canal
-    : [{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}];
+    : mock([{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}]);
   const rankProduto = realAgg && realAgg.ranking.length
     ? realAgg.ranking
-    : [
+    : mock([
         { n:"Mesa Ajustável", c:"Móveis", r:"CO", v:96400, pct:74},
         { n:"Notebook Pro 14", c:"Eletrônicos", r:"SE", v:82100, pct:62},
         { n:"Cadeira Gamer", c:"Móveis", r:"NE", v:41500, pct:31},
         { n:"Fone Bluetooth", c:"Eletrônicos", r:"SUL", v:24800, pct:19},
         { n:"Mouse Sem Fio", c:"Eletrônicos", r:"CO", v:18200, pct:14},
-      ];
+      ]);
 
   // KPI props for the overview preset. realAgg drives them; mocks remain for
   // the no-upload demo path.
   const fmtDelta = (n)=> Math.abs(n).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "%";
+  // KPI com props null é removido do preset (ver cleanBlocks).
   const k1Props = realAgg
     ? { label:"Valor total", value: realAgg.totalAll, format:"brl", delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
-    : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
+    : isUpload ? null : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
   const k2Props = realAgg
     ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
-    : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
+    : isUpload ? null : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
   const k3Props = realAgg
     ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + (dataCols.order ? " pedidos no período" : " registros no período"), data: realAgg.sparkSeries, color:"#0a8a4a" }
-    : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
+    : isUpload ? null : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
   const k4Props = (realAgg && realAgg.convAvg != null)
     ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
-    : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
+    : isUpload ? null : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
 
   // ── Per-view aggregated data ───────────────────────────────────────────
   // tendencyMensal/dowVolume/vendedores come from realAgg when an upload is
@@ -2138,29 +2284,42 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // has a categoria column) to avoid showing fake "Móveis/Eletrônicos" labels.
   const tendencyMensal = realAgg && realAgg.monthly.length
     ? realAgg.monthly
-    : ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
+    : mock(["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8})));
   const dowVolume = realAgg && realAgg.dow.length
     ? realAgg.dow
-    : ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]}));
+    : mock(["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]})));
   const vendedores = realAgg && realAgg.vendedores.length
     ? realAgg.vendedores.slice(0, 6).map(s => ({ l: String(s.l), v: s.v }))
-    : [
+    : mock([
         {l:"Ana P.", v:142},{l:"Bruno S.", v:128},{l:"Carla L.", v:104},
         {l:"Diego R.", v:96},{l:"Eva M.", v:78},{l:"Felipe T.", v:62},
-      ];
+      ]);
   const categoriaMix = realAgg && realAgg.produto.length
     ? realAgg.produto.slice(0, 5).map(p => ({
         l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
         v: p.v,
       }))
-    : [{l:"Móveis", v:54},{l:"Eletrônicos", v:32},{l:"Acessórios", v:14}];
+    : mock([{l:"Móveis", v:54},{l:"Eletrônicos", v:32},{l:"Acessórios", v:14}]);
+  // Mix por categoria real (coluna de categoria), usado no Avançado com upload.
+  const categoriaReal = realAgg && dataCols.category
+    ? dashGroupSum(filteredData, dataCols.category, dataCols.value).sort((a,b)=>b.v-a.v).slice(0, 6).map(c => ({ l: String(c.l), v: c.v }))
+    : [];
+  // Pico semanal real: dia com maior soma e quanto fica acima da média diária.
+  const dowPeak = (realAgg && realAgg.dow.length) ? (()=>{
+    const tot = realAgg.dow.reduce((s, d)=> s + d.v, 0);
+    if(!tot) return null;
+    const top = realAgg.dow.reduce((a, b)=> b.v > a.v ? b : a);
+    const over = (top.v / (tot / 7) - 1) * 100;
+    const nomes = { Seg:"Segunda", Ter:"Terça", Qua:"Quarta", Qui:"Quinta", Sex:"Sexta", "Sáb":"Sábado", Dom:"Domingo" };
+    return { label:"Pico semanal", value: nomes[top.l] || top.l, delta: fmtDelta(over), deltaDir:"up", sub:"acima da média diária", data: realAgg.dow.map(d => d.v), color:"#ff7849" };
+  })() : null;
   const cohort = Array.from({length:8}, (_,i)=>({l:`s${i+1}`, v: 100 - i*8 - Math.sin(i)*4}));
 
   // ── Per-view KPI props ─────────────────────────────────────────────────
   // Each preset (region / product / channel) gets four data-driven KPIs.
   // Mock fallbacks preserved for the Tweaks-only entry path.
   const regionPalette = [tweaks.accent, "#7a5cff", "#0a8a4a", "#ff7849"];
-  const regionKpis = realAgg ? [
+  const regionKpis = !realAgg && isUpload ? [] : realAgg ? [
     ...[0,1,2].map(i => {
       const r = realAgg.regiao[i];
       const subs = ["líder de receita","vice-líder","3º lugar"];
@@ -2176,7 +2335,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     { label:"Cobertura geográfica", value:96, suffix:"%", delta:"2pp", deltaDir:"up", sub:"5 regiões ativas", data:[80,82,86,88,90,92,94,96], color:"#ff7849" },
   ];
 
-  const productKpis = realAgg ? (()=>{
+  const productKpis = !realAgg && isUpload ? [] : realAgg ? (()=>{
     const total = realAgg.totalAll || 1;
     const prods = realAgg.produto;
     const top = prods[0];
@@ -2198,7 +2357,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   ];
 
   const channelPalette = [tweaks.accent, "#0a8a4a", "#7a5cff", "#c9234a"];
-  const channelKpis = realAgg ? [0,1,2,3].map(i => {
+  const channelKpis = !realAgg && isUpload ? [] : realAgg ? [0,1,2,3].map(i => {
     const c = realAgg.canalRaw[i];
     return c
       ? { label: String(c.l), value: c.v, format:"brl", delta:"—", deltaDir:"up", sub: i===0?"canal líder":(i===3?"em atenção":"em volume"), data: realAgg.sparkSeries, color: channelPalette[i] }
@@ -2269,8 +2428,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     },
     advanced: {
       name: "Avançado", icon: <Icon.Sparkle size={13}/>, badge: "Pro",
-      desc: "Cohorts, sazonalidade, vendedores e detecção de outliers.",
-      blocks: [
+      desc: isUpload ? "Sazonalidade semanal, vendedores e mix por categoria." : "Cohorts, sazonalidade, vendedores e detecção de outliers.",
+      // Com upload, só o que dá para calcular dos dados. Retenção, anomalias,
+      // correlação e cohort eram números fixos exibidos como se fossem da base.
+      blocks: isUpload ? (()=>{
+        const charts = [
+          { id:"v4-c2", kind:"chart", props:{ title:"Vendas por dia da semana", sub:"Detecção de sazonalidade", type:"bar", dim:"data", agg:"sum", color: "#ff7849", height: 260, data: dowVolume }},
+          { id:"v4-c3", kind:"chart", props:{ title:"Top vendedores", sub:"Soma por vendedor", type:"bar", dim:"vendedor", agg:"sum", color: tweaks.accent, height: 260, data: vendedores }},
+          { id:"v4-c4", kind:"chart", props:{ title:"Mix por categoria", sub:"Participação no valor total", type:"donut", dim:"categoria", agg:"sum", color: "#7a5cff", height: 260, data: categoriaReal }},
+        ].filter(c => c.props.data.length);
+        const span = charts.length === 1 ? 12 : charts.length === 2 ? 6 : 4;
+        return [
+          { id:"v4-k4", kind:"kpi", span:3, props: dowPeak },
+          ...charts.map(c => ({ ...c, span })),
+          { id:"v4-insights", kind:"insights", span:12 },
+        ];
+      })() : [
         { id:"v4-k1", kind:"kpi", span:3, props:{ label:"Retenção média", value:62, suffix:"%", delta:"4pp", deltaDir:"up", sub:"cohort 8 semanas", data:[100,92,84,78,72,68,65,62], color:tweaks.accent }},
         { id:"v4-k2", kind:"kpi", span:3, props:{ label:"Anomalias detectadas", value:7, delta:"2", deltaDir:"up", sub:"pedidos > p99", data:[1,2,2,3,4,5,6,7], color:"#c9234a" }},
         { id:"v4-k3", kind:"kpi", span:3, props:{ label:"Correlação desconto×ticket", value:-0.48, delta:"0,1", deltaDir:"down", sub:"associação inversa", data:[-0.2,-0.3,-0.35,-0.4,-0.42,-0.45,-0.47,-0.48], color:"#7a5cff" }},
@@ -2283,6 +2456,16 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       ],
     },
   };
+    // Com upload: remove blocos sem dado real, presets cuja coluna não existe e
+    // fecha os buracos do grid (KPIs dividem a linha; gráfico sozinho estica).
+    if(isUpload){
+      const has = { region: dataCols.region, product: dataCols.product, channel: dataCols.channel, advanced: dataCols.date };
+      Object.keys(all).forEach(k => {
+        if(k !== "overview" && (!realAgg || (k in has && !has[k]))){ delete all[k]; return; }
+        all[k] = { ...all[k], blocks: dashFitBlocks(all[k].blocks) };
+        if(k !== "overview" && !all[k].blocks.some(b => b.kind !== "insights")) delete all[k];
+      });
+    }
     // Data-driven mode: only "Descoberta" (+ "Avançado" when a date column
     // exists, so seasonality still makes sense). Otherwise the full sales suite.
     if(dataDrivenMode && generated){
@@ -2296,12 +2479,12 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         ],
       };
       const out = { discovery: discovery };
-      if(hasDatetimeProfile) out.advanced = all.advanced;
+      if(hasDatetimeProfile && all.advanced) out.advanced = all.advanced;
       return out;
     }
     return all;
   };
-  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile]);
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile, isUpload]);
   const defaultViewKey = dataDrivenMode ? "discovery" : "overview";
   const [viewKey, setViewKey] = React.useState(defaultViewKey);
 
@@ -2462,7 +2645,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                 </div>
                 <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
                 <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:16}}>
-                  Resumo executivo, insights e recomendações gerados por IA a partir dos seus dados estão disponíveis no plano Pro.
+                  Resumo executivo, insights e recomendações gerados por IA a partir dos seus dados estão disponíveis nos planos pagos, a partir do Essencial.
                 </div>
                 <div style={{display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap"}}>
                   <button className="btn btn-primary" onClick={()=>setPaywallReason("insights")}><Icon.Crown size={14}/> Desbloquear análise por IA</button>
@@ -2486,8 +2669,8 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       }
       // Pro: real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
-      const inner = hasRealData
-        ? <AINarrative tweaks={tweaks} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
+      const inner = isUpload
+        ? <AINarrative tweaks={tweaks} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2501,6 +2684,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       </BlockShell>;
     }
     if(b.kind === "cta"){
+      if(tweaks.plan === "pro") return null;
       return <BlockShell editing={editing} kind="Banner / CTA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
         <div style={{padding:"18px 22px", borderRadius:16, background:"linear-gradient(90deg, #f5f8ff, white)", border:"1px solid var(--line)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:24, flexWrap:"wrap"}}>
           <div style={{display:"flex", alignItems:"center", gap:14}}>
@@ -2508,11 +2692,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               <Icon.Crown size={18}/>
             </div>
             <div>
-              <div style={{fontWeight:700, fontSize:15}}>Compartilhe em domínio próprio e agende exportações</div>
-              <div style={{fontSize:13, color:"var(--muted)"}}>Ative o Pro · 7 dias grátis</div>
+              <div style={{fontWeight:700, fontSize:15}}>300 análises da IA por mês e bases de até 1 milhão de linhas</div>
+              <div style={{fontSize:13, color:"var(--muted)"}}>Plano Pro · R$ 49,90/mês · cartão ou Pix</div>
             </div>
           </div>
-          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Experimentar Pro <Icon.Arrow size={14}/></button>
+          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Ver planos <Icon.Arrow size={14}/></button>
         </div>
       </BlockShell>;
     }
@@ -2632,7 +2816,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             const showBefore = dragOver?.id === b.id && dragOver.position === "before" && dragId !== b.id;
             const showAfter  = dragOver?.id === b.id && dragOver.position === "after"  && dragId !== b.id;
             return (
-              <div key={b.kind === "kpi" ? `${b.id}::${period}` : b.id} data-block-id={b.id}
+              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id}
                 className={"block-wrap rv"}
                 style={{
                   gridColumn: `span ${b.span}`,
@@ -2686,11 +2870,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
       {/* Floating action toolbar */}
       <div className="fab-bar" style={{transform: `translateX(-50%) translateY(${exportOpen ? 80 : 0}px)`}}>
-        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (requer Pro)" : "Editar layout (E)"}>
+        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (planos pagos)" : "Editar layout (E)"}>
           {isFree ? <><Icon.Lock size={14}/> Editar</> : (editing ? <><Icon.Check size={14}/> Concluir</> : <><Icon.Wand size={14}/> Editar</>)}
         </button>
         <div style={{position:"relative"}}>
-          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (requer Pro)" : "Adicionar (A)"} className={pickerOpen?"active":""}>
+          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (planos pagos)" : "Adicionar (A)"} className={pickerOpen?"active":""}>
             {isFree ? <><Icon.Lock size={14}/> Adicionar</> : <><Icon.Plus size={14}/> Adicionar</>}
           </button>
           {pickerOpen && !isFree && (
@@ -2717,19 +2901,19 @@ function PaywallModal({ reason, onClose, tweaks }){
     return ()=>{ window.removeEventListener("keydown", onKey); document.body.style.overflow=""; };
   }, []);
   const meta = {
-    edit:     { t:"Editar o layout requer Pro", d:"Reorganizar blocos, redimensionar, mudar tipos, dimensões e cores são recursos do plano Pro." },
-    add:      { t:"Adicionar blocos requer Pro", d:"Criar novos KPIs, gráficos, ranking e blocos de insights é exclusivo do Pro." },
-    insights: { t:"Análises da IA são exclusivas do Pro", d:"Resumo executivo, insights, detecção de riscos e recomendações ficam disponíveis no Pro." },
-    advanced: { t:"Dashboards avançados são Pro", d:"Cohort, sazonalidade, vendedores e detecção de outliers fazem parte do plano Pro." },
-  }[reason] || { t:"Recurso Pro", d:"Este recurso requer o plano Pro." };
+    edit:     { t:"Editar o layout é um recurso pago", d:"Reorganizar blocos, redimensionar, mudar tipos, dimensões e cores fica disponível a partir do plano Essencial." },
+    add:      { t:"Adicionar blocos é um recurso pago", d:"Criar novos KPIs, gráficos, ranking e blocos de insights fica disponível a partir do plano Essencial." },
+    insights: { t:"Análises da IA nos planos pagos", d:"Resumo executivo, insights e recomendações gerados por IA ficam disponíveis a partir do plano Essencial." },
+    advanced: { t:"Visão avançada nos planos pagos", d:"Sazonalidade, vendedores e mix por categoria ficam disponíveis a partir do plano Essencial." },
+  }[reason] || { t:"Recurso pago", d:"Este recurso está disponível a partir do plano Essencial." };
 
   const features = [
     { i:<Icon.Wand size={14}/>, n:"Edição completa do layout", d:"drag-and-drop, tamanhos, ordem" },
-    { i:<Icon.Plus size={14}/>, n:"KPIs e gráficos ilimitados", d:"barras, linha, área, donut, tabela" },
-    { i:<Icon.Sparkle size={14}/>, n:"Análises da IA", d:"resumo + insights + recomendações" },
-    { i:<Icon.Download size={14}/>, n:"Exportação avançada", d:"PDF/PNG com layout customizado" },
-    { i:<Icon.Share size={14}/>, n:"Compartilhamento por link", d:"domínio próprio e embed" },
-    { i:<Icon.Refresh size={14}/>, n:"Reanálise sob demanda", d:"refilme a IA quando quiser" },
+    { i:<Icon.Plus size={14}/>, n:"Adicionar KPIs e gráficos", d:"barras, linha, área, donut, tabela" },
+    { i:<Icon.Sparkle size={14}/>, n:"Análises da IA", d:"50/mês no Essencial · 300/mês no Pro" },
+    { i:<Icon.Grid size={14}/>, n:"Visão avançada", d:"sazonalidade, vendedores, categorias" },
+    { i:<Icon.Bars size={14}/>, n:"Bases maiores", d:"100 mil linhas · 1 milhão no Pro" },
+    { i:<Icon.Lock size={14}/>, n:"Cartão ou Pix", d:"sem fidelidade" },
   ];
 
   return (
@@ -2755,7 +2939,7 @@ function PaywallModal({ reason, onClose, tweaks }){
             display:"flex", alignItems:"center", justifyContent:"center"
           }}><Icon.X size={14}/></button>
           <div style={{display:"inline-flex", alignItems:"center", gap:8, padding:"4px 10px", borderRadius:999, background:"rgba(255,255,255,.18)", marginBottom:14, fontSize:11, fontWeight:600}}>
-            <Icon.Crown size={11}/> Plano Pro
+            <Icon.Crown size={11}/> Planos pagos
           </div>
           <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>{meta.t}</h2>
           <p style={{margin:0, fontSize:14, opacity:.9, lineHeight:1.5, maxWidth:420}}>{meta.d}</p>
@@ -2778,21 +2962,21 @@ function PaywallModal({ reason, onClose, tweaks }){
           </div>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:18}}>
             <div>
-              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>Pro</div>
+              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>A partir do Essencial</div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginTop:2}}>
-                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>R$ 29</span>
+                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>R$ 29,90</span>
                 <span style={{fontSize:13, color:"var(--muted)"}}>/mês</span>
               </div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:11, color:"#0a8a4a", fontWeight:700}}>7 dias grátis</div>
+              <div style={{fontSize:11, color:"var(--ink-2)", fontWeight:700}}>Pro: R$ 49,90/mês</div>
               <div style={{fontSize:11, color:"var(--muted)"}}>Cancele a qualquer momento</div>
             </div>
           </div>
           <div style={{display:"flex", gap:8}}>
             <button className="btn btn-primary" style={{flex:1, justifyContent:"center", padding:"14px"}}
               onClick={()=>{ onClose(); window.__dashUpgrade?.(); }}>
-              <Icon.Crown size={14}/> Começar teste grátis
+              <Icon.Crown size={14}/> Ver planos
             </button>
             <button className="btn btn-ghost" style={{padding:"14px 16px"}} onClick={onClose}>Agora não</button>
           </div>

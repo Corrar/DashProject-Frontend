@@ -18,25 +18,53 @@ function smoothPath(points){
   return d;
 }
 
+// Média por balde para no máximo `max` pontos (CLAUDE.md §6: nunca > 200
+// pontos num gráfico inline). O rótulo é o do primeiro ponto do balde.
+function chartDownsample(data, max){
+  if(!Array.isArray(data) || data.length <= max) return data || [];
+  const size = data.length / max, out = [];
+  for(let b = 0; b < max; b++){
+    const from = Math.floor(b*size), to = Math.max(from+1, Math.floor((b+1)*size));
+    const slice = data.slice(from, to);
+    out.push({ ...slice[0], v: slice.reduce((s,d)=> s + d.v, 0) / slice.length });
+  }
+  return out;
+}
+
+function ChartEmpty({ width, height }){
+  return (
+    <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      <text x={width/2} y={height/2} fontSize="12" textAnchor="middle" fill="#8c93a6">Sem dados no período</text>
+    </svg>
+  );
+}
+
 function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, showAxis=true, animate=true, animDelay=0 }){
-  const pad = { l: 36, r: 12, t: 12, b: 22 };
-  const W = width - pad.l - pad.r;
-  const H = height - pad.t - pad.b;
-  const min = Math.min(...data.map(d=>d.v));
-  const max = Math.max(...data.map(d=>d.v));
-  const range = max - min || 1;
-  const points = data.map((d,i) => [
-    pad.l + (i/(data.length-1))*W,
-    pad.t + H - ((d.v - min)/range)*H*0.92 - H*0.04
-  ]);
-  const path = smoothPath(points);
-  const area = `${path} L ${points[points.length-1][0]} ${pad.t+H} L ${points[0][0]} ${pad.t+H} Z`;
+  const series = React.useMemo(()=> chartDownsample(data, 200), [data]);
   const id = React.useMemo(()=> "g"+Math.random().toString(36).slice(2,8), []);
   const pathRef = React.useRef(null);
   const [len, setLen] = React.useState(0);
   React.useEffect(()=>{
     if(pathRef.current){ setLen(pathRef.current.getTotalLength()); }
-  }, [data]);
+  }, [series]);
+  if(!series.length) return <ChartEmpty width={width} height={height}/>;
+  data = series;
+  const pad = { l: 36, r: 12, t: 12, b: 22 };
+  const W = width - pad.l - pad.r;
+  const H = height - pad.t - pad.b;
+  let min = Infinity, max = -Infinity;
+  for(const d of data){ if(d.v < min) min = d.v; if(d.v > max) max = d.v; }
+  const range = max - min || 1;
+  // Um ponto só: centraliza (antes i/(n-1) = 0/0 → NaN e o SVG quebrava).
+  const xAt = (i)=> data.length === 1 ? pad.l + W/2 : pad.l + (i/(data.length-1))*W;
+  const points = data.map((d,i) => [
+    xAt(i),
+    pad.t + H - ((d.v - min)/range)*H*0.92 - H*0.04
+  ]);
+  const path = smoothPath(points);
+  const area = `${path} L ${points[points.length-1][0]} ${pad.t+H} L ${points[0][0]} ${pad.t+H} Z`;
+  // Muitos pontos: sem bolinhas (centenas de círculos com animação escalonada).
+  const showDots = data.length <= 60;
 
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
@@ -57,12 +85,12 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
         );
       })}
       {showAxis && data.map((d,i) => i%Math.ceil(data.length/6)===0 && (
-        <text key={i} x={pad.l + (i/(data.length-1))*W} y={height-6} fontSize="10" textAnchor="middle" fill="#8c93a6" fontFamily="Geist Mono">{d.l}</text>
+        <text key={i} x={xAt(i)} y={height-6} fontSize="10" textAnchor="middle" fill="#8c93a6" fontFamily="Geist Mono">{d.l}</text>
       ))}
       {fill && <path d={area} fill={`url(#${id})`}/>}
       <path ref={pathRef} d={path} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round"
         style={animate && len ? {strokeDasharray: len, strokeDashoffset: len, animation: `dash 1.6s ${animDelay}s cubic-bezier(.2,.7,.2,1) forwards`} : {}}/>
-      {points.map((p,i)=>(
+      {(showDots || points.length === 1) && points.map((p,i)=>(
         <circle key={i} cx={p[0]} cy={p[1]} r="2.6" fill="white" stroke={color} strokeWidth="1.6"
           style={animate ? {opacity:0, animation:`fadein .3s ${animDelay+1.4 + i*0.04}s forwards`} : {}}/>
       ))}
@@ -72,10 +100,11 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
 }
 
 function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, horizontal=false }){
+  if(!data || !data.length) return <ChartEmpty width={width} height={height}/>;
   const pad = { l: 36, r: 12, t: 12, b: 22 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
-  const max = Math.max(...data.map(d=>d.v));
+  const max = Math.max(...data.map(d=>d.v)) || 1;
   const barW = W / data.length * 0.6;
   const gap = W / data.length * 0.4;
   return (
@@ -111,7 +140,11 @@ function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, h
 }
 
 function Donut({ data, size=180, thickness=22, animDelay=0 }){
-  const total = data.reduce((s,d)=>s+d.v,0);
+  // Nome de keyframe por instância: "donut-0" era global, então dois donuts na
+  // mesma página sobrescreviam o tamanho dos arcos um do outro.
+  const uid = React.useMemo(()=> "d"+Math.random().toString(36).slice(2,8), []);
+  data = data || [];
+  const total = data.reduce((s,d)=>s+d.v,0) || 1;
   const r = size/2 - thickness/2;
   const C = 2*Math.PI*r;
   let offset = 0;
@@ -127,12 +160,12 @@ function Donut({ data, size=180, thickness=22, animDelay=0 }){
             transform={`rotate(-90 ${size/2} ${size/2})`}
             style={{
               strokeDasharray: `0 ${C}`,
-              animation: `donut-${i} 1s ${animDelay+i*0.15}s cubic-bezier(.2,.7,.2,1) forwards`
+              animation: `donut-${uid}-${i} 1s ${animDelay+i*0.15}s cubic-bezier(.2,.7,.2,1) forwards`
             }}>
           </circle>
         );
         const styleTag = (
-          <style key={"s"+i}>{`@keyframes donut-${i}{ to{ stroke-dasharray: ${dash} ${C-dash}; } }`}</style>
+          <style key={"s"+i}>{`@keyframes donut-${uid}-${i}{ to{ stroke-dasharray: ${dash} ${C-dash}; } }`}</style>
         );
         offset += dash;
         return <React.Fragment key={"f"+i}>{styleTag}{el}</React.Fragment>;
@@ -142,12 +175,16 @@ function Donut({ data, size=180, thickness=22, animDelay=0 }){
 }
 
 function Sparkline({ data, color="#2f6bff", width=120, height=36, fill=true }){
-  const min = Math.min(...data), max = Math.max(...data);
+  const id = React.useMemo(()=>"sp"+Math.random().toString(36).slice(2,8),[]);
+  // Série diária longa (2 anos ≈ 730 pontos) não cabe em 160px: reduz a 80.
+  const vals = chartDownsample((data || []).map(v => ({ v })), 80).map(d => d.v);
+  if(vals.length < 2) return <svg width={width} height={height}/>;
+  let min = Infinity, max = -Infinity;
+  for(const v of vals){ if(v < min) min = v; if(v > max) max = v; }
   const range = max-min || 1;
-  const pts = data.map((v,i)=>[i/(data.length-1)*width, height - ((v-min)/range)*height*0.85 - height*0.075]);
+  const pts = vals.map((v,i)=>[i/(vals.length-1)*width, height - ((v-min)/range)*height*0.85 - height*0.075]);
   const path = smoothPath(pts);
   const area = `${path} L ${width} ${height} L 0 ${height} Z`;
-  const id = React.useMemo(()=>"sp"+Math.random().toString(36).slice(2,8),[]);
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
       <defs>

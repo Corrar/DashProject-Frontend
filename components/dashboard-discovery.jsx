@@ -30,10 +30,10 @@ function _localNum(v){
   let norm;
   if(hasDot && hasComma){
     norm = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g,"").replace(",",".") : s.replace(/,/g,"");
-  } else if(hasComma){
-    const p = s.split(","); norm = (p.length===2 && p[1].length<=2) ? s.replace(",",".") : s.replace(/,/g,"");
-  } else if(hasDot){
-    const q = s.split("."); norm = (q.length===2 && q[1].length<=2) ? s : s.replace(/\./g,"");
+  } else if(hasComma || hasDot){
+    // Mesma regra do dashParseNumber: só "1.500"/"12,345" (1-3 dígitos ≠ 0 + 3) é milhar.
+    const p = s.split(hasComma ? "," : ".");
+    norm = (p.length > 2 || (/^[1-9]\d{0,2}$/.test(p[0]) && p[1].length === 3)) ? p.join("") : p[0] + "." + p[1];
   } else norm = s;
   const n = parseFloat(norm);
   if(!Number.isFinite(n)) return null;

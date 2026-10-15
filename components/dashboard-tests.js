@@ -66,11 +66,21 @@
   t("'1.234.567' (milhar BR)",          dashParseNumber("1.234.567"), 1234567);
   t("'50%' (percentual)",               dashParseNumber("50%"), 50);
   t("'2025-01-01' (data ISO → null)",   dashParseNumber("2025-01-01"), null);
+  t("'0.048' (taxa 0..1)",              dashParseNumber("0.048"), 0.048);
+  t("'3.14159' (5 decimais)",           dashParseNumber("3.14159"), 3.14159);
+  t("'-23.5505' (coordenada)",          dashParseNumber("-23.5505"), -23.5505);
+  t("'12.5000' (4 decimais)",           dashParseNumber("12.5000"), 12.5);
+  t("'0,048' (decimal BR longo)",       dashParseNumber("0,048"), 0.048);
+  t("'12.3450' (JSON 12.345 canônico)", dashParseNumber("12.3450"), 12.345);
+  t("12.345 (number já parseado)",      dashParseNumber(12.345), 12.345);
 
   console.log("=== dashParseDate ===");
   t("'01/01/2025' válida", dashParseDate("01/01/2025") instanceof Date && !isNaN(dashParseDate("01/01/2025")), true);
   t("'-' inválida",        dashParseDate("-"), null);
   t("'' vazia",            dashParseDate(""), null);
+  t("'3/15/26' (mês 15) → null", dashParseDate("3/15/26"), null);
+  t("'31/02/2026' (não existe) → null", dashParseDate("31/02/2026"), null);
+  t("'2026-03-02' → 2 de março", (function(d){ return d && d.getDate() + "/" + (d.getMonth()+1); })(dashParseDate("2026-03-02")), "2/3");
 
   console.log("=== dashInferSchema ===");
   var dateRows = []; for(var i=0;i<99;i++) dateRows.push(["0"+((i%9)+1)+"/01/2025"]); dateRows.push(["-"]);
