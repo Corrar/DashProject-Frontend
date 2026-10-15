@@ -20,7 +20,7 @@ indicadores, gráficos e análises escritas por IA, prontos para editar.
 | **Descoberta automática** | Analisa as colunas e gera os blocos do painel de acordo com o tipo de dado |
 | **Visões prontas** | Visão geral, por região, por produto, por canal, avançada (Pro) e descoberta, com filtro de 7, 30 ou 90 dias |
 | **Editor** | Arrastar e soltar, redimensionar e adicionar blocos |
-| **Análise com IA** | Texto explicando os dados, gerado no backend (Gemini) e limitado pela cota do plano |
+| **Análise com IA** | Texto explicando os dados, gerado no backend (Gemini) sob demanda, nos planos pagos e limitado pela cota do plano |
 | **Conta** | Cadastro, login, verificação de e-mail e troca de senha |
 | **Assinatura** | Planos pagos por cartão ou Pix (Asaas), com cancelamento pela conta |
 
@@ -29,7 +29,7 @@ indicadores, gráficos e análises escritas por IA, prontos para editar.
 | | Free | Essencial | Pro |
 |---|---|---|---|
 | Preço | R$ 0 | R$ 29,90/mês | R$ 49,90/mês |
-| Análises de IA por mês | 3 | 50 | 300 |
+| Análises de IA por mês | — | 50 | 300 |
 | Linhas por arquivo | 5 mil | 100 mil | 1 milhão |
 | Exportar PDF/PNG | — | ✓ | ✓ |
 | Link de compartilhamento | — | — | ✓ |
