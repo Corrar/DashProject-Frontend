@@ -316,6 +316,10 @@
      .dash-exporting, some tudo que é controle e aparece o que é só do arquivo.
      Os gráficos têm o estado final como estilo base, então desligar as
      animações (inclusive na cópia que o html-to-image faz) mostra tudo. */
+  /* Página pública de link (share-view.jsx): sem controles de edição. */
+  .dash-readonly .icon-btn,
+  .dash-readonly .block-menu-btn{ display: none !important; }
+
   .export-only{ display: none !important; }
   body.dash-exporting .export-only{ display: flex !important; }
   body.dash-exporting.export-no-brand .export-brand{ display: none !important; }
@@ -379,6 +383,7 @@
   <script type="text/babel" src="components/dashboard-discovery.jsx"></script>
   <script type="text/babel" src="components/dashboard.jsx"></script>
   <script type="text/babel" src="components/dashboard-export.jsx"></script>
+  <script type="text/babel" src="components/share-view.jsx"></script>
   <script type="text/babel" src="components/auth-modal.jsx"></script>
   <script type="text/babel" src="components/auth-view.jsx"></script>
   <script type="text/babel" src="components/plans-view.jsx"></script>

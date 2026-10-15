@@ -9,7 +9,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [view, setView] = React.useState("landing"); // landing | upload | prompt | dashboard | auth | plans | account
+  // ?s=<slug> abre a página pública de um dashboard compartilhado (share-view.jsx).
+  const [shareSlug] = React.useState(()=> new URLSearchParams(window.location.search).get("s"));
+  const [view, setView] = React.useState(shareSlug ? "shared" : "landing"); // landing | upload | prompt | dashboard | auth | plans | account | shared
   const [fileInfo, setFileInfo] = React.useState(null);
   // currentUser is hydrated from the backend (DashAPI.me). null while
   // anonymous; populated as { id, email, plan, fullName, emailVerified, limits }
@@ -198,6 +200,12 @@ function App(){
 
   return (
     <>
+      {view==="shared" && <SharedView slug={shareSlug} tweaks={effectiveTweaks}
+        onLeave={()=>{
+          // Sai do link: limpa o ?s= e cai no funil (anônimo → cadastro).
+          history.replaceState(null, "", window.location.pathname + window.location.hash);
+          if(currentUser) setView("landing"); else openAuth("signup");
+        }}/>}
       {view==="landing" && <Landing onOpenApp={openApp} onLoadDemo={loadDemo} tweaks={effectiveTweaks} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="upload" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
@@ -215,7 +223,7 @@ function App(){
       {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
         tweaks={effectiveTweaks}
-        onSuccess={()=> setView(returnView && returnView !== "landing" ? returnView : "upload")}
+        onSuccess={()=> setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload")}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
         onSelectPlan={async (plan, method)=>{

@@ -135,6 +135,19 @@
     // Cancela a assinatura (cartão). O downgrade pra free vem pelo webhook.
     cancel: function () { return json("/billing/cancel", { method: "POST" }); },
 
+    // ── links públicos (Pro) ────────────────────────────────────────────
+    // payload = retrato do dashboard (blocos com valores agregados, sem linhas
+    // do arquivo). 402 = plano sem links públicos · 409 limite_links.
+    createShare: function (title, payload) {
+      return json("/share", { method: "POST", body: JSON.stringify({ title: title, payload: payload }) });
+    },
+    listShares: function () { return json("/share"); },
+    revokeShare: function (slug) {
+      return json("/share/" + encodeURIComponent(slug), { method: "DELETE" });
+    },
+    // Público: abre sem login (404 se desativado ou se o dono saiu do Pro).
+    getShare: function (slug) { return json("/share/" + encodeURIComponent(slug)); },
+
     // ── ferramenta paga (IA) ────────────────────────────────────────────
     // payload: { datasetName, columns:[{name,type?}], sampleRows:[{}], question? }
     // 402 = plano insuficiente · 429 = quota de IA do mês excedida.

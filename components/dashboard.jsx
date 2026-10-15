@@ -1990,8 +1990,12 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const [paywallReason, setPaywallReason] = React.useState(null); // null | "edit" | "add" | "insights" | "advanced"
 
   const isFree = tweaks.plan === "free";   // pago (essencial OU pro) libera a análise
+  const [shareOpen, setShareOpen] = React.useState(false);
+  // Gate central (CLAUDE.md §5). Quase tudo libera a partir do Essencial; o link
+  // público é o único recurso exclusivo do Pro.
   const requirePro = (reason)=>{
-    if(isFree){ setPaywallReason(reason); return true; }
+    const blocked = reason === "share" ? tweaks.plan !== "pro" : isFree;
+    if(blocked){ setPaywallReason(reason); return true; }
     return false;
   };
   // Auto-close editing if downgraded to free
@@ -2890,6 +2894,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           )}
         </div>
         <div className="div"/>
+        <button onClick={()=>{ if(requirePro("share")) return; setEditing(false); setPickerOpen(false); setShareOpen(true); }} title={tweaks.plan === "pro" ? "Compartilhar por link" : "Compartilhar por link (plano Pro)"}>
+          {tweaks.plan === "pro" ? <Icon.Share size={14}/> : <Icon.Lock size={14}/>} Compartilhar
+        </button>
         <button onClick={()=>{ setEditing(false); setPickerOpen(false); setExportOpen(true); }} className="primary" title="Exportar (X)">
           <Icon.Download size={14}/> Exportar
         </button>
@@ -2906,6 +2913,19 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         canRemoveBranding={!!(currentUser && currentUser.limits ? currentUser.limits.removeBranding : tweaks.plan === "pro")}
         hasAI={!isFree && !!narrative}
         onLocked={()=>{ setExportOpen(false); setPaywallReason("export"); }}/>}
+      {shareOpen && <ShareModal onClose={()=>setShareOpen(false)} tweaks={tweaks} hasAI={!!narrative}
+        defaultTitle={((dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas") + (fileInfo && fileInfo.name ? " · " + fileInfo.name : "")).slice(0, 120)}
+        buildSnapshot={({ includeAI, branding })=> dashBuildShareSnapshot({
+          blocks, accent: tweaks.accent, branding,
+          aiSummary: includeAI && narrative ? String(narrative.narrative || narrative.summary || narrative.rawText || "").slice(0, 10000) : null,
+          meta: {
+            title: dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas",
+            fileName: fileInfo && fileInfo.name ? String(fileInfo.name).slice(0, 200) : undefined,
+            period: periodMeta.label,
+            rows: rowsForPeriod,
+            totalRows: totalRows,
+          },
+        })}/>}
       {paywallReason && <PaywallModal reason={paywallReason} onClose={()=>setPaywallReason(null)} tweaks={tweaks}/>}
     </div>
   );
@@ -2924,9 +2944,19 @@ function PaywallModal({ reason, onClose, tweaks }){
     insights: { t:"Análises da IA nos planos pagos", d:"Resumo executivo, insights e recomendações gerados por IA ficam disponíveis a partir do plano Essencial." },
     advanced: { t:"Visão avançada nos planos pagos", d:"Sazonalidade, vendedores e mix por categoria ficam disponíveis a partir do plano Essencial." },
     export:   { t:"Exportar é um recurso pago", d:"Baixe o dashboard em PDF ou PNG a partir do plano Essencial." },
+    share:    { t:"Link público é do plano Pro", d:"Compartilhe o dashboard com quem não tem conta: um link de leitura que você desativa quando quiser." },
   }[reason] || { t:"Recurso pago", d:"Este recurso está disponível a partir do plano Essencial." };
 
-  const features = [
+  // O link público é só do Pro; o resto libera no Essencial.
+  const proOnly = reason === "share";
+  const features = proOnly ? [
+    { i:<Icon.Share size={14}/>, n:"Link público de leitura", d:"sem conta para quem recebe" },
+    { i:<Icon.Lock size={14}/>, n:"Desative quando quiser", d:"links gerenciados por você" },
+    { i:<Icon.Sparkle size={14}/>, n:"300 análises da IA", d:"por mês" },
+    { i:<Icon.Bars size={14}/>, n:"Bases de até 1 milhão", d:"de linhas" },
+    { i:<Icon.Download size={14}/>, n:"Exportar sem a marca", d:"PDF/PNG limpos" },
+    { i:<Icon.Wand size={14}/>, n:"Tudo do Essencial", d:"edição, visão avançada" },
+  ] : [
     { i:<Icon.Wand size={14}/>, n:"Edição completa do layout", d:"drag-and-drop, tamanhos, ordem" },
     { i:<Icon.Plus size={14}/>, n:"Adicionar KPIs e gráficos", d:"barras, linha, área, donut, tabela" },
     { i:<Icon.Sparkle size={14}/>, n:"Análises da IA", d:"50/mês no Essencial · 300/mês no Pro" },
@@ -2958,7 +2988,7 @@ function PaywallModal({ reason, onClose, tweaks }){
             display:"flex", alignItems:"center", justifyContent:"center"
           }}><Icon.X size={14}/></button>
           <div style={{display:"inline-flex", alignItems:"center", gap:8, padding:"4px 10px", borderRadius:999, background:"rgba(255,255,255,.18)", marginBottom:14, fontSize:11, fontWeight:600}}>
-            <Icon.Crown size={11}/> Planos pagos
+            <Icon.Crown size={11}/> {proOnly ? "Plano Pro" : "Planos pagos"}
           </div>
           <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>{meta.t}</h2>
           <p style={{margin:0, fontSize:14, opacity:.9, lineHeight:1.5, maxWidth:420}}>{meta.d}</p>
@@ -2981,14 +3011,14 @@ function PaywallModal({ reason, onClose, tweaks }){
           </div>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:18}}>
             <div>
-              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>A partir do Essencial</div>
+              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>{proOnly ? "Pro" : "A partir do Essencial"}</div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginTop:2}}>
-                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>R$ 29,90</span>
+                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>{proOnly ? "R$ 49,90" : "R$ 29,90"}</span>
                 <span style={{fontSize:13, color:"var(--muted)"}}>/mês</span>
               </div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:11, color:"var(--ink-2)", fontWeight:700}}>Pro: R$ 49,90/mês</div>
+              <div style={{fontSize:11, color:"var(--ink-2)", fontWeight:700}}>{proOnly ? "Cartão ou Pix" : "Pro: R$ 49,90/mês"}</div>
               <div style={{fontSize:11, color:"var(--muted)"}}>Cancele a qualquer momento</div>
             </div>
           </div>
@@ -3220,4 +3250,6 @@ Object.assign(window, {
   dashParseCSV, dashParseNumber, dashParseDate, dashInferSchema, dashRowsToObjects, dashResolveColumns,
   dashFetchNarrative, AINarrative,
   DASH_SAMPLE_CSV,
+  // Reusados pela página pública de link compartilhado (share-view.jsx).
+  KPI, ChartCard, RankingTable,
 });
