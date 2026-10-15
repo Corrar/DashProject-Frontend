@@ -586,6 +586,10 @@ function BillingSection({ tweaks, setTweak, currentUser }){
   const isPaid = tweaks.plan !== "free";              // essencial OU pro = assinatura ativa
   const planName  = isPro ? "Pro" : tweaks.plan === "essencial" ? "Essencial" : "Free";
   const planPrice = isPro ? "49,90" : tweaks.plan === "essencial" ? "29,90" : "0";
+  const billingMethod = currentUser && currentUser.billingMethod;
+  const periodEnd = currentUser && currentUser.currentPeriodEnd ? new Date(currentUser.currentPeriodEnd) : null;
+  const periodEndText = periodEnd && !isNaN(periodEnd) ? periodEnd.toLocaleDateString("pt-BR") : null;
+  const isCard = billingMethod === "card";
   const limits = (currentUser && currentUser.limits) || null;
 
   // Cancela a assinatura no backend (Asaas). O downgrade pra free vem pelo
@@ -656,7 +660,10 @@ function BillingSection({ tweaks, setTweak, currentUser }){
               R$ {planPrice}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>/mês</span>
             </h2>
             <div style={{fontSize:13, opacity: isPaid ? .9 : 1, color: isPaid ? "white" : "var(--muted)"}}>
-              {isPaid ? "Assinatura ativa" : "Sem cobranças · upgrade quando quiser"}
+              {!isPaid ? "Sem cobranças · upgrade quando quiser"
+                : isCard ? "Assinatura no cartão · renovação automática" + (periodEndText ? " por volta de " + periodEndText : "")
+                : billingMethod ? "Pagamento via Pix" + (periodEndText ? " · acesso até " + periodEndText + "; a próxima cobrança chega por e-mail" : "")
+                : "Assinatura ativa"}
             </div>
           </div>
           <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
@@ -665,7 +672,10 @@ function BillingSection({ tweaks, setTweak, currentUser }){
               // planos; "Cancelar" chama DashAPI.cancel() (downgrade vem do webhook).
               <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
                 <button onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()} style={{padding:"10px 14px", background:"rgba(255,255,255,.18)", color:"white", border:0, borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Mudar plano</button>
-                <button onClick={onCancel} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar</button>
+                {/* Pix não tem assinatura para cancelar: basta não pagar a próxima cobrança. */}
+                {billingMethod !== "pix" && billingMethod !== "boleto" && (
+                  <button onClick={onCancel} style={{padding:"10px 14px", background:"transparent", color:"white", border:"1px solid rgba(255,255,255,.3)", borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer"}}>Cancelar</button>
+                )}
               </div>
             ) : (
               <button onClick={()=> window.__dashUpgrade && window.__dashUpgrade()} className="btn btn-primary" style={{padding:"10px 16px"}}>

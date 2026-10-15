@@ -132,6 +132,11 @@
       if (d && d.url) { window.location.href = d.url; }
       return d;
     },
+    // Troca de tier na assinatura do cartão. Upgrade: na hora; downgrade: no
+    // próximo ciclo. Resolve em { ok, plan, effective: 'now'|'next_cycle' }.
+    changePlan: function (plan) {
+      return json("/billing/change-plan", { method: "POST", body: JSON.stringify({ plan: plan }) });
+    },
     // Cancela a assinatura (cartão). O downgrade pra free vem pelo webhook.
     cancel: function () { return json("/billing/cancel", { method: "POST" }); },
 

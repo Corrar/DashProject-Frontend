@@ -45,14 +45,7 @@ function App(){
     try {
       const me = await window.DashAPI.me();
       if(me){
-        setCurrentUser({
-          id: me.id,
-          email: me.email,
-          plan: me.plan || "free",
-          fullName: me.fullName,
-          emailVerified: me.emailVerified,
-          limits: me.limits || null,
-        });
+        setCurrentUser(dashToCurrentUser(me));
       } else {
         setCurrentUser(null);
       }
@@ -77,14 +70,7 @@ function App(){
     loadUserProfile();
     const off = window.DashAPI.onAuthChange((user)=>{
       if(user){
-        setCurrentUser({
-          id: user.id,
-          email: user.email,
-          plan: user.plan || "free",
-          fullName: user.fullName,
-          emailVerified: user.emailVerified,
-          limits: user.limits || null,
-        });
+        setCurrentUser(dashToCurrentUser(user));
         if(user.limits === undefined){ loadUserProfile(); } // busca limits completos, 1x
         // Fecha o auth modal se estava aberto — login acabou de suceder.
         setAuthModal((m)=> m.open ? { ...m, open: false } : m);
@@ -226,6 +212,7 @@ function App(){
         onSuccess={()=> setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload")}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser}
+        onChangePlan={(plan)=> dashChangePlan(plan, currentUser && currentUser.plan)}
         onSelectPlan={async (plan, method)=>{
           // plan: 'essencial'|'pro'  method: 'card'|'pix'
           // Anônimo → cadastro primeiro. O flip de plano acontece no servidor
@@ -280,12 +267,52 @@ function App(){
   );
 }
 
+// Payload do backend (/me, login, signup) → currentUser. billingMethod e
+// currentPeriodEnd só vêm do /me (login/signup não têm).
+function dashToCurrentUser(u){
+  return {
+    id: u.id,
+    email: u.email,
+    plan: u.plan || "free",
+    fullName: u.fullName,
+    emailVerified: u.emailVerified,
+    limits: u.limits || null,
+    billingMethod: u.billingMethod || null,
+    currentPeriodEnd: u.currentPeriodEnd || null,
+  };
+}
+
+// Troca de tier na assinatura do cartão (POST /billing/change-plan).
+async function dashChangePlan(plan, currentPlan){
+  const name = plan === "pro" ? "Pro" : "Essencial";
+  const upgrade = plan === "pro";
+  const ok = window.confirm(upgrade
+    ? "Mudar para o Pro agora? Os recursos do Pro liberam na hora e a próxima cobrança no cartão já vem com R$ 49,90."
+    : "Mudar para o Essencial? Você continua no " + (currentPlan === "pro" ? "Pro" : "plano atual") + " até a próxima cobrança, que já virá com R$ 29,90.");
+  if(!ok) return false;
+  try {
+    const r = await window.DashAPI.changePlan(plan);
+    await window.DashAPI.me().catch(()=>{});
+    window.alert(r && r.effective === "now"
+      ? "Pronto! Seu plano agora é " + name + "."
+      : "Combinado. A mudança para o " + name + " vale a partir da próxima cobrança.");
+    return true;
+  } catch(err){
+    const code = err && err.data && err.data.error;
+    window.alert(code === "sem_assinatura_cartao"
+      ? "Seu plano é pago via Pix. Para trocar, assine o novo plano no Pix."
+      : code === "plano_ja_ativo" ? "Você já está neste plano."
+      : "Não foi possível trocar o plano agora. Tente novamente em instantes.");
+    return false;
+  }
+}
+
 // Mensagens dos erros de POST /billing/checkout (sem isso o clique falhava em
 // silêncio — promessa rejeitada sem catch).
 function checkoutErrorMessage(err){
   const code = err && err.data && err.data.error;
   if(code === "plano_ja_ativo") return "Seu plano atual já inclui este plano.";
-  if(code === "assinatura_ativa") return "Você já tem uma assinatura no cartão. Para trocar de plano, cancele a atual em Conta → Faturamento e assine o novo plano.";
+  if(code === "assinatura_ativa") return "Você já tem uma assinatura no cartão. Use \"Mudar para este plano\" na página de planos.";
   if(err && err.status === 401) return "Sua sessão expirou. Entre novamente para continuar.";
   if(!err || !err.status) return "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.";
   return "Não foi possível abrir o pagamento agora. Tente novamente em instantes.";

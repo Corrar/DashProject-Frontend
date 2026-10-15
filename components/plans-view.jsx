@@ -1,6 +1,6 @@
 /* Plans / pricing view — shown to logged-in users who click "Experimentar Pro". */
 
-function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
+function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose }){
   // Backend só tem cobrança mensal; sem ciclo anual (não inventar preço).
   const planLabel = (k)=> k === "pro" ? "Pro" : k === "essencial" ? "Essencial" : "Free";
   const fmtPrice = (v)=> v === 0 ? "0" : v.toFixed(2).replace(".", ","); // 29.9 → "29,90"
@@ -21,6 +21,14 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
     setBusy(plan + ":" + method);
     const ok = await onSelectPlan(plan, method);
     if(!ok) setBusy(null);
+  };
+  // Assinante no cartão troca de tier na própria assinatura (sem 2º checkout).
+  const cardSubscriber = !!currentUser && currentUser.billingMethod === "card" && tweaks.plan !== "free";
+  const change = async (plan)=>{
+    if(busy) return;
+    setBusy(plan + ":change");
+    await onChangePlan(plan);
+    setBusy(null);
   };
 
   const planList = [
@@ -153,7 +161,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
             const isCurrent = p.k === tweaks.plan; // free | essencial | pro
             // Tier abaixo do atual: o plano já cobre — sem botão de compra (o
             // backend também recusa com 409 plano_ja_ativo).
-            const isIncluded = !isCurrent && PLAN_DATA[p.k].rank < currentRank;
+            const isIncluded = !isCurrent && PLAN_DATA[p.k].rank < currentRank && !(cardSubscriber && p.k !== "free");
             const hl = p.highlight;
             return (
               <div key={p.k} className={hl?"lift":""} style={{
@@ -204,6 +212,18 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
                     style={{width:"100%", justifyContent:"center", padding:"12px", opacity:0.6, cursor:"default"}}>
                     {isCurrent ? "Plano atual" : "Incluído no seu plano"}
                   </button>
+                ) : (cardSubscriber && p.k !== "free") ? (
+                  <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                    <button className={`btn ${hl?"btn-primary":"btn-ghost"}`} style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
+                      disabled={!!busy} onClick={()=> change(p.k)}>
+                      <Icon.Crown size={14}/> {busy === p.k + ":change" ? "Trocando…" : "Mudar para o " + p.name}
+                    </button>
+                    <div style={{textAlign:"center", marginTop:2, fontSize:11, color:"var(--muted)", lineHeight:1.45}}>
+                      {PLAN_DATA[p.k].rank > currentRank
+                        ? "Na mesma assinatura do cartão. Libera na hora; a próxima cobrança já vem no valor novo."
+                        : "Vale a partir da próxima cobrança do cartão."}
+                    </div>
+                  </div>
                 ) : p.k !== "free" ? (
                   <div style={{display:"flex", flexDirection:"column", gap:8}}>
                     <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px", opacity: busy ? 0.7 : 1}}
@@ -321,7 +341,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onClose }){
           </div>
           <div style={{display:"flex", gap:8}}>
             {tweaks.plan !== "pro" && (
-              <button className="btn" style={{background:"white", color:"var(--ink)"}} disabled={!!busy} onClick={()=> pick("pro", "card")}>
+              <button className="btn" style={{background:"white", color:"var(--ink)"}} disabled={!!busy} onClick={()=> cardSubscriber ? change("pro") : pick("pro", "card")}>
                 <Icon.Crown size={14}/> Assinar o Pro no cartão
               </button>
             )}
