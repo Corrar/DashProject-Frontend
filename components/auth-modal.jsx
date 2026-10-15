@@ -19,7 +19,12 @@ function authErrorMessage(err){
   if(code === "credenciais_invalidas") return "E-mail ou senha incorretos.";
   if(code === "senha_fraca")           return "A senha precisa ter ao menos 8 caracteres.";
   if(code === "payload_invalido")      return "Verifique os dados informados.";
-  return (err && err.message) || "Falha de rede.";
+  // Sem err.status = o fetch nem chegou ao servidor (offline, CORS ou o backend
+  // ainda acordando do sleep da Render). err.message aqui seria "Failed to
+  // fetch" ou um código cru do backend — nunca mostrar isso ao usuário.
+  if(!err || !err.status) return "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente em instantes.";
+  if(err.status === 429) return "Muitas tentativas. Aguarde um pouco e tente novamente.";
+  return "Algo deu errado do nosso lado. Tente novamente em instantes.";
 }
 
 function AuthField({ label, htmlFor, children, hint }){

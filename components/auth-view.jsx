@@ -58,18 +58,23 @@ function PasswordStrength({ value }){
   );
 }
 
+// O hint fica FORA do <label>: um <label> rotula o primeiro controle dentro
+// dele, então um botão no hint ("Esqueci minha senha") roubaria o rótulo do
+// input — e clicar em "Senha" dispararia o botão.
 function AuthField({ label, error, hint, children }){
   return (
-    <label style={{display:"block"}}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6}}>
-        <span style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{label}</span>
-        {hint && <span style={{fontSize:11, color:"var(--muted)"}}>{hint}</span>}
-      </div>
-      {children}
-      {error && <div style={{marginTop:6, fontSize:11, color:"#c9234a", display:"flex", alignItems:"center", gap:5}}>
-        <Icon.Bolt size={11}/> {error}
-      </div>}
-    </label>
+    <div style={{position:"relative"}}>
+      <label style={{display:"block"}}>
+        <div style={{display:"flex", alignItems:"center", marginBottom:6, minHeight:16}}>
+          <span style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{label}</span>
+        </div>
+        {children}
+        {error && <div style={{marginTop:6, fontSize:11, color:"#c9234a", display:"flex", alignItems:"center", gap:5}}>
+          <Icon.Bolt size={11}/> {error}
+        </div>}
+      </label>
+      {hint && <span style={{position:"absolute", top:0, right:0, fontSize:11, color:"var(--muted)", lineHeight:"16px"}}>{hint}</span>}
+    </div>
   );
 }
 
@@ -82,6 +87,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
   const [showPw, setShowPw] = React.useState(false);
   const [errors, setErrors] = React.useState({});
   const [apiError, setApiError] = React.useState(null);
+  const [info, setInfo] = React.useState(null);
   const [state, setState] = React.useState("idle"); // idle | submitting | success
 
   const isSignup = mode === "signup";
@@ -90,9 +96,26 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
   // doesn't bleed into the signup form (and vice versa).
   React.useEffect(()=>{
     setApiError(null);
+    setInfo(null);
     setErrors({});
     setState("idle");
   }, [mode]);
+
+  // Recuperação de senha: o backend manda o link ?reset=<token>, tratado no
+  // index.html. Resposta é sempre 200 (não revela se o e-mail existe).
+  const onForgot = async ()=>{
+    setApiError(null); setInfo(null);
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
+      setErrors(x=>({...x, email:"Informe seu e-mail acima para receber o link de redefinição."}));
+      return;
+    }
+    try {
+      await window.DashAPI.requestReset(email.trim());
+      setInfo("Se este e-mail estiver cadastrado, enviamos um link para redefinir a senha.");
+    } catch(err){
+      setApiError(authErrorMessage(err));
+    }
+  };
 
   const validate = ()=>{
     const e = {};
@@ -110,6 +133,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
     ev.preventDefault();
     if(state === "submitting") return;
     setApiError(null);
+    setInfo(null);
     if(!validate()) return;
     setState("submitting");
     try {
@@ -151,7 +175,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
         {/* LEFT — form */}
         <div style={{maxWidth: 460, width:"100%", margin:"0 auto", padding:"40px 0"}}>
           {state === "success" ? (
-            <SuccessCard mode={mode} tweaks={tweaks} name={name} onBack={()=>{ setState("idle"); onMode("login"); }}/>
+            <SuccessCard mode={mode} tweaks={tweaks} name={name} onContinue={()=> onSuccess && onSuccess({ mode: "signup" })}/>
           ) : (
             <>
               <div style={{marginBottom: 28}}>
@@ -172,7 +196,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                 <p style={{margin:0, fontSize:14, color:"var(--muted)", lineHeight:1.55}}>
                   {isSignup
                     ? "Crie sua conta em segundos. Sem cartão. Faça upgrade quando quiser."
-                    : "Acesse seus dashboards salvos e a exportação dos seus arquivos."}
+                    : "Acesse sua conta, seu plano e as análises da IA."}
                 </p>
               </div>
 
@@ -183,6 +207,15 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                   fontSize:13, marginBottom:14, display:"flex", alignItems:"flex-start", gap:8
                 }}>
                   <Icon.Bolt size={14}/> <span>{apiError}</span>
+                </div>
+              )}
+              {info && (
+                <div role="status" style={{
+                  padding:"10px 14px", borderRadius:10, background:"#e7f7ef",
+                  border:"1px solid #bfe8d2", color:"#0a5a30",
+                  fontSize:13, marginBottom:14, display:"flex", alignItems:"flex-start", gap:8
+                }}>
+                  <Icon.Check size={14} stroke={2.6}/> <span>{info}</span>
                 </div>
               )}
 
@@ -215,7 +248,12 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                     style={inputStyle(errors.email)}/>
                 </AuthField>
                 <AuthField label="Senha" error={errors.password}
-                  hint={!isSignup ? <span style={{color:"var(--muted)"}}>Recuperação em breve</span> : null}>
+                  hint={!isSignup ? (
+                    <button type="button" onClick={onForgot} style={{
+                      background:"transparent", border:0, padding:0, cursor:"pointer",
+                      color:"var(--brand)", fontWeight:600, fontSize:11, fontFamily:"inherit"
+                    }}>Esqueci minha senha</button>
+                  ) : null}>
                   <div style={{position:"relative"}}>
                     <input type={showPw?"text":"password"} placeholder={isSignup?"Mínimo 8 caracteres":"••••••••"}
                       value={password}
@@ -247,7 +285,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                     <input type="checkbox" checked={terms} onChange={e=>{ setTerms(e.target.checked); setErrors(x=>({...x, terms:""})); }}
                       style={{accentColor:"var(--brand)", marginTop:2}}/>
                     <span style={{lineHeight:1.5}}>
-                      Concordo com os <a style={{color:"var(--brand)", fontWeight:600}}>Termos</a> e a <a style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>. Meus dados nunca saem do navegador sem meu consentimento.
+                      Concordo com os <a style={{color:"var(--brand)", fontWeight:600}}>Termos</a> e a <a style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>.
                     </span>
                   </label>
                 )}
@@ -273,7 +311,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
               }}>
                 <Icon.Lock size={14} color="#0a8a4a"/>
                 <div style={{fontSize:12, color:"var(--muted)", lineHeight:1.55}}>
-                  Conexão criptografada · Conformidade LGPD. Seus dados de planilha ficam no seu navegador.
+                  Conexão criptografada. Suas planilhas são processadas no navegador — só a análise por IA, quando você a pede, envia uma amostra das linhas.
                 </div>
               </div>
             </>
@@ -340,7 +378,7 @@ function AuthSidePanel({ tweaks, mode }){
           display:"inline-flex", alignItems:"center", gap:7, padding:"4px 10px",
           borderRadius:99, background:"rgba(255,255,255,.18)", fontSize:11, fontWeight:600, marginBottom:18
         }}>
-          <Icon.Crown size={11}/> Pro · R$ 49/mês
+          <Icon.Crown size={11}/> Pro · R$ 49,90/mês
         </div>
         <h2 style={{margin:"0 0 12px", fontSize:32, fontWeight:800, letterSpacing:"-.025em", lineHeight:1.1}}>
           Da planilha ao dashboard.<br/>Sem código.
@@ -424,11 +462,10 @@ function AuthSidePanel({ tweaks, mode }){
   );
 }
 
-// SuccessCard is shown after a successful signup. The user must click the
-// confirmation link in their inbox before they can sign in, so we don't
-// redirect — they read the message and either go check email or switch to
-// the login tab.
-function SuccessCard({ mode, tweaks, name, onBack }){
+// SuccessCard is shown after a successful signup. The backend already returns a
+// session on signup (login doesn't require a verified e-mail), so the CTA
+// continues into the app; the verification link can be clicked later.
+function SuccessCard({ mode, tweaks, name, onContinue }){
   return (
     <div style={{textAlign:"center", padding:"30px 20px"}}>
       <div style={{
@@ -445,11 +482,11 @@ function SuccessCard({ mode, tweaks, name, onBack }){
         Conta criada{name?`, ${name.split(" ")[0]}!`:" com sucesso!"}
       </h2>
       <p style={{margin:"0 0 20px", color:"var(--muted)", fontSize:14, lineHeight:1.55}}>
-        Enviamos um link de confirmação para o seu e-mail. Clique nele para ativar sua conta e fazer login.
+        Enviamos um link de confirmação para o seu e-mail. Você já pode usar o Dash — confirme o e-mail quando puder.
       </p>
-      <button onClick={onBack} className="btn btn-ghost"
+      <button onClick={onContinue} className="btn btn-primary"
         style={{padding:"10px 16px", fontSize:13}}>
-        Já confirmei → Entrar
+        Começar a usar <Icon.Arrow size={13}/>
       </button>
     </div>
   );

@@ -19,14 +19,26 @@
   function emit(user) { listeners.forEach(function (fn) { try { fn(user); } catch (e) {} }); }
 
   // Tenta renovar o access token usando o cookie de refresh. Retorna bool.
-  async function refresh() {
-    try {
-      var res = await fetch(BASE + "/auth/refresh", { method: "POST", credentials: "include" });
-      if (!res.ok) { setToken(null); return false; }
-      var data = await res.json();
-      setToken(data.access_token);
-      return true;
-    } catch (e) { setToken(null); return false; }
+  //
+  // Single-flight: o backend ROTACIONA o refresh e trata reapresentação de um
+  // token já revogado como roubo (revoga todas as sessões do usuário). Duas
+  // chamadas simultâneas com o mesmo cookie — boot do App + ?upgrade=ok, ou
+  // duas requisições que tomam 401 juntas — derrubavam a sessão. Todas as
+  // chamadas concorrentes reaproveitam a mesma promessa.
+  var refreshing = null;
+  function refresh() {
+    if (refreshing) return refreshing;
+    refreshing = (async function () {
+      try {
+        var res = await fetch(BASE + "/auth/refresh", { method: "POST", credentials: "include" });
+        if (!res.ok) { setToken(null); return false; }
+        var data = await res.json();
+        setToken(data.access_token);
+        return true;
+      } catch (e) { setToken(null); return false; }
+      finally { refreshing = null; }
+    })();
+    return refreshing;
   }
 
   // fetch base: anexa Bearer + cookie; em 401 tenta refresh 1x e repete.
@@ -36,7 +48,9 @@
     var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
     if (accessToken) headers["Authorization"] = "Bearer " + accessToken;
     var res = await fetch(BASE + path, Object.assign({}, opts, { headers: headers, credentials: "include" }));
-    if (res.status === 401 && retry && path !== "/auth/refresh") {
+    // Rotas /auth/* (login com senha errada, logout…) respondem 401 por motivo
+    // próprio — não é token expirado, então não gastam um refresh.
+    if (res.status === 401 && retry && path.indexOf("/auth/") !== 0) {
       if (await refresh()) return raw(path, opts, false);
     }
     return res;
