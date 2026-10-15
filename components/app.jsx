@@ -11,7 +11,9 @@ function App(){
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   // ?s=<slug> abre a página pública de um dashboard compartilhado (share-view.jsx).
   const [shareSlug] = React.useState(()=> new URLSearchParams(window.location.search).get("s"));
-  const [view, setView] = React.useState(shareSlug ? "shared" : "landing"); // landing | upload | prompt | dashboard | auth | plans | account | shared
+  // ?reset=<token> (link do e-mail) abre direto a tela de nova senha.
+  const [resetToken, setResetToken] = React.useState(()=> new URLSearchParams(window.location.search).get("reset"));
+  const [view, setView] = React.useState(shareSlug ? "shared" : resetToken ? "auth" : "landing"); // landing | upload | prompt | dashboard | auth | plans | account | shared
   const [fileInfo, setFileInfo] = React.useState(null);
   // currentUser is hydrated from the backend (DashAPI.me). null while
   // anonymous; populated as { id, email, plan, fullName, emailVerified, limits }
@@ -20,7 +22,11 @@ function App(){
   // AuthModal stays as a fallback surface (paywall/inline flows). Primary
   // entry into auth is now the routed AuthView (view==="auth").
   const [authModal, setAuthModal] = React.useState({ open: false, tab: "signin" });
-  const [authMode, setAuthMode] = React.useState("login"); // login | signup — drives AuthView tab
+  const [authMode, setAuthMode] = React.useState(resetToken ? "reset" : "login"); // login | signup | reset — drives AuthView
+  // O token sai da URL na hora (não fica no histórico nem vai para o analytics).
+  React.useEffect(()=>{
+    if(resetToken) history.replaceState(null, "", window.location.pathname + window.location.hash);
+  }, []);
   const [profileOpen, setProfileOpen] = React.useState(false);
   // Navigation memory for the secondary views (auth / plans / account).
   // returnView is the screen the user came from so the back button restores
@@ -265,6 +271,8 @@ function App(){
         onPersist={persistDashboard}/>}
       {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
         tweaks={effectiveTweaks}
+        resetToken={resetToken}
+        onResetDone={()=>{ setResetToken(null); setAuthMode("login"); }}
         onSuccess={()=>{
           window.dashTrack && window.dashTrack(authMode === "signup" ? "cadastro" : "login");
           setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload");
@@ -341,6 +349,8 @@ function dashToCurrentUser(u){
     currentPeriodEnd: u.currentPeriodEnd || null,
     billingCycle: u.billingCycle || null,      // 'monthly' | 'yearly' (null no Free)
     autoRenew: u.autoRenew == null ? null : !!u.autoRenew, // false = cancelou, acesso até currentPeriodEnd
+    createdAt: u.createdAt || null,
+    waitlist: Array.isArray(u.waitlist) ? u.waitlist : [],
   };
 }
 

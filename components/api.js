@@ -41,6 +41,8 @@
     return refreshing;
   }
 
+  var PUBLIC_AUTH = /^\/auth\/(login|signup|logout|refresh|request-reset|reset|verify-email)\b/;
+
   // fetch base: anexa Bearer + cookie; em 401 tenta refresh 1x e repete.
   async function raw(path, opts, retry) {
     opts = opts || {};
@@ -48,9 +50,10 @@
     var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
     if (accessToken) headers["Authorization"] = "Bearer " + accessToken;
     var res = await fetch(BASE + path, Object.assign({}, opts, { headers: headers, credentials: "include" }));
-    // Rotas /auth/* (login com senha errada, logout…) respondem 401 por motivo
-    // próprio — não é token expirado, então não gastam um refresh.
-    if (res.status === 401 && retry && path.indexOf("/auth/") !== 0) {
+    // Rotas públicas de /auth (login com senha errada, logout…) respondem 401
+    // por motivo próprio — não é token expirado, então não gastam um refresh.
+    // /auth/resend-verification exige login e renova normalmente.
+    if (res.status === 401 && retry && !PUBLIC_AUTH.test(path)) {
       if (await refresh()) return raw(path, opts, false);
     }
     return res;
@@ -143,6 +146,32 @@
     // Cancela a assinatura (cartão). A renovação para e o acesso segue até o fim
     // do período pago. Resolve em { ok, accessUntil }.
     cancel: function () { return json("/billing/cancel", { method: "POST" }); },
+
+    // ── conta (perfil, segurança, LGPD) ─────────────────────────────────
+    resendVerification: function () { return json("/auth/resend-verification", { method: "POST" }); },
+    updateProfile: function (fullName) {
+      return json("/me", { method: "PATCH", body: JSON.stringify({ fullName: fullName || null }) });
+    },
+    // Troca a senha e encerra as outras sessões. Resolve em { ok, revoked }.
+    changePassword: function (current, next) {
+      return json("/me/password", { method: "POST", body: JSON.stringify({ current: current, next: next }) });
+    },
+    listSessions: function () { return json("/me/sessions"); },
+    revokeSession: function (id) { return json("/me/sessions/" + encodeURIComponent(id), { method: "DELETE" }); },
+    revokeOtherSessions: function () { return json("/me/sessions/revoke-others", { method: "POST" }); },
+    aiUsage: function () { return json("/me/ai-usage"); },
+    joinWaitlist: function (feature, source) {
+      return json("/me/waitlist", { method: "POST", body: JSON.stringify({ feature: feature, source: source || null }) });
+    },
+    // Tudo o que o servidor guarda da conta (portabilidade, LGPD).
+    exportData: function () { return json("/me/export"); },
+    // Exclui a conta: o backend cancela a assinatura e apaga os dados. Encerra a sessão local.
+    async deleteAccount(password) {
+      var d = await json("/me", { method: "DELETE", body: JSON.stringify({ password: password, confirm: "EXCLUIR" }) });
+      setToken(null); emit(null);
+      return d;
+    },
+    billingHistory: function () { return json("/billing/history"); },
 
     // ── links públicos (Pro) ────────────────────────────────────────────
     // payload = retrato do dashboard (blocos com valores agregados, sem linhas

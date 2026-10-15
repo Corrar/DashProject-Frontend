@@ -510,6 +510,7 @@
   <script type="text/babel" src="components/auth-view.jsx"></script>
   <script type="text/babel" src="components/plans-view.jsx"></script>
   <script type="text/babel" src="components/account-view.jsx"></script>
+  <script type="text/babel" src="components/account-sections.jsx"></script>
   <script type="text/babel" src="components/app.jsx"></script>
 
   <script type="text/babel">
@@ -527,28 +528,18 @@
 
       if (verify) {
         window.DashAPI.verifyEmail(verify)
-          .then(function () { window.alert("E-mail confirmado! Você já pode usar sua conta."); })
+          .then(function () {
+            window.DashAPI.me().catch(function () {}); // atualiza o selo "E-mail confirmado"
+            window.alert("E-mail confirmado! Você já pode usar sua conta.");
+          })
           .catch(function () { window.alert("Não foi possível confirmar o e-mail. O link pode ter expirado."); })
           .finally(clearQuery);
         return;
       }
 
-      if (reset) {
-        // Guarda o token; por ora um prompt valida o fluxo (o ideal depois é
-        // reaproveitar o visual do auth-view numa tela dedicada).
-        window.__resetToken = reset;
-        var nova = window.prompt("Defina sua nova senha (mín. 8 caracteres):");
-        if (nova && nova.length >= 8) {
-          window.DashAPI.resetPassword(reset, nova)
-            .then(function () { window.alert("Senha redefinida! Faça login com a nova senha."); })
-            .catch(function () { window.alert("Não foi possível redefinir a senha. O link pode ter expirado."); })
-            .finally(clearQuery);
-        } else {
-          if (nova !== null) window.alert("Senha muito curta. Tente o link novamente.");
-          clearQuery();
-        }
-        return;
-      }
+      // ?reset=<token> é tratado pelo App: abre a tela "Defina uma nova senha"
+      // (AuthView, modo reset) e tira o token da URL.
+      if (reset) return;
 
       if (upgrade === "ok") {
         window.dashTrack("checkout_concluido");

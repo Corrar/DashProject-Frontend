@@ -78,7 +78,7 @@ function AuthField({ label, error, hint, children }){
   );
 }
 
-function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
+function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onResetDone }){
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -172,7 +172,11 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
       <div className="auth-grid" style={{flex:1, display:"grid", gridTemplateColumns:"1fr 1.05fr", maxWidth:1400, margin:"0 auto", width:"100%", padding:"0 24px 24px", gap:48, alignItems:"center"}}>
         {/* LEFT — form */}
         <div style={{maxWidth: 460, width:"100%", margin:"0 auto", padding:"40px 0"}}>
-          {state === "success" ? (
+          {mode === "reset" ? (
+            <ResetPasswordForm token={resetToken} tweaks={tweaks}
+              onDone={()=> onResetDone ? onResetDone() : onMode("login")}
+              onRestart={()=>{ onResetDone && onResetDone(); onMode("login"); }}/>
+          ) : state === "success" ? (
             <SuccessCard mode={mode} tweaks={tweaks} name={name} onContinue={()=> onSuccess && onSuccess({ mode: "signup" })}/>
           ) : (
             <>
@@ -425,6 +429,72 @@ function AuthSidePanel({ tweaks, mode }){
   );
 }
 
+// Tela do link "Redefinir senha" do e-mail (?reset=<token>): nova senha +
+// confirmação. Antes era um window.prompt no index.html.
+function ResetPasswordForm({ token, tweaks, onDone, onRestart }){
+  const [pw, setPw] = React.useState("");
+  const [pw2, setPw2] = React.useState("");
+  const [show, setShow] = React.useState(false);
+  const [st, setSt] = React.useState("idle"); // idle | saving | done
+  const [err, setErr] = React.useState(null);
+  const short = pw && pw.length < 8;
+  const mismatch = pw2 && pw !== pw2;
+  const submit = async (e)=>{
+    e.preventDefault();
+    if(!token){ setErr("Link inválido. Peça um novo em “Esqueci minha senha”."); return; }
+    if(pw.length < 8 || pw !== pw2 || st === "saving") return;
+    setSt("saving"); setErr(null);
+    try { await window.DashAPI.resetPassword(token, pw); setSt("done"); }
+    catch(e2){ setErr(authErrorMessage(e2)); setSt("idle"); }
+  };
+  if(st === "done"){
+    return (
+      <div style={{textAlign:"center", padding:"30px 20px"}}>
+        <div style={{width:56, height:56, margin:"0 auto 16px", borderRadius:16, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={26} stroke={3}/></div>
+        <h1 style={{margin:"0 0 8px", fontSize:26, fontWeight:800, letterSpacing:"-.02em"}}>Senha redefinida</h1>
+        <p style={{margin:"0 0 20px", fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Por segurança, encerramos as sessões abertas. Entre com a nova senha.</p>
+        <button className="btn btn-primary" style={{justifyContent:"center", width:"100%", padding:"13px"}} onClick={onDone}>Entrar <Icon.Arrow size={14}/></button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div style={{marginBottom: 24}}>
+        <div className="eyebrow" style={{marginBottom:14}}><span className="dot"/> Recuperar acesso</div>
+        <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>Defina uma nova senha.</h1>
+        <p style={{margin:0, fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Use pelo menos 8 caracteres. O link do e-mail vale por 1 hora e funciona uma vez.</p>
+      </div>
+      {err && (
+        <div role="alert" style={{padding:"10px 14px", borderRadius:10, background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a", fontSize:13, marginBottom:14}}>
+          {err} {/expirou|inválido/.test(err) && <button type="button" className="link-btn" onClick={onRestart}>Pedir um novo link</button>}
+        </div>
+      )}
+      <form onSubmit={submit} style={{display:"flex", flexDirection:"column", gap:14}}>
+        <AuthField label="Nova senha" htmlFor="rp-pw">
+          <div style={{position:"relative"}}>
+            <input id="rp-pw" type={show ? "text" : "password"} autoComplete="new-password" placeholder="Mínimo 8 caracteres" value={pw}
+              onChange={e=>setPw(e.target.value)} style={inputStyle(short)}/>
+            <button type="button" onClick={()=>setShow(v=>!v)} aria-label={show ? "Esconder senha" : "Mostrar senha"}
+              style={{position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"transparent", border:0, color:"var(--muted)", cursor:"pointer", padding:4}}>
+              <Icon.Eye size={14}/>
+            </button>
+          </div>
+          {pw && <PasswordStrength value={pw}/>}
+        </AuthField>
+        <AuthField label="Repita a nova senha" htmlFor="rp-pw2">
+          <input id="rp-pw2" type={show ? "text" : "password"} autoComplete="new-password" value={pw2}
+            onChange={e=>setPw2(e.target.value)} style={inputStyle(mismatch)}/>
+          {mismatch && <div style={{fontSize:12, color:"#c9234a", marginTop:4}}>As senhas não são iguais.</div>}
+        </AuthField>
+        <button type="submit" className="btn btn-primary" disabled={pw.length < 8 || pw !== pw2 || st === "saving"}
+          style={{justifyContent:"center", padding:"13px", opacity: (pw.length < 8 || pw !== pw2) ? .6 : 1}}>
+          {st === "saving" ? "Salvando…" : "Salvar nova senha"}
+        </button>
+      </form>
+    </>
+  );
+}
+
 // SuccessCard is shown after a successful signup. The backend already returns a
 // session on signup (login doesn't require a verified e-mail), so the CTA
 // continues into the app; the verification link can be clicked later.
@@ -455,4 +525,4 @@ function SuccessCard({ mode, tweaks, name, onContinue }){
   );
 }
 
-Object.assign(window, { AuthView });
+Object.assign(window, { AuthView, PasswordStrength });

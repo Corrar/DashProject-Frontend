@@ -62,7 +62,8 @@ components/
   auth-modal.jsx           # AuthModal (popover) — fallback para fluxos que preferem modal
   auth-view.jsx            # AuthView (rota auth) — sign-in / sign-up / reset, full-screen
   plans-view.jsx           # PlansView (rota plans) — pricing + comparativo
-  account-view.jsx         # AccountView (rota account) — Conta · Workspace · Faturamento · Histórico · Indique + AccountErrorBoundary
+  account-view.jsx         # AccountView (rota account): shell, Workspace (lista de espera real), Faturamento, Indique + AccountErrorBoundary
+  account-sections.jsx     # seções reais da Conta: perfil, senha, sessões, seus dados (exportar/excluir), faturas (Asaas), histórico de IA
   app.jsx                  # App root: roteamento de views, bootstrap Supabase, tweaks, expõe window.__dash* (ver §19)
 ```
 
@@ -499,16 +500,11 @@ Não criar um terceiro padrão. Se o caso não cabe nesses dois, abra discussão
 
 ---
 
-## 22. Wait-list de Workspace (TODO sprint futuro)
+## 22. Wait-list de Workspace (implementado)
 
-Hoje o botão "Notificar quando estiver disponível" em `WorkspaceComingSoon` só seta `notified=true` em estado local — perde no refresh. Quando o Team plan entrar no roadmap ativo:
+O botão "Notificar quando estiver disponível" em `WorkspaceComingSoon` chama `POST /me/waitlist {feature:'workspace'}` (tabela `waitlist`, PK `user_id+feature`, migration 007). O `/me` devolve `waitlist: string[]`, então o botão já abre como "Te avisaremos!" para quem entrou na lista. Quando o Team shippar, a query `select u.email from waitlist w join users u on u.id = w.user_id where feature = 'workspace'` dá a lista para o e-mail em massa (Resend).
 
-1. Criar tabela `workspace_waitlist (user_id uuid PK references auth.users, created_at timestamptz default now(), source text)` com RLS `auth.uid() = user_id` para insert e leitura própria.
-2. Trocar o `setNotified(true)` por `await supabase.from('workspace_waitlist').insert({ source:'account_view' })`.
-3. Reconciliação no mount: se já existe linha pro user, renderizar o botão como "Te avisaremos!" direto (sem precisar clicar de novo).
-4. Quando a feature shippar, query simples manda email em massa via Resend pra todos os `user_id`s da tabela.
-
-Por enquanto a UI **só promete em sessão**. Não vendamos como "te avisaremos" sem o backend — o copy atual está OK porque é claramente coming-soon, mas qualquer evolução no texto precisa garantir que o backend exista antes (senão é dark pattern).
+Não prometer data nem recurso que ainda não exista no copy dessa tela.
 
 ---
 

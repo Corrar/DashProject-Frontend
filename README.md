@@ -81,7 +81,8 @@ components/
 ├── charts.jsx · icons.jsx     # gráficos em SVG e ícones
 ├── auth-view.jsx · auth-modal.jsx
 ├── plans-view.jsx             # planos e assinatura
-├── account-view.jsx           # conta, faturamento e histórico
+├── account-view.jsx           # conta: navegação, plano e workspace
+├── account-sections.jsx       # perfil, senha, sessões, exportar/excluir dados, faturas e histórico de IA
 └── dashboard-tests.js         # testes do parser (rodar no console do navegador)
 tweaks-panel.jsx               # painel de ajustes visuais para desenvolvimento
 termos.html · privacidade.html # páginas legais (rascunho: preencher dados da empresa)

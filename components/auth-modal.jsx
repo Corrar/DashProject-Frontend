@@ -19,6 +19,10 @@ function authErrorMessage(err){
   if(code === "credenciais_invalidas") return "E-mail ou senha incorretos.";
   if(code === "senha_fraca")           return "A senha precisa ter ao menos 8 caracteres.";
   if(code === "payload_invalido")      return "Verifique os dados informados.";
+  if(code === "token_invalido")        return "Este link expirou ou já foi usado. Peça um novo em \u201cEsqueci minha senha\u201d.";
+  if(code === "senha_atual_incorreta" || code === "senha_incorreta") return "Senha atual incorreta.";
+  if(code === "email_ja_confirmado")   return "Seu e-mail já está confirmado.";
+  if(code === "sessao_encerrada")      return "Sua sessão foi encerrada. Entre de novo.";
   // Sem err.status = o fetch nem chegou ao servidor (offline, CORS ou o backend
   // ainda acordando do sleep da Render). err.message aqui seria "Failed to
   // fetch" ou um código cru do backend — nunca mostrar isso ao usuário.
@@ -281,4 +285,4 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
   );
 }
 
-Object.assign(window, { AuthModal });
+Object.assign(window, { AuthModal, authErrorMessage });
