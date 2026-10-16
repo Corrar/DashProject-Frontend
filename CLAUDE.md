@@ -522,4 +522,44 @@ Lição do bug `9887c25` → `2a1078a`: a `AccountView` inteira foi pra tela bra
 
 ---
 
+## 24. Onde paramos (memória de trabalho — atualizado em 16/10/2026)
+
+Leia esta seção primeiro ao retomar. **§1, §17, §18 e §20 ainda falam de Supabase/Stripe, mas o backend real é próprio**: `DashProject-Backend` (Express 5 + Postgres/Neon + JWT com refresh rotativo + Asaas para cartão e Pix). O README do backend é a referência das rotas.
+
+**Branch**: `claude/jolly-knuth-fafdvw` nos dois repositórios. Nada foi mergeado em `main` e não há PR aberto.
+
+**Feito (sessão de 15–16/10/2026)**
+1. Correções gerais, CSP/headers em `vercel.json`, rascunhos de `termos.html` e `privacidade.html`.
+2. Exportação PDF/PNG real, link público (Pro), troca de plano/ciclo na assinatura do cartão.
+3. Plano anual (R$ 299 / R$ 499 = 10× o mensal), cancelamento mantém o acesso até o fim do período, Free com 1 análise de IA por mês, dashboards salvos no IndexedDB, Vercel Web Analytics (código pronto).
+4. Redesign do fluxo de geração (`dashboard-flow.jsx`): etapas, seleção de métricas que de fato muda o dashboard, foco da IA, gráficos em pixels reais com legenda/tooltip, ranking sem dado inventado. Saíram números, logos e depoimento inventados da landing e do cadastro.
+5. Conta real (`account-sections.jsx` + rotas `/me/*`): perfil, senha, sessões, exportar e excluir conta (LGPD), faturas do Asaas, histórico de IA, lista de espera, tela de nova senha, rate limit e limpeza diária no job.
+
+Últimos commits de código: frontend `3eb215e`, backend `fa6b6d6` (depois só testes e esta memória).
+
+**Pendente — depende do dono (não é código)**
+- Antes de publicar o backend: `npm run migrate` no Neon (migrations **006** e **007**; sem elas `/me` e o login quebram).
+- Vercel → projeto `dash-ja` → **Analytics → Enable** (eventos personalizados só no plano Pro da Vercel).
+- Preencher os colchetes de `termos.html`/`privacidade.html` (razão social, CNPJ, endereço, e-mails), revisar com advogado (inclusive reembolso do anual) e definir `window.__CONTACT_EMAIL` no `index.html`.
+- Resend com domínio verificado (`EMAIL_FROM` no Render), senão os e-mails de confirmação/redefinição não chegam a outras pessoas.
+- Mergear a branch (ou abrir PR) quando quiser publicar.
+
+**Bloqueado aqui ou esperando decisão**
+- Entrar com Google: precisa de credenciais OAuth.
+- Importar do Google Sheets: o proxy deste ambiente bloqueia `docs.google.com`, então o CORS do export não foi validado. Plano: buscar o CSV no navegador e liberar `docs.google.com` e `*.googleusercontent.com` no `connect-src` da CSP.
+- Indique e ganhe: definir a recompensa.
+- Tema escuro: muitas cores fixas em estilo inline; exige passar por todas as telas.
+
+**Débitos conhecidos**
+- 2 falhas antigas em `components/dashboard-tests.js` (ranking da descoberta: "métrica top = sum").
+- `dashboard.jsx` com ~2.600 linhas (> 1.000): extrair `AINarrative`/`Insights` para `dashboard-insights.jsx` e os parsers para `dashboard-parse.jsx`.
+- Ideias: dashboard mobile (< 640px), unificar `AuthModal` com `AuthView`, rodar os testes do backend em CI.
+
+**Testar**
+- Frontend: `tests/e2e/` (ver README lá): `python3 -m http.server 8099` na raiz + `tests/e2e/run-all.sh`.
+- Backend: `scripts/smoke/` (ver README lá) com Postgres local descartável.
+- Plano Pro em banco de teste: `begin; select set_config('app.billing','on',true); update profiles set plan='pro' where id='<uuid>'; commit;` (o trigger de guarda bloqueia a mudança sem o GUC).
+
+---
+
 Mantenha este arquivo atualizado sempre que decisões grandes mudarem.

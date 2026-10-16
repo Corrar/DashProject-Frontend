@@ -12,3 +12,8 @@ Thumbs.db
 # and deleted in commit 5 of the design-v2-integration branch. Kept ignored
 # so a stray copy doesn't sneak back into the repo.
 design-v2/
+
+# Testes e2e: libs baixadas e capturas geradas localmente
+tests/e2e/cdn/
+tests/e2e/shots/
+tests/e2e/files/enorme_150k.csv
