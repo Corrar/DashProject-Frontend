@@ -47,6 +47,7 @@ function dashParseCSV(text){
 
 function dashParseNumber(v){
   if(v == null) return null;
+  if(typeof v === "number") return Number.isFinite(v) ? v : null;
   let s = String(v).trim();
   if(!s) return null;
   // Strip currency symbols, percent and whitespace (incl. nbsp).
@@ -67,16 +68,15 @@ function dashParseNumber(v){
     norm = s.lastIndexOf(",") > s.lastIndexOf(".")
       ? s.replace(/\./g, "").replace(",", ".")   // BR 1.234,56 → 1234.56
       : s.replace(/,/g, "");                       // US 1,234.56 → 1234.56
-  } else if(hasComma){
-    const parts = s.split(",");
-    // One comma + 1-2 trailing digits → decimal (1,5 / 1,50); a 3-digit group
-    // or several groups → thousands (1,500 / 1,234,567 → 1234567).
-    norm = (parts.length === 2 && parts[1].length <= 2) ? s.replace(",", ".") : s.replace(/,/g, "");
-  } else if(hasDot){
-    const parts = s.split(".");
-    // Mirror the comma rule: single dot + 1-2 digits → US decimal (1500.50);
-    // a 3-digit group or several → BR thousands ("R$ 1.500" → 1500, not 1.5).
-    norm = (parts.length === 2 && parts[1].length <= 2) ? s : s.replace(/\./g, "");
+  } else if(hasComma || hasDot){
+    // One separator kind only. Several groups (1.234.567) → thousands. A single
+    // separator is thousands ONLY in the "1.500" / "12,345" shape: 1-3 leading
+    // digits (not 0) + exactly 3 digits. Anything else is a decimal — before,
+    // "0.048" virava 48, "3.14159" virava 314159 e "12.5000" virava 125000.
+    const sep = hasComma ? "," : ".";
+    const parts = s.split(sep);
+    const thousands = parts.length > 2 || (/^[1-9]\d{0,2}$/.test(parts[0]) && parts[1].length === 3);
+    norm = thousands ? parts.join("") : parts[0] + "." + parts[1];
   } else {
     norm = s;
   }
@@ -89,14 +89,38 @@ function dashParseDate(v){
   if(v == null) return null;
   const s = String(v).trim();
   if(!s) return null;
+  // Valida dia/mês: new Date(2026, 14, 3) "transborda" para 2027 em silêncio
+  // (ex.: "3/15/26" no formato americano). Data impossível → null.
+  const mk = (y, mo, d)=>{
+    if(mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(y, mo-1, d);
+    return dt.getMonth() === mo-1 && dt.getDate() === d ? dt : null;
+  };
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  if(m) return mk(Number(m[1]), Number(m[2]), Number(m[3]));
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if(m){
     const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-    return new Date(y, Number(m[2])-1, Number(m[1]));
+    return mk(y, Number(m[2]), Number(m[1]));
   }
   return null;
+}
+
+/* Número do JS (JSON/Excel) → texto que dashParseNumber lê sem ambiguidade.
+ * String(12.345) = "12.345", que no padrão BR é doze mil — um zero à direita
+ * ("12.3450") mantém o valor e tira a ambiguidade. */
+function dashNumberCell(n){
+  if(!Number.isFinite(n)) return "";
+  const s = String(n);
+  return /^-?[1-9]\d{0,2}\.\d{3}$/.test(s) ? s + "0" : s;
+}
+
+/* Texto de arquivo → string. Excel-BR salva "CSV (separado por vírgulas)" em
+ * Windows-1252; ler como UTF-8 transformava "região" em "regi�o" e quebrava a
+ * detecção de colunas. Tenta UTF-8 estrito e cai para Windows-1252. */
+function dashDecodeText(buffer){
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buffer); }
+  catch(e){ return new TextDecoder("windows-1252").decode(buffer); }
 }
 
 function dashInferSchema(header, rawRows){
@@ -156,15 +180,40 @@ function dashEnsureXLSX(){
   return _xlsxLoad;
 }
 
-/* Excel ArrayBuffer → texto CSV (primeira aba). De propósito devolve CSV para
- * reaproveitar dashParseCSV → o xlsx entra no MESMO pipeline de um upload CSV. */
-function dashXlsxToText(arrayBuffer, XLSX){
-  const wb = XLSX.read(arrayBuffer, { type:"array" });
+/* Excel ArrayBuffer → { header, rows } (primeira aba), no MESMO formato do
+ * dashParseCSV. Lê o valor bruto de cada célula em vez do texto formatado
+ * (sheet_to_csv): data vira AAAA-MM-DD (o texto vinha "3/15/26", formato
+ * americano, lido como dia/mês) e número vira texto sem ambiguidade de milhar. */
+function dashXlsxToParsed(arrayBuffer, XLSX){
+  const wb = XLSX.read(arrayBuffer, { type:"array", cellNF:true });
   const sheetName = wb.SheetNames && wb.SheetNames[0];
   if(!sheetName) throw new Error("A planilha está vazia.");
-  const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], { blankrows:false });
-  if(!csv.trim()) throw new Error("A primeira aba não tem dados.");
-  return csv;
+  const ws = wb.Sheets[sheetName];
+  if(!ws || !ws["!ref"]) throw new Error("A primeira aba não tem dados.");
+  const pad = (n)=> String(n).padStart(2, "0");
+  const cellText = (cell)=>{
+    if(!cell || cell.v == null || cell.t === "e") return "";
+    if(cell.t === "n" && cell.z && XLSX.SSF.is_date(cell.z)){
+      const d = XLSX.SSF.parse_date_code(cell.v);
+      if(d) return d.y + "-" + pad(d.m) + "-" + pad(d.d);
+    }
+    if(cell.t === "d" && cell.v instanceof Date){
+      return cell.v.getFullYear() + "-" + pad(cell.v.getMonth()+1) + "-" + pad(cell.v.getDate());
+    }
+    if(cell.t === "n") return dashNumberCell(cell.v);
+    if(cell.t === "b") return cell.v ? "true" : "false";
+    return String(cell.v);
+  };
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const all = [];
+  for(let r = range.s.r; r <= range.e.r; r++){
+    const row = [];
+    for(let c = range.s.c; c <= range.e.c; c++) row.push(cellText(ws[XLSX.utils.encode_cell({ r, c })]));
+    if(row.some(v => v !== "")) all.push(row);
+  }
+  if(!all.length) throw new Error("A primeira aba não tem dados.");
+  const header = all.shift().map(h => String(h).trim());
+  return { header, rows: all };
 }
 
 /* JSON / NDJSON texto → { header, rows } no MESMO formato que dashParseCSV
@@ -188,7 +237,9 @@ function dashJsonToParsed(text, ndjson){
   if(!header.length) throw new Error("JSON sem campos reconhecíveis (esperado array de objetos).");
   const rows = arr.map(o => header.map(k => {
     const v = o ? o[k] : null;
-    return v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+    if(v == null) return "";
+    if(typeof v === "number") return dashNumberCell(v);
+    return typeof v === "object" ? JSON.stringify(v) : String(v);
   }));
   return { header, rows };
 }
@@ -232,6 +283,32 @@ function dashResolveColumns(schema){
   };
 }
 
+/* Limpa os blocos de um preset montado sobre dados reais: tira KPI sem props,
+ * gráfico sem pontos e ranking vazio; os KPIs restantes dividem a linha e, em
+ * cada linha de gráficos que ficou incompleta, o último estica até fechar 12. */
+function dashFitBlocks(blocks){
+  const kept = (blocks || []).filter(b => {
+    if(!b) return false;
+    if(b.kind === "kpi") return !!b.props;
+    if(b.kind === "chart") return !!(b.props && Array.isArray(b.props.data) && b.props.data.length);
+    if(b.kind === "ranking") return !!(b.props && b.props.items && b.props.items.length);
+    return true;
+  }).map(b => ({ ...b }));
+  const kpiSpan = { 1:12, 2:6, 3:4, 4:3 }[kept.filter(b => b.kind === "kpi").length];
+  if(kpiSpan) kept.forEach(b => { if(b.kind === "kpi") b.span = kpiSpan; });
+  const fill = (row, sum)=>{ if(row.length && sum < 12) row[row.length-1].span += 12 - sum; };
+  for(let i = 0; i < kept.length;){
+    if(kept[i].kind !== "chart"){ i++; continue; }
+    let row = [], sum = 0;
+    while(i < kept.length && kept[i].kind === "chart"){
+      if(sum + kept[i].span > 12){ fill(row, sum); row = []; sum = 0; }
+      row.push(kept[i]); sum += kept[i].span; i++;
+    }
+    fill(row, sum);
+  }
+  return kept;
+}
+
 function dashSum(rows, key){
   if(!key) return 0;
   let s = 0;
@@ -260,20 +337,26 @@ function dashTimeSeries(rows, dateKey, measureKey){
   for(const r of rows){
     const d = r[dateKey];
     if(!(d instanceof Date) || isNaN(d.getTime())) continue;
-    const k = d.toISOString().slice(0,10);
+    // Chave pelos campos LOCAIS: toISOString (UTC) + new Date("AAAA-MM-DD")
+    // (também UTC) rotulavam cada ponto com o dia anterior no Brasil (UTC−3).
+    const k = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
     const v = r[measureKey]; if(typeof v !== "number") continue;
     map.set(k, (map.get(k) || 0) + v);
   }
   return [...map.entries()].sort(([a],[b]) => a<b?-1:1).map(([k, v])=>{
-    const dt = new Date(k);
-    return { l: String(dt.getDate()).padStart(2,"0")+"/"+String(dt.getMonth()+1).padStart(2,"0"), v, date: k };
+    return { l: k.slice(8,10) + "/" + k.slice(5,7), v, date: k };
   });
 }
 function dashFilterByPeriod(rows, dateKey, days){
   if(!dateKey || days == null) return rows;
-  const ts = rows.map(r => r[dateKey]).filter(d => d instanceof Date && !isNaN(d.getTime())).map(d => d.getTime());
-  if(!ts.length) return rows;
-  const maxMs = Math.max.apply(null, ts);
+  // Laço em vez de Math.max.apply: com ~120k+ linhas o apply estoura a pilha
+  // (RangeError) no meio do render e derruba a página inteira.
+  let maxMs = -Infinity;
+  for(const r of rows){
+    const d = r[dateKey];
+    if(d instanceof Date){ const t = d.getTime(); if(t > maxMs) maxMs = t; }
+  }
+  if(maxMs === -Infinity) return rows;
   const minMs = maxMs - days * 86400000;
   return rows.filter(r => {
     const d = r[dateKey];
@@ -288,7 +371,7 @@ function dashFilterByPeriod(rows, dateKey, days){
  * mês). Só um sample limitado (≤20 linhas) + metadados de coluna saem do browser,
  * e só para planos pagos que pediram a análise (o tier/quota é reforçado no
  * servidor). */
-async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
+async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName, focus){
   try {
     // profiles = saída de dashProfileColumns: { name, baseType, pattern, stats,… }.
     // Mapeia pro contrato do backend {name, type}. Filtra colunas sem name string
@@ -298,9 +381,11 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
       .map(function(p){ return { name: p.name, type: p.baseType || p.pattern || null }; });
     // Injeta os KPIs reais como contexto na pergunta (o backend lê
     // datasetName/columns/sampleRows/question — campos extras são ignorados).
-    const question = (metrics && metrics.length)
-      ? ("KPIs calculados: " + JSON.stringify(metrics))
-      : null;
+    // Foco escrito na tela de métricas vai na frente; o backend aceita até 500 caracteres.
+    const parts = [];
+    if(focus && String(focus).trim()) parts.push("Foco pedido pelo usuario: " + String(focus).trim().slice(0, 200) + ".");
+    if(metrics && metrics.length) parts.push("KPIs calculados: " + JSON.stringify(metrics));
+    const question = parts.length ? parts.join(" ").slice(0, 500) : null;
     const result = await window.DashAPI.analyze({
       datasetName: datasetName,
       columns: columns,
@@ -309,12 +394,19 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName){
     });
     return result; // { narrative, model }
   } catch(err){
-    if(err && err.status === 402){            // plano insuficiente (free)
-      if(window.__dashOpenPlans) window.__dashOpenPlans();
-      return null;
+    if(err && err.status === 402){            // plano insuficiente (ex.: plano venceu no meio da sessão)
+      // Não navega sozinho para Planos (voltar remontava o dashboard, que pedia
+      // de novo e quicava de volta). Reidrata o plano: com ele Free, o bloco
+      // mostra o paywall normal.
+      window.DashAPI.me().catch(function(){});
+      return { planRequired: true };
     }
     if(err && err.status === 429){            // quota de IA do mês excedida
       return { quotaExceeded: true, limite: err.data && err.data.limite, usados: err.data && err.data.usados };
+    }
+    if(err && err.status === 401){            // sessão expirou: o me() falho zera o currentUser e o bloco pede login
+      window.DashAPI.me().catch(function(){});
+      return { authRequired: true };
     }
     console.error("Narrative fetch failed:", err);
     return null;
@@ -375,779 +467,35 @@ const DASH_SAMPLE_JSON = JSON.stringify([
 ], null, 2);
 
 function Topbar({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
-  const fname = fileInfo?.name || "vendas_exemplo.csv";
+  // Sem arquivo (tela de upload) não há o que mostrar no breadcrumb — antes
+  // aparecia um "vendas_exemplo.csv" fictício.
+  const fname = fileInfo?.name || null;
+  const isPro = tweaks.plan === "pro";
   return (
     <div className="topbar">
-      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 24px", maxWidth: 1480, margin:"0 auto"}}>
-        <div style={{display:"flex", alignItems:"center", gap:14}}>
+      <div className="tb-row" style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"14px 24px", maxWidth: 1480, margin:"0 auto"}}>
+        <div style={{display:"flex", alignItems:"center", gap:14, minWidth:0}}>
           <Icon.Logo size={28}/>
-          <div style={{display:"flex", flexDirection:"column", lineHeight:1}}>
+          <div className="tb-brand" style={{display:"flex", flexDirection:"column", lineHeight:1}}>
             <span style={{fontWeight:700, fontSize:14}}>{tweaks.brandName}</span>
             <span className="mono" style={{fontSize:10, color:"var(--muted)"}}>DASHBOARDS · IA</span>
           </div>
-          <div style={{width:1, height:24, background:"var(--line)", margin:"0 6px"}}/>
-          <div style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)"}}>
-            <span>Workspace</span>
-            <Icon.Caret size={12}/>
-            <span style={{color:"var(--ink-2)", fontWeight:600}}>{fname}</span>
-          </div>
+          {fname && (
+            <div className="tb-crumb" style={{display:"flex", alignItems:"center", gap:6, fontSize:13, color:"var(--muted)", minWidth:0}}>
+              <div style={{width:1, height:24, background:"var(--line)", margin:"0 6px"}}/>
+              <span>Workspace</span>
+              <Icon.Caret size={12}/>
+              <span style={{color:"var(--ink-2)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:260}}>{fname}</span>
+            </div>
+          )}
         </div>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose}><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> Início</button>
-          <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Share size={14}/> Compartilhar</button>
-          <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashUpgrade?.()}><Icon.Crown size={14}/> Fazer upgrade</button>
+        <div style={{display:"flex", alignItems:"center", gap:10, flexShrink:0}}>
+          <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onClose} title="Início" aria-label="Início"><Icon.Arrow size={14} style={{transform:"rotate(180deg)"}}/> <span className="tb-label">Início</span></button>
+          {/* "Compartilhar" saiu: não havia handler (link público ainda não existe). */}
+          {!isPro && (
+            <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashUpgrade?.()} title="Fazer upgrade" aria-label="Fazer upgrade"><Icon.Crown size={14}/> <span className="tb-label">Fazer upgrade</span></button>
+          )}
           <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function UploadView({ onUploaded }){
-  const [drag, setDrag] = React.useState(false);
-  const [tab, setTab] = React.useState("file"); // file, paste, url, sample
-
-  const formats = [
-    {
-      k:"csv", ext:".csv", n:"CSV", c:"#0a8a4a",
-      desc:"Valores separados por vírgula ou ponto-e-vírgula. UTF-8.",
-      max:"50 MB", rows:"até 500k linhas",
-      sample: `data,produto,regiao,valor
-2026-07-12,Mesa Ajustável,CO,2980
-2026-07-12,Notebook Pro 14,SE,8120`,
-    },
-    {
-      k:"xlsx", ext:".xlsx · .xls", n:"Excel", c:"#1b6f3b",
-      desc:"Planilhas do Excel. Detectamos cabeçalho e tipos automaticamente.",
-      max:"25 MB", rows:"primeira aba ou escolha qual",
-      sample: `[ Planilha1 ]
-| data       | produto         | regiao | valor |
-| 2026-07-12 | Mesa Ajustável  | CO     | 2980  |`,
-    },
-    {
-      k:"json", ext:".json · .ndjson", n:"JSON", c:"#7a5cff",
-      desc:"Array de objetos ou JSON line-delimited (uma linha por registro).",
-      max:"30 MB", rows:"até 250k objetos",
-      sample: `[
-  { "data":"2026-07-12", "produto":"Mesa", "valor":2980 },
-  { "data":"2026-07-12", "produto":"Notebook", "valor":8120 }
-]`,
-    },
-    {
-      k:"tsv", ext:".tsv · .txt", n:"TSV", c:"#ff7849",
-      desc:"Valores separados por tabulação. Útil para exports brutos.",
-      max:"50 MB", rows:"detecção automática",
-      sample: `data\tproduto\tvalor
-2026-07-12\tMesa\t2980`,
-    },
-    {
-      k:"gsheet", ext:"link compartilhado", n:"Google Sheets", c:"#34a853", pro:true,
-      desc:"Cole o link público da planilha. Sincronização opcional.",
-      max:"qualquer tamanho", rows:"primeira aba por padrão",
-      sample: `https://docs.google.com/spreadsheets/d/...
-☑ acesso somente leitura`,
-    },
-  ];
-
-  const [preview, setPreview] = React.useState(formats[0]);
-  const [filename, setFilename] = React.useState(null);
-  const [progress, setProgress] = React.useState(0);
-  const [step, setStep] = React.useState(""); // "" | reading | parsing | analyzing | done
-  const [pasteText, setPasteText] = React.useState("");
-  const [parseError, setParseError] = React.useState(null);
-  const fileInputRef = React.useRef(null);
-
-  // Parse a CSV/TSV text payload and forward the full dataset (header + typed
-  // rows + schema) via onUploaded. The progress markers below are cosmetic —
-  // the parse itself is synchronous for the file sizes we accept here, but the
-  // user sees a 4-step pipeline (reading → parsing → analyzing → done) so we
-  // sequence setStep with short timers to keep that affordance.
-  const runProcessing = (file)=>{
-    const name = file?.name || "dados.csv";
-    const sizeKB = file?.size ? Math.round(file.size/1024) : Math.round((file?.text?.length || 0)/1024) || 1;
-    setParseError(null);
-    setFilename({ name, sizeKB, rows: 0, cols: 0 });
-    setStep("reading");
-    setProgress(10);
-
-    const ext = String(name).toLowerCase().split(".").pop();
-    const fail = (msg)=>{ setParseError(msg); setStep(""); };
-
-    // Cauda compartilhada: recebe { header, rows } e roda o MESMO pipeline de
-    // schema/dados/profiles para todo formato (CSV, Excel, JSON). É o corpo
-    // original do ingest() a partir do dashInferSchema — os fixes de coluna/
-    // período/número vivem aqui embaixo e seguem intactos.
-    const ingestParsed = (header, rows)=>{
-      if(!header.length || !rows.length){
-        fail("Não consegui detectar cabeçalho ou linhas no arquivo.");
-        return;
-      }
-      const schema = dashInferSchema(header, rows);
-      setProgress(70); setStep("analyzing");
-      setTimeout(()=>{
-        const data = dashRowsToObjects(header, rows, schema);
-        // Profile on the RAW rows — currency/percent symbols still intact here.
-        const profiles = window.dashProfileColumns ? window.dashProfileColumns(header, rows) : [];
-        setProgress(100); setStep("done");
-        setFilename(prev => ({...prev, rows: data.length, cols: header.length}));
-        setTimeout(()=> onUploaded && onUploaded({
-          name, sizeKB,
-          rows: data.length,
-          cols: header.length,
-          schema, data, profiles,
-        }), 400);
-      }, 400);
-    };
-
-    // Porta CSV/TSV/TXT — caminho ORIGINAL: dashParseCSV → cauda compartilhada.
-    const ingestText = (text)=>{
-      setProgress(35); setStep("parsing");
-      setTimeout(()=>{
-        try { const p = dashParseCSV(text); ingestParsed(p.header, p.rows); }
-        catch(e){ fail("Erro ao processar o arquivo: " + (e && e.message ? e.message : "formato inesperado")); }
-      }, 400);
-    };
-
-    // Porta JSON/NDJSON — deriva { header, rows } e cai na cauda compartilhada.
-    const ingestJSON = (text)=>{
-      setProgress(35); setStep("parsing");
-      setTimeout(()=>{
-        try { const p = dashJsonToParsed(text, ext === "ndjson"); ingestParsed(p.header, p.rows); }
-        catch(e){ fail("Não consegui ler o JSON: " + (e && e.message ? e.message : "formato inválido")); }
-      }, 400);
-    };
-
-    // ── Dispatch por EXTENSÃO (MIME do xlsx é inconsistente entre SO) ───────
-    if(ext === "xlsx" || ext === "xls"){
-      if(!(file instanceof Blob)){ fail("Envie o arquivo Excel (a prévia em texto não se aplica)."); return; }
-      setStep("parsing"); setProgress(25);
-      dashEnsureXLSX().then(XLSX=>{
-        const reader = new FileReader();
-        reader.onload = (e)=>{
-          try { ingestText(dashXlsxToText(e.target?.result, XLSX)); }
-          catch(err){ fail("Não consegui ler o Excel (arquivo corrompido ou protegido por senha?)" + (err && err.message ? " — " + err.message : "")); }
-        };
-        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
-        reader.readAsArrayBuffer(file);
-      }).catch(()=> fail("Suporte a Excel indisponível agora. Verifique a conexão e tente de novo."));
-      return;
-    }
-
-    if(ext === "json" || ext === "ndjson"){
-      if(file && typeof file.text === "string"){ ingestJSON(file.text); }
-      else if(file instanceof Blob){
-        const reader = new FileReader();
-        reader.onload = (e)=> ingestJSON(String(e.target?.result || ""));
-        reader.onerror = ()=> fail("Não foi possível ler o arquivo.");
-        reader.readAsText(file);
-      } else { fail("Fonte sem dados anexados."); }
-      return;
-    }
-
-    // Binários conhecidos que NÃO suportamos → erro claro (não lixo "PK").
-    const UNSUPPORTED = ["parquet","pdf","zip","rar","7z","png","jpg","jpeg","gif","xlsb","db","sqlite"];
-    if(file instanceof Blob && UNSUPPORTED.indexOf(ext) >= 0){
-      fail("Formato ." + ext + " não suportado. Use CSV, TSV, JSON ou Excel (.xlsx).");
-      return;
-    }
-
-    // DEFAULT — CSV/TSV/TXT (e payloads de texto: colar/sample/URL). INALTERADO.
-    if(file && typeof file.text === "string"){
-      ingestText(file.text);
-    } else if(file instanceof Blob){
-      const reader = new FileReader();
-      reader.onload = (e)=> ingestText(String(e.target?.result || ""));
-      reader.onerror = ()=>{ fail("Não foi possível ler o arquivo."); };
-      reader.readAsText(file);
-    } else {
-      // URL tab still calls this without a real payload — bail out cleanly.
-      fail("Fonte sem dados anexados.");
-    }
-  };
-
-  const onPickFile = ()=> fileInputRef.current?.click();
-  const onFileChosen = (e)=>{
-    const file = e.target.files?.[0];
-    if(file) runProcessing(file);
-    e.target.value = "";
-  };
-  const onDropFile = (e)=>{
-    e.preventDefault(); setDrag(false);
-    const file = e.dataTransfer.files?.[0];
-    if(file) runProcessing(file);
-  };
-
-  return (
-    <div style={{maxWidth: 1100, margin:"40px auto 0", padding:"0 24px 80px"}}>
-      <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls" style={{display:"none"}} onChange={onFileChosen}/>
-      <div style={{textAlign:"center", marginBottom: 36}}>
-        <div className="rv eyebrow" style={{marginBottom:18}}><Icon.Sparkle size={12}/> Powered by IA · seus dados nunca saem do navegador</div>
-        <h1 className="rv h-section" style={{margin:"0 0 12px", fontSize: 44}}>Envie seus dados e a IA monta o <span style={{color:"var(--brand)"}}>dashboard</span>.</h1>
-        <p className="rv lede" style={{margin:"0 auto", maxWidth: 580}}>Escolha uma fonte abaixo. Em segundos você tem KPIs, gráficos e análises prontas.</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="rv" style={{display:"flex", justifyContent:"center", marginBottom: 18}}>
-        <div className="seg" style={{padding:4, borderRadius:12, background:"white", border:"1px solid var(--line)"}}>
-          {[
-            {k:"file", i:<Icon.Upload size={14}/>, n:"Enviar arquivo"},
-            {k:"paste", i:<Icon.Doc size={14}/>, n:"Colar dados"},
-            {k:"url", i:<Icon.Share size={14}/>, n:"Importar de URL"},
-            {k:"sample", i:<Icon.Sparkle size={14}/>, n:"Dados de exemplo"},
-          ].map(t=>(
-            <button key={t.k} className={tab===t.k?"on":""} onClick={()=>setTab(t.k)}
-              style={{padding:"8px 14px", display:"inline-flex", alignItems:"center", gap:6, fontSize:13}}>
-              {t.i} {t.n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main area: dropzone + format list side by side */}
-      {parseError && (
-        <div className="rv" style={{
-          marginBottom: 14, padding:"12px 16px", borderRadius:12,
-          background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a",
-          display:"flex", alignItems:"center", gap:10, fontSize:13
-        }}>
-          <Icon.Bolt size={14}/> <span>{parseError}</span>
-        </div>
-      )}
-      <div style={{display:"grid", gridTemplateColumns: "1.2fr 1fr", gap: 20}}>
-        {/* Left: input area */}
-        <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column"}}>
-          {tab === "file" && (
-            <div
-              role="button" tabIndex={step?-1:0}
-              onKeyDown={e=>{ if(!step && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); onPickFile(); }}}
-              style={{
-                flex:1, padding: 32, textAlign:"center",
-                border: drag ? `2px dashed var(--brand)` : "2px dashed transparent",
-                background: drag ? "var(--brand-soft)" : "transparent",
-                transition:"all .2s", display:"flex", flexDirection:"column", justifyContent:"center", minHeight: 380,
-                cursor: step ? "default" : "pointer", outline:"none"
-              }}
-              onDragOver={e=>{ if(!step){ e.preventDefault(); setDrag(true); }}}
-              onDragLeave={()=>setDrag(false)}
-              onDrop={step ? undefined : onDropFile}
-              onClick={step ? undefined : onPickFile}
-            >
-              {!step && (
-                <>
-                  <div style={{
-                    width:80, height:80, borderRadius:20, margin:"0 auto 18px",
-                    background:"linear-gradient(180deg, var(--brand), var(--brand-2))",
-                    color:"white", display:"flex", alignItems:"center", justifyContent:"center",
-                    boxShadow:"0 20px 40px -16px rgba(47,107,255,.6)",
-                    animation:"float 4s ease-in-out infinite"
-                  }}>
-                    <Icon.Upload size={32}/>
-                  </div>
-                  <div style={{fontWeight:700, fontSize:18, marginBottom:6}}>Arraste seu arquivo aqui</div>
-                  <div style={{fontSize:13, color:"var(--muted)", marginBottom: 20}}>ou clique para selecionar do seu computador</div>
-                  <div style={{display:"flex", justifyContent:"center", gap:8, flexWrap:"wrap"}}>
-                    {[".csv",".xlsx",".json",".tsv"].map(e=>(
-                      <span key={e} className="chip mono" style={{background:"var(--line-2)"}}>{e}</span>
-                    ))}
-                  </div>
-                  <style>{`@keyframes float{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-6px); } }`}</style>
-                </>
-              )}
-              {step && filename && (
-                <ProcessingPanel filename={filename} progress={progress} step={step}/>
-              )}
-            </div>
-          )}
-          {tab === "paste" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column"}}>
-              <div style={{fontWeight:700, fontSize:15, marginBottom:6}}>Cole seus dados</div>
-              <div style={{fontSize:13, color:"var(--muted)", marginBottom: 12}}>CSV, TSV ou JSON. Detectamos o formato automaticamente.</div>
-              <textarea
-                value={pasteText}
-                onChange={e=>setPasteText(e.target.value)}
-                placeholder={`data,produto,regiao,valor\n2026-07-12,Mesa Ajustável,CO,2980\n2026-07-12,Notebook Pro 14,SE,8120`}
-                style={{flex:1, padding:14, border:"1px solid var(--line)", borderRadius:12, resize:"none", fontFamily:"'Geist Mono', monospace", fontSize:13, outline:"none", lineHeight:1.5, color:"var(--ink)"}}
-                onFocus={e=>e.target.style.borderColor="var(--brand)"}
-                onBlur={e=>e.target.style.borderColor="var(--line)"}
-              />
-              <button className="btn btn-primary" style={{marginTop:14, justifyContent:"center"}}
-                disabled={!pasteText.trim()}
-                onClick={()=>runProcessing({name:"colado.csv", text: pasteText})}>
-                <Icon.Sparkle size={14}/> Analisar dados colados
-              </button>
-            </div>
-          )}
-          {tab === "url" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column", gap:12}}>
-              <div style={{fontWeight:700, fontSize:15}}>Importar de uma URL</div>
-              <div style={{fontSize:13, color:"var(--muted)"}}>Link público de arquivo, Google Sheets ou endpoint público que retorne JSON.</div>
-              <div style={{position:"relative"}}>
-                <input
-                  placeholder="https://exemplo.com/dados.csv"
-                  style={{width:"100%", padding:"14px 16px 14px 42px", border:"1px solid var(--line)", borderRadius:12, fontSize:14, outline:"none"}}
-                  onFocus={e=>e.target.style.borderColor="var(--brand)"}
-                  onBlur={e=>e.target.style.borderColor="var(--line)"}
-                />
-                <span style={{position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--muted)"}}><Icon.Share size={16}/></span>
-              </div>
-              <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
-                <span style={{fontSize:11, color:"var(--muted)", fontWeight:600, alignSelf:"center", marginRight:4}}>SUPORTE</span>
-                {["CSV público","Google Sheets","JSON endpoint","S3 pré-assinado"].map(s=>(
-                  <span key={s} className="chip">{s}</span>
-                ))}
-              </div>
-              <div style={{flex:1}}/>
-              <button className="btn btn-primary" style={{justifyContent:"center"}}
-                disabled
-                title="Disponível em breve — por enquanto use upload, colar ou amostra"
-                onClick={(e)=>e.preventDefault()}>
-                <Icon.Arrow size={14}/> Buscar e analisar (em breve)
-              </button>
-            </div>
-          )}
-          {tab === "sample" && (
-            <div style={{padding: 24, minHeight: 380, display:"flex", flexDirection:"column", gap:12}}>
-              <div style={{fontWeight:700, fontSize:15}}>Quer testar sem dados próprios?</div>
-              <div style={{fontSize:13, color:"var(--muted)", marginBottom:6}}>Escolha um dataset de exemplo. Você pode trocar depois.</div>
-              {[
-                {n:"vendas_exemplo.csv", d:"linhas · 10 colunas · marketplace BR", t:"E-commerce", c:"var(--brand)", text: DASH_SAMPLE_CSV},
-                {n:"churn_saas.json", d:"array de objetos · testa o suporte a JSON", t:"SaaS", c:"var(--violet)", text: DASH_SAMPLE_JSON},
-                {n:"funil_marketing.csv", d:"top of funnel → MQL → SQL", t:"Marketing", c:"#0a8a4a", text: DASH_SAMPLE_CSV},
-                {n:"financeiro_q3.csv", d:"DRE simplificado", t:"Finanças", c:"#ff7849", text: DASH_SAMPLE_CSV},
-              ].map(s=>(
-                <button key={s.n} className="lift" onClick={()=>runProcessing({name:s.n, text: s.text})}
-                  style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"white", cursor:"pointer", textAlign:"left"}}>
-                  <div style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center"}}>
-                    <Icon.Doc size={16}/>
-                  </div>
-                  <div style={{flex:1}}>
-                    <div className="mono" style={{fontSize:13, fontWeight:600}}>{s.n}</div>
-                    <div style={{fontSize:12, color:"var(--muted)"}}>{s.d}</div>
-                  </div>
-                  <span className="chip" style={{background:"var(--line-2)"}}>{s.t}</span>
-                  <Icon.Arrow size={14}/>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: formats panel */}
-        <div className="rv card" style={{padding: 0, overflow:"hidden", display:"flex", flexDirection:"column", background:"#fafbfe"}}>
-          <div style={{padding:"18px 20px 14px", borderBottom:"1px solid var(--line)"}}>
-            <div style={{fontWeight:700, fontSize:15}}>Formatos aceitos</div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Clique para ver o formato esperado.</div>
-          </div>
-          <div style={{padding:14, display:"flex", flexDirection:"column", gap:8}}>
-            {formats.map(f=>(
-              <button key={f.k} onClick={()=>setPreview(f)}
-                style={{
-                  display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-                  borderRadius:10, border:`1px solid ${preview.k===f.k ? "var(--brand)":"var(--line)"}`,
-                  background: preview.k===f.k ? "white" : "transparent",
-                  boxShadow: preview.k===f.k ? "0 6px 16px -8px rgba(47,107,255,.25)" : "none",
-                  cursor:"pointer", textAlign:"left", transition:"all .2s"
-                }}>
-                <div style={{width:34, height:34, borderRadius:8, background:`color-mix(in oklch, ${f.c} 18%, white)`, color:f.c, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
-                  <Icon.Doc size={14}/>
-                </div>
-                <div style={{flex:1, minWidth:0}}>
-                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                    <span style={{fontWeight:700, fontSize:14}}>{f.n}</span>
-                    <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{f.ext}</span>
-                    {f.pro && <span className="chip" style={{padding:"1px 6px", fontSize:10, background:"var(--ink)", color:"white"}}>Pro</span>}
-                  </div>
-                  <div style={{fontSize:12, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{f.desc}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-          {/* Preview */}
-          <div style={{margin:"0 14px 14px", border:"1px solid var(--line)", borderRadius:10, background:"white", overflow:"hidden"}}>
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom:"1px solid var(--line-2)"}}>
-              <div className="mono" style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{preview.n} · estrutura esperada</div>
-              <div style={{display:"flex", gap:8, fontSize:11, color:"var(--muted)"}}>
-                <span>{preview.max}</span>
-                <span>·</span>
-                <span>{preview.rows}</span>
-              </div>
-            </div>
-            <pre className="mono" style={{margin:0, padding:"12px 14px", fontSize:11.5, lineHeight:1.55, color:"var(--ink-2)", whiteSpace:"pre-wrap", maxHeight:140, overflow:"auto"}}>
-{preview.sample}
-            </pre>
-          </div>
-        </div>
-      </div>
-
-      {/* Requirements + trust */}
-      <div className="rv" style={{marginTop: 20, display:"grid", gridTemplateColumns:"1.2fr 1fr", gap:20}}>
-        <div className="card" style={{padding:22}}>
-          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom: 14}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"var(--brand-soft)", color:"var(--brand-2)", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Check size={16} stroke={2.6}/>
-            </span>
-            <div>
-              <div style={{fontWeight:700, fontSize:15}}>Como organizar seus dados</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Quanto mais limpo o arquivo, melhor a análise.</div>
-            </div>
-          </div>
-          <ul style={{listStyle:"none", padding:0, margin:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-            {[
-              {t:"Cabeçalho na primeira linha", d:"Use nomes claros: data, produto, valor."},
-              {t:"Uma observação por linha", d:"Evite linhas mescladas ou totais no meio."},
-              {t:"Datas em formato consistente", d:"ISO (2026-07-12) é o ideal."},
-              {t:"Números sem separador de milhar", d:"2980 em vez de 2.980."},
-            ].map(r=>(
-              <li key={r.t} style={{display:"flex", gap:10, alignItems:"flex-start"}}>
-                <span style={{width:18, height:18, borderRadius:5, background:"var(--brand-soft)", color:"var(--brand)", display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:2}}>
-                  <Icon.Check size={11} stroke={3}/>
-                </span>
-                <div>
-                  <div style={{fontWeight:600, fontSize:13}}>{r.t}</div>
-                  <div style={{fontSize:12, color:"var(--muted)"}}>{r.d}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="card" style={{padding:22, background:"linear-gradient(180deg, #fafbfe, white)"}}>
-          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:14}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Lock size={16}/>
-            </span>
-            <div>
-              <div style={{fontWeight:700, fontSize:15}}>Privado por padrão</div>
-              <div style={{fontSize:12, color:"var(--muted)"}}>Nada é enviado sem seu consentimento.</div>
-            </div>
-          </div>
-          <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:13, color:"var(--ink-2)"}}>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Processamento 100% no navegador.</div>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Apenas metadados (nomes de colunas) vão para a IA — opcional.</div>
-            <div style={{display:"flex", gap:8, alignItems:"flex-start"}}><Icon.Check size={14} stroke={2.6} color="#0a8a4a"/> Conformidade com LGPD. Você apaga o arquivo quando quiser.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProcessingPanel({ filename, progress, step }){
-  const stages = [
-    { k:"reading", n:"Lendo arquivo", i:<Icon.Upload size={14}/> },
-    { k:"parsing", n:"Identificando colunas e tipos", i:<Icon.Doc size={14}/> },
-    { k:"analyzing", n:"IA sugerindo melhores métricas", i:<Icon.Sparkle size={14}/> },
-    { k:"done", n:"Pronto", i:<Icon.Check size={14} stroke={3}/> },
-  ];
-  const order = ["reading","parsing","analyzing","done"];
-  const curIdx = order.indexOf(step);
-  return (
-    <div style={{textAlign:"left", maxWidth: 420, margin:"0 auto", width:"100%"}}>
-      <div style={{display:"flex", alignItems:"center", gap:14, marginBottom: 18}}>
-        <div style={{
-          width:48, height:48, borderRadius:12,
-          background: step==="done" ? "linear-gradient(180deg, #0a8a4a, #006b3a)" : "linear-gradient(180deg, var(--brand), var(--brand-2))",
-          color:"white", display:"flex", alignItems:"center", justifyContent:"center"
-        }}>
-          {step==="done" ? <Icon.Check size={22} stroke={3}/> : <Icon.Doc size={20}/>}
-        </div>
-        <div style={{flex:1, minWidth:0}}>
-          <div className="mono" style={{fontSize:14, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{filename.name}</div>
-          <div style={{fontSize:12, color:"var(--muted)"}}>
-            {filename.sizeKB} KB
-            {filename.rows>0 && <> · {filename.rows.toLocaleString("pt-BR")} linhas · {filename.cols} colunas</>}
-          </div>
-        </div>
-      </div>
-      <div style={{height:8, background:"var(--line-2)", borderRadius:99, overflow:"hidden", marginBottom: 18}}>
-        <div style={{width:`${progress}%`, height:"100%", background:"linear-gradient(90deg, var(--brand), var(--violet))", transition:"width .35s ease"}}/>
-      </div>
-      <div style={{display:"flex", flexDirection:"column", gap:10}}>
-        {stages.map((s, i)=>{
-          const state = i < curIdx ? "done" : i === curIdx ? "active" : "pending";
-          return (
-            <div key={s.k} style={{display:"flex", alignItems:"center", gap:12, opacity: state==="pending"?0.4:1}}>
-              <span style={{
-                width:24, height:24, borderRadius:7,
-                background: state==="done" ? "#e7f7ef" : state==="active" ? "var(--brand-soft)" : "var(--line-2)",
-                color: state==="done" ? "#0a8a4a" : state==="active" ? "var(--brand)" : "var(--muted)",
-                display:"inline-flex", alignItems:"center", justifyContent:"center"
-              }}>
-                {state==="done" ? <Icon.Check size={12} stroke={3}/> : s.i}
-              </span>
-              <span style={{fontSize:13, fontWeight: state==="active"?600:500, color: state==="active" ? "var(--ink)" : "var(--ink-2)"}}>{s.n}</span>
-              {state==="active" && <span className="mono" style={{fontSize:11, color:"var(--muted)", marginLeft:"auto"}}>em andamento…</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function PromptView({ onGenerate, onBack, fileInfo }){
-  const fname = fileInfo?.name || "vendas_exemplo.csv";
-  const rows = fileInfo?.rows || 120;
-  const cols = fileInfo?.cols || 10;
-
-  // Detected schema — comes from the real parser (fileInfo.schema). When the
-  // user reaches this view via Tweaks without an upload, fall back to a small
-  // illustrative shape so the UI still demos.
-  const schema = (fileInfo?.schema && fileInfo.schema.length)
-    ? fileInfo.schema.map(c => ({
-        n: c.name,
-        t: c.type,
-        ex: (c.examples && c.examples[0]) || "—",
-        nulls: c.nullCount || 0,
-        uniq: c.uniqCount || 0,
-      }))
-    : [
-        { n:"data", t:"date", ex:"2026-07-12", nulls:0 },
-        { n:"produto", t:"dimension", ex:"Mesa Ajustável", nulls:0, uniq:18 },
-        { n:"regiao", t:"dimension", ex:"Centro-Oeste", nulls:0, uniq:5 },
-        { n:"valor_total", t:"measure", ex:"R$ 4.420", nulls:0 },
-      ];
-  const typeMeta = {
-    date:      { c:"#7a5cff", bg:"color-mix(in oklch, #7a5cff 14%, white)", n:"data" },
-    dimension: { c:"#2f6bff", bg:"var(--brand-soft)", n:"dim" },
-    measure:   { c:"#0a8a4a", bg:"#e7f7ef", n:"métrica" },
-  };
-
-  // AI-suggested metrics — real ones from the profiler when an upload exists,
-  // otherwise the illustrative demo set (Tweaks-only entry path).
-  const realMetrics = (fileInfo && fileInfo.profiles && fileInfo.profiles.length && window.dashSuggestMetrics)
-    ? window.dashSuggestMetrics(fileInfo.profiles, fileInfo.data || [])
-    : null;
-
-  const demoGroups = [
-    { k:"kpi", n:"KPIs principais", i:<Icon.Sparkle size={14}/>, c:"var(--brand)",
-      items: [
-        { id:"k1", n:"Valor total", d:"SOMA(valor_total)", conf:98 },
-        { id:"k2", n:"Ticket médio", d:"MÉDIA(valor_total)", conf:96 },
-        { id:"k3", n:"Total de pedidos", d:"CONTAGEM(linhas)", conf:95 },
-        { id:"k4", n:"Quantidade vendida", d:"SOMA(quantidade)", conf:90 },
-      ]},
-    { k:"trend", n:"Tendências no tempo", i:<Icon.Line size={14}/>, c:"#7a5cff",
-      items: [
-        { id:"t1", n:"Evolução diária do valor", d:"valor_total por data", conf:97 },
-        { id:"t2", n:"Receita mensal", d:"SOMA(valor_total) por mês", conf:94 },
-        { id:"t3", n:"Volume semanal", d:"CONTAGEM por semana", conf:88 },
-      ]},
-    { k:"dim", n:"Quebras por dimensão", i:<Icon.Bars size={14}/>, c:"#0a8a4a",
-      items: [
-        { id:"d1", n:"Vendas por região", d:"SOMA(valor_total) por regiao", conf:96 },
-        { id:"d2", n:"Top produtos", d:"SOMA(valor_total) por produto · top 10", conf:95 },
-        { id:"d3", n:"Mix por categoria", d:"SOMA(valor_total) por categoria · donut", conf:93 },
-        { id:"d4", n:"Canais de venda", d:"SOMA(valor_total) por canal", conf:90 },
-        { id:"d5", n:"Ranking de vendedores", d:"SOMA(valor_total) por vendedor", conf:84 },
-      ]},
-    { k:"adv", n:"Análises avançadas", i:<Icon.Bolt size={14}/>, c:"#ff7849",
-      items: [
-        { id:"a1", n:"Efeito do desconto", d:"correlação(desconto_pct, valor_total)", conf:81 },
-        { id:"a2", n:"Outliers de pedido", d:"pedidos > p99 em valor", conf:78 },
-        { id:"a3", n:"Curva ABC de produtos", d:"pareto por valor_total", conf:74, pro:true },
-      ]},
-  ];
-
-  const groups = realMetrics ? (()=>{
-    const kindDesc = { sum:"SOMA", avg:"MÉDIA", count:"CONTAGEM", count_unique:"CONTAGEM DISTINTA",
-      percent_positive:"% POSITIVO", trend:"evolução por período", top_n:"ranking",
-      distribution:"distribuição", frequency_by_item:"frequência por item" };
-    const famOf = (kind)=> (["sum","avg","count","count_unique","percent_positive"].indexOf(kind) >= 0) ? "kpi"
-      : kind === "trend" ? "trend" : "dim";
-    const meta = {
-      kpi:   { k:"kpi",   n:"KPIs principais",     i:<Icon.Sparkle size={14}/>, c:"var(--brand)" },
-      trend: { k:"trend", n:"Tendências no tempo",  i:<Icon.Line size={14}/>,    c:"#7a5cff" },
-      dim:   { k:"dim",   n:"Quebras por dimensão", i:<Icon.Bars size={14}/>,    c:"#0a8a4a" },
-    };
-    const buckets = { kpi:[], trend:[], dim:[] };
-    realMetrics.forEach((m, idx)=>{
-      const fam = famOf(m.kind);
-      buckets[fam].push({
-        id: m.kind + "-" + (m.columns.primary || "all") + "-" + idx,
-        n: m.label,
-        d: (kindDesc[m.kind] || m.kind) + (m.columns.primary ? " · " + m.columns.primary : ""),
-        conf: Math.min(99, m.priority),
-      });
-    });
-    return ["kpi","trend","dim"].filter(f => buckets[f].length).map(f => ({ ...meta[f], items: buckets[f] }));
-  })() : demoGroups;
-
-  const allIds = groups.flatMap(g=>g.items.map(i=>i.id));
-  const defaultPick = new Set(realMetrics ? allIds.slice(0, 6) : ["k1","k2","t1","d1","d2","d3"]);
-  const [picked, setPicked] = React.useState(defaultPick);
-  const [val, setVal] = React.useState("Resumo geral de vendas: total, ticket médio, evolução ao longo do tempo e quebras por região, produto e canal.");
-
-  const togglePick = (id)=>{
-    setPicked(prev=>{
-      const next = new Set(prev);
-      if(next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const suggestions = [
-    "Mostre vendas totais, receita por categoria e tendência mensal",
-    "Top 10 produtos por valor e distribuição por região",
-    "Análise por canal de venda e por vendedor no último trimestre",
-  ];
-
-  return (
-    <div style={{maxWidth: 1100, margin:"32px auto 0", padding:"0 24px 80px"}}>
-      {/* Header */}
-      <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:20, gap:24, flexWrap:"wrap"}}>
-        <div>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-            <span style={{width:32, height:32, borderRadius:8, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <Icon.Check size={16} stroke={3}/>
-            </span>
-            <span style={{fontWeight:700, fontSize:14}}>Arquivo carregado com sucesso</span>
-          </div>
-          <h1 style={{margin:"0 0 4px", fontSize:28, fontWeight:800, letterSpacing:"-.02em"}} className="mono">{fname}</h1>
-          <div style={{fontSize:13, color:"var(--muted)"}}>{rows.toLocaleString("pt-BR")} linhas · {cols} colunas · análise da IA concluída em 2,4s</div>
-        </div>
-        <button className="btn btn-ghost" style={{padding:"8px 12px"}} onClick={onBack}><Icon.Refresh size={14}/> Trocar arquivo</button>
-      </div>
-
-      <div style={{display:"grid", gridTemplateColumns:"1.4fr 1fr", gap: 20}}>
-        {/* LEFT: metrics + prompt */}
-        <div style={{display:"flex", flexDirection:"column", gap: 16}}>
-          {/* AI metrics card */}
-          <div className="rv card" style={{padding:24}}>
-            <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom: 6}}>
-              <div style={{display:"flex", alignItems:"center", gap:10}}>
-                <div style={{width:36, height:36, borderRadius:10, background:"linear-gradient(135deg, var(--brand), var(--violet))", color:"white", display:"flex", alignItems:"center", justifyContent:"center"}}>
-                  <Icon.Sparkle size={16}/>
-                </div>
-                <div>
-                  <div style={{fontWeight:700, fontSize:16}}>Métricas que a IA encontrou na sua base</div>
-                  <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>{groups.reduce((s,g)=>s+g.items.length,0)} sugestões · marque o que quer no dashboard.</div>
-                </div>
-              </div>
-              <div style={{display:"flex", gap:6}}>
-                <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12}}
-                  onClick={()=>setPicked(new Set(allIds))}>Todas</button>
-                <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12}}
-                  onClick={()=>setPicked(new Set())}>Nenhuma</button>
-              </div>
-            </div>
-            <div style={{display:"flex", flexDirection:"column", gap:18, marginTop:14}}>
-              {groups.map(g=>(
-                <div key={g.k}>
-                  <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
-                    <span style={{width:24, height:24, borderRadius:7, background:`color-mix(in oklch, ${g.c} 15%, white)`, color:g.c, display:"inline-flex", alignItems:"center", justifyContent:"center"}}>{g.i}</span>
-                    <span style={{fontWeight:700, fontSize:13}}>{g.n}</span>
-                    <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{g.items.filter(i=>picked.has(i.id)).length}/{g.items.length}</span>
-                  </div>
-                  <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-                    {g.items.map(it=>{
-                      const on = picked.has(it.id);
-                      return (
-                        <button key={it.id} onClick={()=>togglePick(it.id)} style={{
-                          textAlign:"left", padding:"10px 12px", borderRadius:10,
-                          border: `1px solid ${on ? "var(--brand)" : "var(--line)"}`,
-                          background: on ? "var(--brand-soft)" : "white",
-                          cursor:"pointer", display:"flex", alignItems:"flex-start", gap:10
-                        }}>
-                          <span style={{
-                            width:18, height:18, borderRadius:5, flexShrink:0, marginTop:1,
-                            border: `1.5px solid ${on?"var(--brand)":"#c8cee0"}`,
-                            background: on?"var(--brand)":"white",
-                            color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center"
-                          }}>{on && <Icon.Check size={11} stroke={3.5}/>}</span>
-                          <div style={{flex:1, minWidth:0}}>
-                            <div style={{display:"flex", alignItems:"center", gap:6}}>
-                              <span style={{fontWeight:600, fontSize:13}}>{it.n}</span>
-                              {it.pro && <span className="chip" style={{padding:"0 6px", fontSize:9, background:"var(--ink)", color:"white"}}>Pro</span>}
-                            </div>
-                            <div className="mono" style={{fontSize:11, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.d}</div>
-                          </div>
-                          <span className="mono" style={{fontSize:10, color:"var(--muted)", flexShrink:0, alignSelf:"flex-start"}}>{it.conf}%</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Prompt card */}
-          <div className="rv card" style={{padding:24}}>
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14}}>
-              <div>
-                <div style={{fontWeight:700, fontSize:15}}>Refine em linguagem natural</div>
-                <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Opcional. Diga o que quer ver — a IA combina com as métricas selecionadas.</div>
-              </div>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Gemini 2.5</span>
-            </div>
-            <textarea
-              value={val} onChange={e=>setVal(e.target.value)} rows={3}
-              style={{width:"100%", padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, resize:"none", fontFamily:"inherit", fontSize:14, lineHeight:1.5, color:"var(--ink)", outline:"none"}}
-              onFocus={e=>e.target.style.borderColor="var(--brand)"}
-              onBlur={e=>e.target.style.borderColor="var(--line)"}
-            />
-            <div style={{display:"flex", flexWrap:"wrap", gap:6, marginTop:10}}>
-              {suggestions.map(s=>(
-                <button key={s} onClick={()=>setVal(s)} className="chip" style={{cursor:"pointer", background:"white", border:"1px solid var(--line)"}}>{s}</button>
-              ))}
-            </div>
-          </div>
-
-          <button className="btn btn-primary" style={{padding:"16px", justifyContent:"center", fontSize:15}} onClick={onGenerate}>
-            <Icon.Sparkle size={16}/> Gerar dashboard com {picked.size} {picked.size===1?"métrica":"métricas"}
-            <Icon.Arrow size={14}/>
-          </button>
-        </div>
-
-        {/* RIGHT: schema panel */}
-        <div className="rv card" style={{padding:0, overflow:"hidden", display:"flex", flexDirection:"column", height: "fit-content", position:"sticky", top: 80}}>
-          <div style={{padding:"18px 20px 14px", borderBottom:"1px solid var(--line)"}}>
-            <div style={{fontWeight:700, fontSize:15}}>Esquema detectado</div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Tipos inferidos automaticamente pela IA.</div>
-          </div>
-          <div style={{padding:"10px 14px 14px", display:"flex", flexDirection:"column"}}>
-            {/* Schema legend */}
-            <div style={{display:"flex", gap:10, padding:"6px 4px 12px", borderBottom:"1px dashed var(--line-2)", marginBottom:8}}>
-              {Object.entries(typeMeta).map(([k,m])=>(
-                <span key={k} style={{display:"inline-flex", alignItems:"center", gap:6, fontSize:11, color:"var(--muted)"}}>
-                  <span style={{width:8, height:8, borderRadius:2, background:m.c}}/> {m.n}
-                </span>
-              ))}
-              <div style={{flex:1}}/>
-              <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{schema.length} colunas</span>
-            </div>
-            {schema.map((c,i)=>{
-              const m = typeMeta[c.t];
-              return (
-                <div key={c.n} style={{
-                  display:"grid", gridTemplateColumns:"auto 1fr auto", gap:10, alignItems:"center",
-                  padding:"8px 6px", borderTop: i===0?"none":"1px solid var(--line-2)"
-                }}>
-                  <span style={{
-                    fontSize:9, fontWeight:700, padding:"3px 6px", borderRadius:5,
-                    background: m.bg, color: m.c, letterSpacing:".06em"
-                  }}>{m.n.toUpperCase()}</span>
-                  <div style={{minWidth:0}}>
-                    <div className="mono" style={{fontSize:13, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.n}</div>
-                    <div style={{fontSize:11, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                      ex: {c.ex}{c.uniq && ` · ${c.uniq} únicos`}{c.nulls>0 && ` · ${c.nulls} nulos`}
-                    </div>
-                  </div>
-                  <span className="icon-btn" title="Visualizar" style={{width:24, height:24, borderRadius:6}}><Icon.Eye size={11}/></span>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{padding:"12px 16px", borderTop:"1px solid var(--line)", background:"#fafbfe", fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:8}}>
-            <Icon.Sparkle size={12} color="var(--brand)"/>
-            {(()=>{
-              const nd = schema.filter(c=>c.t==="date").length;
-              const ndim = schema.filter(c=>c.t==="dimension").length;
-              const nm = schema.filter(c=>c.t==="measure").length;
-              const seg = (n, sing, plur)=> `${n} ${n===1?sing:plur}`;
-              return `A IA detectou ${seg(nd,"coluna de data","colunas de data")}, ${seg(ndim,"dimensão","dimensões")} e ${seg(nm,"métrica numérica","métricas numéricas")}.`;
-            })()}
-          </div>
         </div>
       </div>
     </div>
@@ -1183,7 +531,10 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
   // "M"/"k" from the source value so pre-scaled labels like "R$ 1,1M" keep
   // their suffix in the display.
   let display;
-  if(format === "brl"){
+  // Valor textual ("Segunda", "SP") não tem o que animar: mostra como veio.
+  if(typeof value === "string" && !/\d/.test(value)){
+    display = value;
+  } else if(format === "brl"){
     const abs = Math.abs(v);
     if(abs >= 1e6)      display = "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "M";
     else if(abs >= 1e3) display = "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "k";
@@ -1246,7 +597,7 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
       </div>
       <div style={{display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap"}}>
         {editing ? (
-          <input value={value} onChange={e=>set({value:e.target.value})} style={{
+          <input value={typeof value === "number" ? String(Math.round(value*100)/100) : value} onChange={e=>set({value:e.target.value})} style={{
             padding:"2px 6px", border:"1px dashed var(--line)", borderRadius:6,
             fontSize:24, fontWeight:800, letterSpacing:"-.02em", outline:"none", background:"transparent",
             fontFamily:"inherit", width:"min(140px, 100%)"
@@ -1254,12 +605,15 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
         ) : (
           <span className="ticker" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
         )}
-        <span className="chip mono" style={{
-          background: deltaDir==="up" ? "#e7f7ef" : "#fde7ee",
-          color: deltaDir==="up" ? "#0a8a4a" : "#c9234a", fontSize:11, cursor: editing?"pointer":"default"
-        }} onClick={()=> editing && set({deltaDir: deltaDir==="up"?"down":"up"})}>
-          {deltaDir==="up" ? "▲" : "▼"} {delta}
-        </span>
+        {/* Sem variação calculada ("—") o chip "▲ —" só fazia ruído. */}
+        {(editing || (delta && delta !== "—")) && (
+          <span className="chip mono" style={{
+            background: deltaDir==="up" ? "#e7f7ef" : "#fde7ee",
+            color: deltaDir==="up" ? "#0a8a4a" : "#c9234a", fontSize:11, cursor: editing?"pointer":"default"
+          }} onClick={()=> editing && set({deltaDir: deltaDir==="up"?"down":"up"})}>
+            {deltaDir==="up" ? "▲" : "▼"} {delta}
+          </span>
+        )}
       </div>
       <div style={{fontSize:12, color:"var(--muted)"}}>{sub}</div>
       {editing && (
@@ -1434,8 +788,8 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
           )}
         </div>
         <div style={{display:"flex", alignItems:"center", gap:6, flexShrink:0}}>
-          {!editing && dim && <span className="chip mono" style={{background:"var(--line-2)"}}>{dim}</span>}
-          {!editing && agg && <span className="chip mono" style={{background:"var(--line-2)"}}>{agg}</span>}
+          {!editing && dim && <span className="chip mono cc-meta" style={{background:"var(--line-2)"}}>{dim}</span>}
+          {!editing && agg && <span className="chip mono cc-meta" style={{background:"var(--line-2)"}}>{agg}</span>}
           <ChartTypeMenu value={type} onChange={k=>set({type:k})}/>
           {!editing && <span className="icon-btn"><Icon.More size={14}/></span>}
         </div>
@@ -1467,9 +821,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
           type==="bar" ? <BarChart data={data} height={height} color={chart.color || color}/> :
           type==="line" ? <LineChart data={data} height={height} color={chart.color || color}/> :
           type==="area" ? <LineChart data={data} height={height} color={chart.color || color} fill={true}/> :
-          <div style={{display:"flex", alignItems:"center", justifyContent:"center", height}}>
-            <Donut data={data.map((d,i)=>({v:d.v, color: i===0? (chart.color||color) : ["#94b7ff","#7a5cff","#0a8a4a","#1b2240","#ff7849"][i%5]}))} size={Math.min(height-20, 200)}/>
-          </div>
+          <DonutLegend data={data} height={height} color={chart.color || color} unit={chart.unit}/>
         )}
       </div>
     </div>
@@ -1483,13 +835,28 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
  * executive summary + insight cards + numbered recommendations. The Edge
  * Function may return list items as plain strings OR objects, so we normalize
  * both — never assume a shape that could render `undefined` into the tree. */
-function AINarrative({ tweaks, live }){
+// Cache da sessão: narrativa por base (chave = arquivo + forma das colunas).
+// Sobrevive a remontagens do Dashboard (ir à Conta e voltar não gasta cota).
+const _dashNarrativeCache = new Map();
+
+// anon: visitante sem conta — a análise grátis (1/mês) exige conta, então o
+// bloco vira convite de cadastro em vez de chamar a API.
+function AINarrative({ tweaks, live, limits, anon }){
   const accent = tweaks.accent;
+  const isFreePlan = tweaks.plan === "free";
   const data = (live && live.data) || null;
   const loading = !!(live && live.loading);
   const error = !!(live && live.error);
-  const quota = (live && live.quota) || null;
-  const reload = ()=> { if(live && live.onReload) live.onReload(); };
+  // Cota já gasta segundo o /me: mostra o card de limite sem gastar uma chamada.
+  const used = limits && limits.aiUsed != null ? limits.aiUsed : null;
+  const cap = limits && limits.aiMonthly != null ? limits.aiMonthly : null;
+  const exhausted = !anon && used != null && cap != null && used >= cap;
+  const quota = (live && live.quota) || (exhausted ? { usados: used, limite: cap } : null);
+  const signup = ()=> window.__dashOpenAuth && window.__dashOpenAuth("signup");
+  const reload = ()=> {
+    if(anon){ signup(); return; }
+    if(live && live.onReload) live.onReload();
+  };
 
   const norm = (arr)=> (Array.isArray(arr) ? arr : []).map(it => {
     if(typeof it === "string") return { title:null, detail:it };
@@ -1521,12 +888,33 @@ function AINarrative({ tweaks, live }){
           </div>
         </div>
       </div>
-      <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
-        onClick={reload} title="Gerar uma nova análise com a IA">
-        <Icon.Refresh size={12}/> {loading ? "Gerando…" : "Recarregar análise"}
-      </button>
+      {!anon && !quota && data && (
+        <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
+          onClick={reload} title="Gerar uma nova análise com a IA">
+          <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
+        </button>
+      )}
     </div>
   );
+
+  // Visitante: a análise grátis precisa de conta (a cota é por usuário).
+  if(anon && !data){
+    return (
+      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+        {Header}
+        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
+            <div style={{fontWeight:700, marginBottom:4}}>Crie uma conta grátis e gere 1 análise por mês</div>
+            A IA escreve um resumo executivo, insights e recomendações a partir desta base. Sem cartão de crédito. Seus dados continuam aqui enquanto você cria a conta.
+          </div>
+          <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+            <button className="btn btn-primary" onClick={signup}><Icon.Sparkle size={13}/> Criar conta grátis</button>
+            <button className="btn btn-ghost" onClick={()=> window.__dashOpenAuth && window.__dashOpenAuth("login")}>Já tenho conta</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Loading skeleton — only when there's nothing to show yet. A reload with
   // existing data keeps the previous content visible (button shows "Gerando…").
@@ -1564,9 +952,13 @@ function AINarrative({ tweaks, live }){
             <Icon.Sparkle size={16}/>
           </div>
           <div style={{flex:1, minWidth:200}}>
-            <div style={{fontWeight:700, fontSize:14, color:"var(--brand-2)"}}>Limite de análises deste mês atingido</div>
+            <div style={{fontWeight:700, fontSize:14, color:"var(--brand-2)"}}>
+              {isFreePlan ? "Você já usou a análise grátis deste mês" : "Limite de análises deste mês atingido"}
+            </div>
             <div style={{fontSize:13, color:"var(--ink-2)", marginTop:2}}>
-              Você usou {quota.usados != null ? quota.usados : "—"} de {quota.limite != null ? quota.limite : "—"} análises. Faça upgrade para continuar.
+              {isFreePlan
+                ? "Ela renova no dia 1º. No Essencial são 50 análises por mês e no Pro, 300."
+                : "Você usou " + (quota.usados != null ? quota.usados : "—") + " de " + (quota.limite != null ? quota.limite : "—") + " análises. A cota renova no dia 1º; faça upgrade para continuar agora."}
             </div>
           </div>
           <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()}>
@@ -1598,14 +990,32 @@ function AINarrative({ tweaks, live }){
     );
   }
 
-  // No data yet (not loading, not error) — defensive idle state.
+  // Idle — nada é enviado até o clique. O aviso diz exatamente o que sai do
+  // navegador (dashFetchNarrative: colunas, KPIs e até 20 linhas) e o custo.
   if(!data){
+    const focus = live && live.focus;
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
-        {Header}
-        <div style={{padding:18, textAlign:"center", color:"var(--muted)", fontSize:13, border:"1px dashed var(--line-2)", borderRadius:12}}>
-          Clique em “Recarregar análise” para gerar os insights da IA a partir dos seus dados.
+      <div className="card soft-shadow ai-idle" style={{padding:"18px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap",
+        background:`linear-gradient(90deg, color-mix(in oklch, ${accent} 6%, white), white 55%)`}}>
+        <div style={{width:44, height:44, borderRadius:12, flexShrink:0, background:`linear-gradient(135deg, ${accent}, var(--violet))`, display:"flex", alignItems:"center", justifyContent:"center", color:"white"}}>
+          <Icon.Sparkle size={20}/>
         </div>
+        <div style={{flex:"1 1 360px", minWidth:0}}>
+          <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+            <span style={{fontWeight:700, fontSize:15}}>Análise por IA</span>
+            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
+            {cap != null && <span style={{fontSize:12, color:"var(--muted)"}}>
+              {isFreePlan
+                ? "1 análise grátis por mês" + (used != null ? ` · ${used} de ${cap} usada${cap === 1 ? "" : "s"}` : "")
+                : "Usa 1 da sua cota mensal" + (used != null ? ` · ${used} de ${cap} usadas` : "")}
+            </span>}
+          </div>
+          <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5, marginTop:3}}>
+            Resumo executivo, insights e recomendações sobre esta base{focus ? <> com foco em <b>“{focus}”</b></> : null}.
+            {" "}<span style={{color:"var(--muted)"}}>Envia ao Google Gemini os nomes das colunas, os indicadores e até 20 linhas; o resto do arquivo fica no seu navegador.</span>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar análise</button>
       </div>
     );
   }
@@ -1614,6 +1024,13 @@ function AINarrative({ tweaks, live }){
   return (
     <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
       {Header}
+
+      {live && live.quota && (
+        <div className="no-export" style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"10px 14px", marginBottom:14, borderRadius:10, background:"var(--brand-soft)", fontSize:13, color:"var(--ink-2)"}}>
+          <span style={{flex:1, minWidth:200}}>Limite de análises deste mês atingido. A análise abaixo continua disponível.</span>
+          <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:12}} onClick={()=> window.__dashOpenPlans && window.__dashOpenPlans()}>Ver planos</button>
+        </div>
+      )}
 
       {summary && (
         <div style={{padding:"16px 18px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
@@ -1857,19 +1274,28 @@ function Insights({ tweaks, onAddChart, generated }){
   );
 }
 
-function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile }){
+function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp, onSignOut, onProfile, onPersist }){
+  // Dashboard salvo (dashboard-saved.jsx): reabre com o layout, o período e a
+  // visão de quando foi deixado.
+  const savedLayout = (fileInfo && fileInfo.savedLayout) || null;
   // Real upload → abre em "Tudo" para mostrar TODOS os dados de cara (não uma
   // janela de 90d que descartaria linhas silenciosamente). O caminho de demo
   // sem upload mantém "90d". Lazy init: roda só no mount.
-  const [period, setPeriod] = React.useState(()=> (fileInfo && fileInfo.data && fileInfo.data.length) ? "all" : "90d");
+  const [period, setPeriod] = React.useState(()=>
+    (savedLayout && ["7d","30d","90d","all"].includes(savedLayout.period)) ? savedLayout.period
+    : (fileInfo && fileInfo.data && fileInfo.data.length) ? "all" : "90d");
   const [editing, setEditing] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [paywallReason, setPaywallReason] = React.useState(null); // null | "edit" | "add" | "insights" | "advanced"
 
   const isFree = tweaks.plan === "free";   // pago (essencial OU pro) libera a análise
+  const [shareOpen, setShareOpen] = React.useState(false);
+  // Gate central (CLAUDE.md §5). Quase tudo libera a partir do Essencial; o link
+  // público é o único recurso exclusivo do Pro.
   const requirePro = (reason)=>{
-    if(isFree){ setPaywallReason(reason); return true; }
+    const blocked = reason === "share" ? tweaks.plan !== "pro" : isFree;
+    if(blocked){ setPaywallReason(reason); return true; }
     return false;
   };
   // Auto-close editing if downgraded to free
@@ -1892,16 +1318,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const dataset = React.useMemo(()=> (fileInfo && fileInfo.data) || [], [fileInfo]);
   const baseSchema = React.useMemo(()=> (fileInfo && fileInfo.schema) || [], [fileInfo]);
   const dataCols = React.useMemo(()=> dashResolveColumns(baseSchema), [baseSchema]);
-  const hasRealData = dataset.length > 0 && !!dataCols.value;
+  // isUpload: o usuário trouxe dados (upload ou demonstração). Daqui pra baixo,
+  // com isUpload os arrays de exemplo NUNCA entram — bloco sem dado real some.
+  // hasRealData exige também uma coluna de valor (alimenta realAgg).
+  const isUpload = dataset.length > 0;
+  const hasRealData = isUpload && !!dataCols.value;
+  // Filtra sempre que houver dados — antes, base sem coluna numérica virava []
+  // e o pipeline de descoberta rodava sobre zero linhas.
   const filteredData = React.useMemo(()=>{
-    if(!hasRealData) return [];
+    if(!isUpload) return [];
     return (periodMeta.days != null && dataCols.date)
       ? dashFilterByPeriod(dataset, dataCols.date, periodMeta.days)
       : dataset;
-  }, [dataset, dataCols.date, dataCols.value, periodMeta.days, hasRealData]);
+  }, [dataset, dataCols.date, periodMeta.days, isUpload]);
 
-  const totalRows = (fileInfo && fileInfo.rows) || (hasRealData ? dataset.length : 120);
-  const rowsForPeriod = hasRealData
+  const totalRows = (fileInfo && fileInfo.rows) || (isUpload ? dataset.length : 120);
+  const rowsForPeriod = isUpload
     ? filteredData.length
     : Math.max(8, Math.round(totalRows * periodMeta.rowsPct));
 
@@ -1915,20 +1347,34 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const suggestedMetrics = React.useMemo(()=>
     (profiles.length && window.dashSuggestMetrics) ? window.dashSuggestMetrics(profiles, dataset) : [],
     [profiles, dataset]);
-  const generated = React.useMemo(()=>
+  // Métricas marcadas na tela anterior (PromptView). null = todas (padrão).
+  const metricPick = (fileInfo && Array.isArray(fileInfo.metricPick)) ? fileInfo.metricPick : null;
+  const pickedMetrics = React.useMemo(()=>{
+    if(!metricPick || !window.dashMetricKey) return suggestedMetrics;
+    const want = new Set(metricPick);
+    return suggestedMetrics.filter((m, i)=> want.has(window.dashMetricKey(m, i)));
+  }, [suggestedMetrics, metricPick]);
+  const generatedAll = React.useMemo(()=>
     (profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, suggestedMetrics, filteredData) : null,
     [profiles, suggestedMetrics, filteredData]);
-  const useGenerated = !!(generated && generated.overallConfidence > 0.7 && (generated.kpis.length || generated.charts.length));
+  const generated = React.useMemo(()=>
+    (metricPick && profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, pickedMetrics, filteredData) : generatedAll,
+    [metricPick, profiles, pickedMetrics, filteredData, generatedAll]);
+  // A confiança vem da base inteira: marcar menos métricas não troca o modo do painel.
+  const useGenerated = !!(generatedAll && generatedAll.overallConfidence > 0.7 && generated && (generated.kpis.length || generated.charts.length));
   const salesShape = !!presetCompat.salesShape;
   const hasDatetimeProfile = profiles.some(p => p.pattern === "datetime");
   // Descoberta leads only when generated AND not a sales shape; sales data keeps
   // its tailored presets so the sample CSV stays byte-for-byte the same.
-  const dataDrivenMode = useGenerated && !salesShape;
+  // Base sem coluna de valor não alimenta os presets de vendas: se a descoberta
+  // gerou algo, ela lidera mesmo abaixo do limiar de confiança.
+  const dataDrivenMode = (useGenerated && !salesShape) ||
+    (isUpload && !hasRealData && !!(generated && (generated.kpis.length || generated.charts.length)));
 
   // ── AI narrative (Gemini Edge Function) ─────────────────────────────────
-  // The real narrative replaces the mock "Análises da IA" for Pro users with a
-  // real upload. We only call the function for Pro: free users see the paywall,
-  // and not calling keeps their data in the browser. Cached by the profile
+  // The real narrative replaces the mock "Análises da IA" for any signed-in
+  // user with a real upload (Free = 1/month, enforced by the backend quota).
+  // Anonymous visitors get a signup prompt and nothing is sent. Cached by the profile
   // shape (column name + pattern) so it doesn't refire when the period changes;
   // the "Recarregar análise" button forces a fresh call.
   const [narrative, setNarrative] = React.useState(null);
@@ -1938,12 +1384,26 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const narrativeKeyRef = React.useRef(null); // profile shape of the cached result
   const narrativeReqRef = React.useRef(0);    // guards against stale responses
   const narrativeKey = React.useMemo(()=>{
-    if(!hasRealData || !profiles.length) return null;
+    if(!isUpload || !profiles.length) return null;
     return ((fileInfo && fileInfo.name) || "dados") + "::" + profiles.map(p => p.name + ":" + p.pattern).join("|");
-  }, [hasRealData, profiles, fileInfo]);
+  }, [isUpload, profiles, fileInfo]);
+
+  // A IA só roda com clique explícito (CLAUDE.md §8/§14: nada de dados crus
+  // para a IA sem opt-in) — antes ela disparava sozinha ao abrir o dashboard,
+  // a cada remontagem e de novo se o período mudasse com a 1ª chamada em voo,
+  // gastando cota. O resultado fica no cache da sessão por base de dados.
+  // Um dashboard salvo traz a narrativa junto: reabrir não gasta cota.
+  React.useEffect(()=>{
+    const cached = narrativeKey && (_dashNarrativeCache.get(narrativeKey) || (fileInfo && fileInfo.savedNarrative) || null);
+    if(cached){
+      _dashNarrativeCache.set(narrativeKey, cached);
+      narrativeKeyRef.current = narrativeKey;
+      setNarrative(cached);
+    }
+  }, [narrativeKey]);
 
   const loadNarrative = React.useCallback((force)=>{
-    if(!narrativeKey) return;
+    if(!narrativeKey || narrativeLoading || !currentUser) return; // a cota é por conta (Free = 1/mês)
     if(!force && narrativeKeyRef.current === narrativeKey) return; // same data → keep cache
     const reqId = ++narrativeReqRef.current;
     setNarrativeLoading(true); setNarrativeError(false); setNarrativeQuota(null);
@@ -1952,7 +1412,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     const metricsPayload = (generated && Array.isArray(generated.kpis) ? generated.kpis : [])
       .map(k => ({ label: k.props.label, value: k.props.value, format: k.props.format }));
     const sampleRows = dataset.slice(0, 20);
-    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados")
+    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados", fileInfo && fileInfo.aiFocus)
       .then(result => {
         if(reqId !== narrativeReqRef.current) return; // a newer request superseded this one
         if(result && result.quotaExceeded){ // 429 — quota do mês esgotada: card de upgrade, não erro genérico
@@ -1960,22 +1420,25 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           setNarrativeError(false); setNarrativeLoading(false);
           return;
         }
+        if(result && result.planRequired){ setNarrativeError(true); setNarrativeLoading(false); return; }
+        if(result && result.authRequired){ setNarrativeLoading(false); return; } // currentUser vira null → bloco pede login
         const ok = result && (result.narrative || result.rawText ||
           (Array.isArray(result.insights) && result.insights.length) ||
           (Array.isArray(result.recommendations) && result.recommendations.length));
-        if(ok){ narrativeKeyRef.current = narrativeKey; setNarrative(result); setNarrativeError(false); }
+        if(ok){
+          narrativeKeyRef.current = narrativeKey;
+          _dashNarrativeCache.set(narrativeKey, result);
+          setNarrative(result); setNarrativeError(false);
+          window.dashTrack && window.dashTrack("analise_ia", { plano: tweaks.plan });
+          window.DashAPI.me().catch(()=>{}); // atualiza o contador de uso (limits.aiUsed)
+        }
         else { setNarrativeError(true); }
         setNarrativeLoading(false);
       })
       .catch(()=>{ // dashFetchNarrative already swallows errors, but stay defensive
         if(reqId === narrativeReqRef.current){ setNarrativeError(true); setNarrativeLoading(false); }
       });
-  }, [narrativeKey, profiles, dataset, generated, fileInfo]);
-
-  React.useEffect(()=>{
-    if(isFree || !narrativeKey) return; // Pro-only; free path renders the paywall
-    loadNarrative(false);
-  }, [narrativeKey, isFree, loadNarrative]);
+  }, [narrativeKey, narrativeLoading, profiles, dataset, generated, fileInfo, currentUser, tweaks.plan]);
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -2005,9 +1468,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       return {
         n: String(p.l),
         c: (row && dataCols.category && row[dataCols.category]) || "—",
-        r: (row && dataCols.region   && row[dataCols.region])   || "—",
         v: p.v,
         pct: Math.round(p.v/maxV*100),
+        s: totalAll ? Math.round(p.v/totalAll*1000)/10 : null, // participação no total (%)
       };
     });
     // Period-over-period delta: split sorted-by-date in halves.
@@ -2087,49 +1550,52 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     return { l: day+"/jul", v: 12 + Math.sin(i/5)*6 + i*0.6 + (i>60? (i-60)*0.8 : 0) };
   });
   const sliceDays = periodMeta.days != null ? periodMeta.days : fullTendency.length;
+  // `mock(x)`: exemplo só no caminho sem upload (Tweaks/dev).
+  const mock = (x)=> isUpload ? [] : x;
   const tendency = realAgg && realAgg.tendency.length
     ? realAgg.tendency
-    : fullTendency.slice(-Math.min(fullTendency.length, sliceDays));
+    : mock(fullTendency.slice(-Math.min(fullTendency.length, sliceDays)));
   const categoria = realAgg && realAgg.produto.length
     ? realAgg.produto.slice(0,6).map(p => ({
         l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
         v: p.v,
       }))
-    : [
+    : mock([
         {l:"Mesa Ajust.", v:328},{l:"Notebook", v:276},{l:"Cad. Gamer", v:84},
         {l:"Fone BT", v:62},{l:"Mouse", v:42},{l:"Headset", v:36},
-      ];
+      ]);
   const regiao = realAgg && realAgg.regiao.length
     ? realAgg.regiao.map(r => ({ l: String(r.l), v: r.v }))
-    : [{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}];
+    : mock([{l:"CO", v:212},{l:"NE", v:192},{l:"SE", v:154},{l:"SUL", v:142},{l:"N", v:91}]);
   const canal = realAgg && realAgg.canal.length
     ? realAgg.canal
-    : [{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}];
+    : mock([{v:38, l:"Marketplace"},{v:29, l:"Loja Física"},{v:24, l:"Site"},{v:9, l:"Parceiros"}]);
   const rankProduto = realAgg && realAgg.ranking.length
     ? realAgg.ranking
-    : [
+    : mock([
         { n:"Mesa Ajustável", c:"Móveis", r:"CO", v:96400, pct:74},
         { n:"Notebook Pro 14", c:"Eletrônicos", r:"SE", v:82100, pct:62},
         { n:"Cadeira Gamer", c:"Móveis", r:"NE", v:41500, pct:31},
         { n:"Fone Bluetooth", c:"Eletrônicos", r:"SUL", v:24800, pct:19},
         { n:"Mouse Sem Fio", c:"Eletrônicos", r:"CO", v:18200, pct:14},
-      ];
+      ]);
 
   // KPI props for the overview preset. realAgg drives them; mocks remain for
   // the no-upload demo path.
   const fmtDelta = (n)=> Math.abs(n).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "%";
+  // KPI com props null é removido do preset (ver cleanBlocks).
   const k1Props = realAgg
     ? { label:"Valor total", value: realAgg.totalAll, format:"brl", delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
-    : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
+    : isUpload ? null : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
   const k2Props = realAgg
     ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
-    : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
+    : isUpload ? null : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
   const k3Props = realAgg
     ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + (dataCols.order ? " pedidos no período" : " registros no período"), data: realAgg.sparkSeries, color:"#0a8a4a" }
-    : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
+    : isUpload ? null : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
   const k4Props = (realAgg && realAgg.convAvg != null)
     ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
-    : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
+    : isUpload ? null : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
 
   // ── Per-view aggregated data ───────────────────────────────────────────
   // tendencyMensal/dowVolume/vendedores come from realAgg when an upload is
@@ -2138,29 +1604,42 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // has a categoria column) to avoid showing fake "Móveis/Eletrônicos" labels.
   const tendencyMensal = realAgg && realAgg.monthly.length
     ? realAgg.monthly
-    : ["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8}));
+    : mock(["Jan","Fev","Mar","Abr","Mai","Jun","Jul"].map((l,i)=>({l, v: 60 + i*12 + Math.sin(i)*8})));
   const dowVolume = realAgg && realAgg.dow.length
     ? realAgg.dow
-    : ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]}));
+    : mock(["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map((l,i)=>({l, v: [80,134,92,108,118,72,46][i]})));
   const vendedores = realAgg && realAgg.vendedores.length
     ? realAgg.vendedores.slice(0, 6).map(s => ({ l: String(s.l), v: s.v }))
-    : [
+    : mock([
         {l:"Ana P.", v:142},{l:"Bruno S.", v:128},{l:"Carla L.", v:104},
         {l:"Diego R.", v:96},{l:"Eva M.", v:78},{l:"Felipe T.", v:62},
-      ];
+      ]);
   const categoriaMix = realAgg && realAgg.produto.length
     ? realAgg.produto.slice(0, 5).map(p => ({
         l: String(p.l).length > 14 ? String(p.l).slice(0,13)+"…" : String(p.l),
         v: p.v,
       }))
-    : [{l:"Móveis", v:54},{l:"Eletrônicos", v:32},{l:"Acessórios", v:14}];
+    : mock([{l:"Móveis", v:54},{l:"Eletrônicos", v:32},{l:"Acessórios", v:14}]);
+  // Mix por categoria real (coluna de categoria), usado no Avançado com upload.
+  const categoriaReal = realAgg && dataCols.category
+    ? dashGroupSum(filteredData, dataCols.category, dataCols.value).sort((a,b)=>b.v-a.v).slice(0, 6).map(c => ({ l: String(c.l), v: c.v }))
+    : [];
+  // Pico semanal real: dia com maior soma e quanto fica acima da média diária.
+  const dowPeak = (realAgg && realAgg.dow.length) ? (()=>{
+    const tot = realAgg.dow.reduce((s, d)=> s + d.v, 0);
+    if(!tot) return null;
+    const top = realAgg.dow.reduce((a, b)=> b.v > a.v ? b : a);
+    const over = (top.v / (tot / 7) - 1) * 100;
+    const nomes = { Seg:"Segunda", Ter:"Terça", Qua:"Quarta", Qui:"Quinta", Sex:"Sexta", "Sáb":"Sábado", Dom:"Domingo" };
+    return { label:"Pico semanal", value: nomes[top.l] || top.l, delta: fmtDelta(over), deltaDir:"up", sub:"acima da média diária", data: realAgg.dow.map(d => d.v), color:"#ff7849" };
+  })() : null;
   const cohort = Array.from({length:8}, (_,i)=>({l:`s${i+1}`, v: 100 - i*8 - Math.sin(i)*4}));
 
   // ── Per-view KPI props ─────────────────────────────────────────────────
   // Each preset (region / product / channel) gets four data-driven KPIs.
   // Mock fallbacks preserved for the Tweaks-only entry path.
   const regionPalette = [tweaks.accent, "#7a5cff", "#0a8a4a", "#ff7849"];
-  const regionKpis = realAgg ? [
+  const regionKpis = !realAgg && isUpload ? [] : realAgg ? [
     ...[0,1,2].map(i => {
       const r = realAgg.regiao[i];
       const subs = ["líder de receita","vice-líder","3º lugar"];
@@ -2176,7 +1655,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     { label:"Cobertura geográfica", value:96, suffix:"%", delta:"2pp", deltaDir:"up", sub:"5 regiões ativas", data:[80,82,86,88,90,92,94,96], color:"#ff7849" },
   ];
 
-  const productKpis = realAgg ? (()=>{
+  const productKpis = !realAgg && isUpload ? [] : realAgg ? (()=>{
     const total = realAgg.totalAll || 1;
     const prods = realAgg.produto;
     const top = prods[0];
@@ -2198,7 +1677,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   ];
 
   const channelPalette = [tweaks.accent, "#0a8a4a", "#7a5cff", "#c9234a"];
-  const channelKpis = realAgg ? [0,1,2,3].map(i => {
+  const channelKpis = !realAgg && isUpload ? [] : realAgg ? [0,1,2,3].map(i => {
     const c = realAgg.canalRaw[i];
     return c
       ? { label: String(c.l), value: c.v, format:"brl", delta:"—", deltaDir:"up", sub: i===0?"canal líder":(i===3?"em atenção":"em volume"), data: realAgg.sparkSeries, color: channelPalette[i] }
@@ -2222,10 +1701,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v0-k3", kind:"kpi", span:3, props: k3Props },
         { id:"v0-k4", kind:"kpi", span:3, props: k4Props },
         { id:"v0-c1", kind:"chart", span:8, props:{ title:"Evolução diária do valor total", sub:"Tendência por dia · "+periodMeta.label.toLowerCase(), type:"area", dim:"data", agg:"sum", color: tweaks.accent, height: 280, data: tendency }},
-        { id:"v0-c2", kind:"chart", span:4, props:{ title:"Canais de venda", sub:"Participação no valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 280, data: canal }},
+        { id:"v0-c2", kind:"chart", span:4, props:{ title:"Canais de venda", sub:"Participação no valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 280, data: canal, unit: "%" }},
         { id:"v0-c3", kind:"chart", span:6, props:{ title:"Vendas por categoria & produto", sub:"Top 6 produtos por valor total", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 240, data: categoria }},
         { id:"v0-c4", kind:"chart", span:6, props:{ title:"Vendas por região", sub:"Comparativo entre as 5 regiões", type:"bar", dim:"regiao", agg:"sum", color: tweaks.accent, height: 240, data: regiao }},
-        { id:"v0-rank", kind:"ranking", span:12, props:{ items: rankProduto }},
+        { id:"v0-rank", kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined }},
       ],
     },
     region: {
@@ -2251,7 +1730,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v2-k4", kind:"kpi", span:3, props: productKpis[3] },
         { id:"v2-c1", kind:"chart", span:7, props:{ title:"Top produtos por valor", sub:"Soma de receita por produto", type:"bar", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoria }},
         { id:"v2-c2", kind:"chart", span:5, props:{ title:"Mix por produto", sub:"Top 5 · participação no valor total", type:"donut", dim:"produto", agg:"sum", color: tweaks.accent, height: 280, data: categoriaMix }},
-        { id:"v2-rank", kind:"ranking", span:12, props:{ items: rankProduto }},
+        { id:"v2-rank", kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined }},
       ],
     },
     channel: {
@@ -2262,15 +1741,29 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         { id:"v3-k2", kind:"kpi", span:3, props: channelKpis[1] },
         { id:"v3-k3", kind:"kpi", span:3, props: channelKpis[2] },
         { id:"v3-k4", kind:"kpi", span:3, props: channelKpis[3] },
-        { id:"v3-c1", kind:"chart", span:6, props:{ title:"Participação por canal", sub:"% do valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 260, data: canal }},
+        { id:"v3-c1", kind:"chart", span:6, props:{ title:"Participação por canal", sub:"% do valor total", type:"donut", dim:"canal", agg:"sum", color: tweaks.accent, height: 260, data: canal, unit: "%" }},
         { id:"v3-c2", kind:"chart", span:6, props:{ title:"Evolução por canal", sub:"Soma de receita por mês", type:"line", dim:"data", agg:"sum", color: tweaks.accent, height: 260, data: tendencyMensal }},
         { id:"v3-c3", kind:"chart", span:12, props:{ title:"Volume por dia da semana", sub:"Soma de receita por dia da semana", type:"bar", dim:"data", agg:"sum", color: tweaks.accent, height: 240, data: dowVolume }},
       ],
     },
     advanced: {
       name: "Avançado", icon: <Icon.Sparkle size={13}/>, badge: "Pro",
-      desc: "Cohorts, sazonalidade, vendedores e detecção de outliers.",
-      blocks: [
+      desc: isUpload ? "Sazonalidade semanal, vendedores e mix por categoria." : "Cohorts, sazonalidade, vendedores e detecção de outliers.",
+      // Com upload, só o que dá para calcular dos dados. Retenção, anomalias,
+      // correlação e cohort eram números fixos exibidos como se fossem da base.
+      blocks: isUpload ? (()=>{
+        const charts = [
+          { id:"v4-c2", kind:"chart", props:{ title:"Vendas por dia da semana", sub:"Detecção de sazonalidade", type:"bar", dim:"data", agg:"sum", color: "#ff7849", height: 260, data: dowVolume }},
+          { id:"v4-c3", kind:"chart", props:{ title:"Top vendedores", sub:"Soma por vendedor", type:"bar", dim:"vendedor", agg:"sum", color: tweaks.accent, height: 260, data: vendedores }},
+          { id:"v4-c4", kind:"chart", props:{ title:"Mix por categoria", sub:"Participação no valor total", type:"donut", dim:"categoria", agg:"sum", color: "#7a5cff", height: 260, data: categoriaReal }},
+        ].filter(c => c.props.data.length);
+        const span = charts.length === 1 ? 12 : charts.length === 2 ? 6 : 4;
+        return [
+          { id:"v4-k4", kind:"kpi", span:3, props: dowPeak },
+          ...charts.map(c => ({ ...c, span })),
+          { id:"v4-insights", kind:"insights", span:12 },
+        ];
+      })() : [
         { id:"v4-k1", kind:"kpi", span:3, props:{ label:"Retenção média", value:62, suffix:"%", delta:"4pp", deltaDir:"up", sub:"cohort 8 semanas", data:[100,92,84,78,72,68,65,62], color:tweaks.accent }},
         { id:"v4-k2", kind:"kpi", span:3, props:{ label:"Anomalias detectadas", value:7, delta:"2", deltaDir:"up", sub:"pedidos > p99", data:[1,2,2,3,4,5,6,7], color:"#c9234a" }},
         { id:"v4-k3", kind:"kpi", span:3, props:{ label:"Correlação desconto×ticket", value:-0.48, delta:"0,1", deltaDir:"down", sub:"associação inversa", data:[-0.2,-0.3,-0.35,-0.4,-0.42,-0.45,-0.47,-0.48], color:"#7a5cff" }},
@@ -2283,6 +1776,16 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       ],
     },
   };
+    // Com upload: remove blocos sem dado real, presets cuja coluna não existe e
+    // fecha os buracos do grid (KPIs dividem a linha; gráfico sozinho estica).
+    if(isUpload){
+      const has = { region: dataCols.region, product: dataCols.product, channel: dataCols.channel, advanced: dataCols.date };
+      Object.keys(all).forEach(k => {
+        if(k !== "overview" && (!realAgg || (k in has && !has[k]))){ delete all[k]; return; }
+        all[k] = { ...all[k], blocks: dashFitBlocks(all[k].blocks) };
+        if(k !== "overview" && !all[k].blocks.some(b => b.kind !== "insights")) delete all[k];
+      });
+    }
     // Data-driven mode: only "Descoberta" (+ "Avançado" when a date column
     // exists, so seasonality still makes sense). Otherwise the full sales suite.
     if(dataDrivenMode && generated){
@@ -2296,14 +1799,30 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         ],
       };
       const out = { discovery: discovery };
-      if(hasDatetimeProfile) out.advanced = all.advanced;
+      if(hasDatetimeProfile && all.advanced) out.advanced = all.advanced;
       return out;
+    }
+    // Base de vendas com seleção própria na tela de métricas: a primeira visão
+    // é exatamente o que a pessoa marcou; as visões prontas continuam ao lado.
+    if(metricPick && generated && (generated.kpis.length || generated.charts.length)){
+      const selection = {
+        name: "Sua seleção", icon: <Icon.Check size={13}/>,
+        desc: "As métricas que você marcou antes de gerar o dashboard.",
+        blocks: dashFitBlocks([
+          { id:"sel-insights", kind:"insights", span:12, props:{ generated: generated.insights } },
+          ...generated.kpis,
+          ...generated.charts,
+        ]),
+      };
+      return { selection: selection, ...all };
     }
     return all;
   };
-  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile]);
-  const defaultViewKey = dataDrivenMode ? "discovery" : "overview";
-  const [viewKey, setViewKey] = React.useState(defaultViewKey);
+  const presets = React.useMemo(buildPresets, [tweaks.accent, period, realAgg, generated, dataDrivenMode, hasDatetimeProfile, isUpload, metricPick]);
+  const defaultViewKey = dataDrivenMode ? "discovery" : presets.selection ? "selection" : "overview";
+  // Visão salva só volta se ainda existir e o plano ainda a liberar.
+  const savedViewOk = !!(savedLayout && presets[savedLayout.viewKey] && !(presets[savedLayout.viewKey].badge === "Pro" && isFree));
+  const [viewKey, setViewKey] = React.useState(()=> savedViewOk ? savedLayout.viewKey : defaultViewKey);
 
   // Initial blocks — unified layout. Falls back to the first available preset
   // so it never assumes "overview" exists (Descoberta mode has no overview).
@@ -2312,7 +1831,28 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     return ((base && base.blocks) || []).concat([{ id:"b-cta", kind:"cta", span:12 }]);
   }, [presets, defaultViewKey]);
 
-  const [blocks, setBlocks] = React.useState(initialBlocks);
+  const [blocks, setBlocks] = React.useState(()=>
+    (savedViewOk && Array.isArray(savedLayout.blocks) && savedLayout.blocks.length) ? savedLayout.blocks : initialBlocks);
+
+  // Salva layout + narrativa (debounce). A última mudança pendente é gravada
+  // mesmo se a pessoa sair do dashboard antes do timer.
+  const onPersistRef = React.useRef(onPersist);
+  onPersistRef.current = onPersist;
+  const persistPendingRef = React.useRef(null);
+  const persistInitRef = React.useRef(true);
+  React.useEffect(()=>{
+    if(persistInitRef.current){ persistInitRef.current = false; return undefined; }
+    const payload = { layout: { viewKey, period, blocks }, narrative };
+    persistPendingRef.current = payload;
+    const t = setTimeout(()=>{
+      persistPendingRef.current = null;
+      if(onPersistRef.current) onPersistRef.current(payload);
+    }, 700);
+    return ()=> clearTimeout(t);
+  }, [blocks, viewKey, period, narrative]);
+  React.useEffect(()=> ()=>{
+    if(persistPendingRef.current && onPersistRef.current) onPersistRef.current(persistPendingRef.current);
+  }, []);
 
   // When the period changes, re-hydrate blocks from the active preset so chart
   // data follows. Mirrors the view-switch behavior: changing the data window
@@ -2365,7 +1905,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       const sparks = [820,860,920,1020,1100,1160,1200,1250];
       setBlocks(bs => [...bs, { id, kind:"kpi", span:3, props:{ label:"Novo KPI", value:"R$ 100k", delta:"5,0%", deltaDir:"up", sub:"vs período anterior", data:sparks, color: palette[bs.filter(b=>b.kind==="kpi").length % palette.length] }}]);
     } else if(type === "ranking"){
-      setBlocks(bs => [...bs, { id, kind:"ranking", span:12, props:{ items: rankProduto } }]);
+      setBlocks(bs => [...bs, { id, kind:"ranking", span:12, props:{ items: rankProduto, title: dataCols.product ? "Top " + dataCols.product : "Top produtos", measure: realAgg ? dataCols.value : undefined } }]);
     } else if(type === "insights"){
       setBlocks(bs => [...bs, { id, kind:"insights", span:12 }]);
     } else {
@@ -2444,9 +1984,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)}/>;
     }
     if(b.kind === "insights"){
-      // Free: blurred demo/generated Insights behind the paywall (an enticing
-      // preview). We never call the AI for free users — their data stays local.
-      if(isFree){
+      // Sem dados do usuário (entrada só pelo Tweaks) não há o que analisar: o
+      // Free vê o Insights de exemplo borrado atrás do paywall. Com upload, o
+      // Free também usa a IA real (1 análise/mês com conta; ver AINarrative).
+      if(isFree && !isUpload){
         const backdrop = (
           <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
             <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>
@@ -2462,7 +2003,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                 </div>
                 <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
                 <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:16}}>
-                  Resumo executivo, insights e recomendações gerados por IA a partir dos seus dados estão disponíveis no plano Pro.
+                  Envie uma planilha para gerar um resumo executivo, insights e recomendações com a IA. O Free inclui 1 análise por mês; no Essencial são 50 e no Pro, 300.
                 </div>
                 <div style={{display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap"}}>
                   <button className="btn btn-primary" onClick={()=>setPaywallReason("insights")}><Icon.Crown size={14}/> Desbloquear análise por IA</button>
@@ -2484,10 +2025,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           </div>
         );
       }
-      // Pro: real Gemini narrative when there's an upload to analyze; otherwise
+      // Real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
-      const inner = hasRealData
-        ? <AINarrative tweaks={tweaks} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, onReload: ()=>loadNarrative(true) }}/>
+      const inner = isUpload
+        ? <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, focus: fileInfo && fileInfo.aiFocus, onReload: ()=>loadNarrative(true) }}/>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2497,10 +2038,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     }
     if(b.kind === "ranking"){
       return <BlockShell editing={editing} kind="Ranking / Tabela" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
-        <RankingTable items={b.props.items} accent={tweaks.accent}/>
+        <RankingTable items={b.props.items} accent={tweaks.accent} title={b.props.title} measure={b.props.measure}/>
       </BlockShell>;
     }
     if(b.kind === "cta"){
+      if(tweaks.plan === "pro") return null;
       return <BlockShell editing={editing} kind="Banner / CTA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
         <div style={{padding:"18px 22px", borderRadius:16, background:"linear-gradient(90deg, #f5f8ff, white)", border:"1px solid var(--line)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:24, flexWrap:"wrap"}}>
           <div style={{display:"flex", alignItems:"center", gap:14}}>
@@ -2508,11 +2050,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               <Icon.Crown size={18}/>
             </div>
             <div>
-              <div style={{fontWeight:700, fontSize:15}}>Compartilhe em domínio próprio e agende exportações</div>
-              <div style={{fontSize:13, color:"var(--muted)"}}>Ative o Pro · 7 dias grátis</div>
+              <div style={{fontWeight:700, fontSize:15}}>300 análises da IA por mês e bases de até 1 milhão de linhas</div>
+              <div style={{fontSize:13, color:"var(--muted)"}}>Plano Pro · R$ 49,90/mês · cartão ou Pix</div>
             </div>
           </div>
-          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Experimentar Pro <Icon.Arrow size={14}/></button>
+          <button className="btn btn-primary" onClick={()=> window.__dashUpgrade?.()}>Ver planos <Icon.Arrow size={14}/></button>
         </div>
       </BlockShell>;
     }
@@ -2526,7 +2068,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
       <Topbar onClose={onClose} tweaks={tweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
-      <div style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
+      {/* #dash-export-root = o que vai para o PDF/PNG (dashboard-export.jsx).
+          .no-export some na exportação; .export-only só aparece nela. */}
+      <div id="dash-export-root" style={{maxWidth: 1480, margin: "0 auto", padding: "28px 24px 120px"}}>
         {/* Header */}
         <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 22, gap:24, flexWrap:"wrap"}}>
           <div>
@@ -2540,19 +2084,22 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
               {fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas
               {fileInfo?.isDemo && <span style={{marginLeft:6, fontWeight:600, color:"var(--warn)"}}>· Dados de demonstração · não são reais</span>}
             </div>
+            <div className="export-only" style={{fontSize:12, color:"var(--muted)", marginTop:4}}>
+              Exportado em {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"})}
+            </div>
           </div>
-          <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+          {/* "Atualizar" saiu: não tinha ação (os dados vêm do arquivo enviado). */}
+          <div className="no-export" style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
             <div className="seg">
               {[["7d","7d"],["30d","30d"],["90d","90d"],["all","Tudo"]].map(([k,n])=>(
                 <button key={k} className={period===k?"on":""} onClick={()=>setPeriod(k)}>{n}</button>
               ))}
             </div>
-            <button className="btn btn-ghost" style={{padding:"8px 12px"}}><Icon.Refresh size={14}/> Atualizar</button>
           </div>
         </div>
 
         {/* View presets — Dashboards avançados */}
-        <div className="rv" style={{
+        <div className="rv no-export" style={{
           display:"flex", alignItems:"center", gap:8, marginBottom: 18,
           padding:"6px", background:"white", border:"1px solid var(--line)",
           borderRadius: 14, overflowX:"auto"
@@ -2599,7 +2146,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
         {/* View description */}
         {presets[viewKey] && (
-          <div className="rv" style={{
+          <div className="rv no-export" style={{
             display:"flex", alignItems:"center", gap:10, marginBottom: 16,
             fontSize: 13, color:"var(--muted)"
           }}>
@@ -2632,7 +2179,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             const showBefore = dragOver?.id === b.id && dragOver.position === "before" && dragId !== b.id;
             const showAfter  = dragOver?.id === b.id && dragOver.position === "after"  && dragId !== b.id;
             return (
-              <div key={b.kind === "kpi" ? `${b.id}::${period}` : b.id} data-block-id={b.id}
+              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id} data-kind={b.kind}
                 className={"block-wrap rv"}
                 style={{
                   gridColumn: `span ${b.span}`,
@@ -2682,28 +2229,57 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
             </button>
           )}
         </div>
+        <div className="export-only export-brand" style={{alignItems:"center", gap:8, marginTop:18, paddingTop:12, borderTop:"1px solid var(--line)", fontSize:12, color:"var(--muted)"}}>
+          <Icon.Logo size={18}/> Gerado com {tweaks.brandName} · dashboards com IA
+        </div>
       </div>
 
       {/* Floating action toolbar */}
       <div className="fab-bar" style={{transform: `translateX(-50%) translateY(${exportOpen ? 80 : 0}px)`}}>
-        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (requer Pro)" : "Editar layout (E)"}>
-          {isFree ? <><Icon.Lock size={14}/> Editar</> : (editing ? <><Icon.Check size={14}/> Concluir</> : <><Icon.Wand size={14}/> Editar</>)}
+        <button className={editing ? "active" : ""} onClick={()=>{ if(requirePro("edit")) return; setEditing(!editing); }} title={isFree ? "Editar (planos pagos)" : "Editar layout (E)"} aria-label={editing ? "Concluir edição" : "Editar layout"}>
+          {isFree ? <><Icon.Lock size={14}/> <span className="fab-label">Editar</span></> : (editing ? <><Icon.Check size={14}/> <span className="fab-label">Concluir</span></> : <><Icon.Wand size={14}/> <span className="fab-label">Editar</span></>)}
         </button>
         <div style={{position:"relative"}}>
-          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (requer Pro)" : "Adicionar (A)"} className={pickerOpen?"active":""}>
-            {isFree ? <><Icon.Lock size={14}/> Adicionar</> : <><Icon.Plus size={14}/> Adicionar</>}
+          <button onClick={()=>{ if(requirePro("add")) return; setPickerOpen(!pickerOpen); }} title={isFree ? "Adicionar (planos pagos)" : "Adicionar (A)"} aria-label="Adicionar bloco" className={pickerOpen?"active":""}>
+            {isFree ? <Icon.Lock size={14}/> : <Icon.Plus size={14}/>} <span className="fab-label">Adicionar</span>
           </button>
           {pickerOpen && !isFree && (
             <AddPicker onPick={addBlock} onClose={()=>setPickerOpen(false)} accent={tweaks.accent} placement="above-center"/>
           )}
         </div>
         <div className="div"/>
-        <button onClick={()=>setExportOpen(true)} className="primary" title="Exportar (X)">
-          <Icon.Download size={14}/> Exportar
+        <button onClick={()=>{ if(requirePro("share")) return; setEditing(false); setPickerOpen(false); setShareOpen(true); }} title={tweaks.plan === "pro" ? "Compartilhar por link" : "Compartilhar por link (plano Pro)"} aria-label="Compartilhar por link">
+          {tweaks.plan === "pro" ? <Icon.Share size={14}/> : <Icon.Lock size={14}/>} <span className="fab-label">Compartilhar</span>
+        </button>
+        <button onClick={()=>{ setEditing(false); setPickerOpen(false); setExportOpen(true); }} className="primary" title="Exportar (X)" aria-label="Exportar">
+          <Icon.Download size={14}/> <span className="fab-label">Exportar</span>
         </button>
       </div>
 
-      {exportOpen && <ExportModal onClose={()=>setExportOpen(false)} blocks={blocks} tweaks={tweaks} fileInfo={fileInfo}/>}
+      {exportOpen && <ExportModal onClose={()=>setExportOpen(false)} blocks={blocks} tweaks={tweaks} fileInfo={fileInfo}
+        meta={{
+          title: dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas",
+          period: periodMeta.label,
+          rows: rowsForPeriod.toLocaleString("pt-BR") + " linhas",
+          aiSummary: narrative ? String(narrative.narrative || narrative.summary || narrative.rawText || "").slice(0, 400) : null,
+        }}
+        canExport={!isFree && !(currentUser && currentUser.limits && currentUser.limits.canExport === false)}
+        canRemoveBranding={!!(currentUser && currentUser.limits ? currentUser.limits.removeBranding : tweaks.plan === "pro")}
+        hasAI={!!narrative}
+        onLocked={()=>{ setExportOpen(false); setPaywallReason("export"); }}/>}
+      {shareOpen && <ShareModal onClose={()=>setShareOpen(false)} tweaks={tweaks} hasAI={!!narrative}
+        defaultTitle={((dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas") + (fileInfo && fileInfo.name ? " · " + fileInfo.name : "")).slice(0, 120)}
+        buildSnapshot={({ includeAI, branding })=> dashBuildShareSnapshot({
+          blocks, accent: tweaks.accent, branding,
+          aiSummary: includeAI && narrative ? String(narrative.narrative || narrative.summary || narrative.rawText || "").slice(0, 10000) : null,
+          meta: {
+            title: dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas",
+            fileName: fileInfo && fileInfo.name ? String(fileInfo.name).slice(0, 200) : undefined,
+            period: periodMeta.label,
+            rows: rowsForPeriod,
+            totalRows: totalRows,
+          },
+        })}/>}
       {paywallReason && <PaywallModal reason={paywallReason} onClose={()=>setPaywallReason(null)} tweaks={tweaks}/>}
     </div>
   );
@@ -2717,19 +2293,30 @@ function PaywallModal({ reason, onClose, tweaks }){
     return ()=>{ window.removeEventListener("keydown", onKey); document.body.style.overflow=""; };
   }, []);
   const meta = {
-    edit:     { t:"Editar o layout requer Pro", d:"Reorganizar blocos, redimensionar, mudar tipos, dimensões e cores são recursos do plano Pro." },
-    add:      { t:"Adicionar blocos requer Pro", d:"Criar novos KPIs, gráficos, ranking e blocos de insights é exclusivo do Pro." },
-    insights: { t:"Análises da IA são exclusivas do Pro", d:"Resumo executivo, insights, detecção de riscos e recomendações ficam disponíveis no Pro." },
-    advanced: { t:"Dashboards avançados são Pro", d:"Cohort, sazonalidade, vendedores e detecção de outliers fazem parte do plano Pro." },
-  }[reason] || { t:"Recurso Pro", d:"Este recurso requer o plano Pro." };
+    edit:     { t:"Editar o layout é um recurso pago", d:"Reorganizar blocos, redimensionar, mudar tipos, dimensões e cores fica disponível a partir do plano Essencial." },
+    add:      { t:"Adicionar blocos é um recurso pago", d:"Criar novos KPIs, gráficos, ranking e blocos de insights fica disponível a partir do plano Essencial." },
+    insights: { t:"Mais análises da IA nos planos pagos", d:"O Free inclui 1 análise por mês. No Essencial são 50 e no Pro, 300, com resumo executivo, insights e recomendações." },
+    advanced: { t:"Visão avançada nos planos pagos", d:"Sazonalidade, vendedores e mix por categoria ficam disponíveis a partir do plano Essencial." },
+    export:   { t:"Exportar é um recurso pago", d:"Baixe o dashboard em PDF ou PNG a partir do plano Essencial." },
+    share:    { t:"Link público é do plano Pro", d:"Compartilhe o dashboard com quem não tem conta: um link de leitura que você desativa quando quiser." },
+  }[reason] || { t:"Recurso pago", d:"Este recurso está disponível a partir do plano Essencial." };
 
-  const features = [
+  // O link público é só do Pro; o resto libera no Essencial.
+  const proOnly = reason === "share";
+  const features = proOnly ? [
+    { i:<Icon.Share size={14}/>, n:"Link público de leitura", d:"sem conta para quem recebe" },
+    { i:<Icon.Lock size={14}/>, n:"Desative quando quiser", d:"links gerenciados por você" },
+    { i:<Icon.Sparkle size={14}/>, n:"300 análises da IA", d:"por mês" },
+    { i:<Icon.Bars size={14}/>, n:"Bases de até 1 milhão", d:"de linhas" },
+    { i:<Icon.Download size={14}/>, n:"Exportar sem a marca", d:"PDF/PNG limpos" },
+    { i:<Icon.Wand size={14}/>, n:"Tudo do Essencial", d:"edição, visão avançada" },
+  ] : [
     { i:<Icon.Wand size={14}/>, n:"Edição completa do layout", d:"drag-and-drop, tamanhos, ordem" },
-    { i:<Icon.Plus size={14}/>, n:"KPIs e gráficos ilimitados", d:"barras, linha, área, donut, tabela" },
-    { i:<Icon.Sparkle size={14}/>, n:"Análises da IA", d:"resumo + insights + recomendações" },
-    { i:<Icon.Download size={14}/>, n:"Exportação avançada", d:"PDF/PNG com layout customizado" },
-    { i:<Icon.Share size={14}/>, n:"Compartilhamento por link", d:"domínio próprio e embed" },
-    { i:<Icon.Refresh size={14}/>, n:"Reanálise sob demanda", d:"refilme a IA quando quiser" },
+    { i:<Icon.Plus size={14}/>, n:"Adicionar KPIs e gráficos", d:"barras, linha, área, donut, tabela" },
+    { i:<Icon.Sparkle size={14}/>, n:"Análises da IA", d:"50/mês no Essencial · 300/mês no Pro" },
+    { i:<Icon.Grid size={14}/>, n:"Visão avançada", d:"sazonalidade, vendedores, categorias" },
+    { i:<Icon.Bars size={14}/>, n:"Bases maiores", d:"100 mil linhas · 1 milhão no Pro" },
+    { i:<Icon.Lock size={14}/>, n:"Cartão ou Pix", d:"sem fidelidade" },
   ];
 
   return (
@@ -2755,7 +2342,7 @@ function PaywallModal({ reason, onClose, tweaks }){
             display:"flex", alignItems:"center", justifyContent:"center"
           }}><Icon.X size={14}/></button>
           <div style={{display:"inline-flex", alignItems:"center", gap:8, padding:"4px 10px", borderRadius:999, background:"rgba(255,255,255,.18)", marginBottom:14, fontSize:11, fontWeight:600}}>
-            <Icon.Crown size={11}/> Plano Pro
+            <Icon.Crown size={11}/> {proOnly ? "Plano Pro" : "Planos pagos"}
           </div>
           <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>{meta.t}</h2>
           <p style={{margin:0, fontSize:14, opacity:.9, lineHeight:1.5, maxWidth:420}}>{meta.d}</p>
@@ -2778,21 +2365,21 @@ function PaywallModal({ reason, onClose, tweaks }){
           </div>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:18}}>
             <div>
-              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>Pro</div>
+              <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>{proOnly ? "Pro" : "A partir do Essencial"}</div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginTop:2}}>
-                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>R$ 29</span>
+                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>{proOnly ? "R$ 49,90" : "R$ 29,90"}</span>
                 <span style={{fontSize:13, color:"var(--muted)"}}>/mês</span>
               </div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:11, color:"#0a8a4a", fontWeight:700}}>7 dias grátis</div>
-              <div style={{fontSize:11, color:"var(--muted)"}}>Cancele a qualquer momento</div>
+              <div style={{fontSize:11, color:"var(--ink-2)", fontWeight:700}}>{proOnly ? "Cartão ou Pix" : "Pro: R$ 49,90/mês"}</div>
+              <div style={{fontSize:11, color:"var(--muted)"}}>No anual, 2 meses grátis</div>
             </div>
           </div>
           <div style={{display:"flex", gap:8}}>
             <button className="btn btn-primary" style={{flex:1, justifyContent:"center", padding:"14px"}}
               onClick={()=>{ onClose(); window.__dashUpgrade?.(); }}>
-              <Icon.Crown size={14}/> Começar teste grátis
+              <Icon.Crown size={14}/> Ver planos
             </button>
             <button className="btn btn-ghost" style={{padding:"14px 16px"}} onClick={onClose}>Agora não</button>
           </div>
@@ -2945,373 +2532,7 @@ function AddPicker({ onPick, onClose, accent, placement="top-right" }){
   );
 }
 
-function ExportModal({ onClose, blocks, tweaks, fileInfo }){
-  const [format, setFormat] = React.useState("pdf"); // pdf, png
-  const [paper, setPaper] = React.useState("a4"); // a4, letter, wide
-  const [orient, setOrient] = React.useState("portrait");
-  const [opts, setOpts] = React.useState({ summary:true, filters:true, branding:true });
-
-  // Filter blocks for the preview
-  const visibleBlocks = blocks.filter(b => b.kind !== "cta");
-  const charts = blocks.filter(b => b.kind === "chart");
-  const kpis = blocks.filter(b => b.kind === "kpi");
-
-  const paperSizes = {
-    a4: { p:[2480, 3508], n:"A4" },
-    letter: { p:[2550, 3300], n:"Carta" },
-    wide: { p:[2880, 1620], n:"Apresentação 16:9" },
-  };
-  const sz = paperSizes[paper].p;
-  const [pw, ph] = orient==="portrait" ? sz : [sz[1], sz[0]];
-  const ratio = pw/ph;
-
-  // Preview page dimensions
-  const previewW = paper === "wide" ? 720 : (orient==="portrait" ? 500 : 700);
-  const previewH = previewW / ratio;
-  const pad = paper === "wide" ? 22 : 18;
-  const contentW = previewW - pad*2;
-
-  React.useEffect(()=>{
-    const onKey = e=>{ if(e.key==="Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return ()=>{ window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
-  }, []);
-
-  const togOpt = (k)=> setOpts(o=>({...o, [k]:!o[k]}));
-
-  return (
-    <div onClick={onClose} style={{
-      position:"fixed", inset:0, zIndex:100,
-      background:"rgba(11,16,32,.5)", backdropFilter:"blur(6px)",
-      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
-      animation:"fade .2s ease"
-    }}>
-      <style>{`@keyframes fade{ from{ opacity:0 } } @keyframes pop{ from{ opacity:0; transform: translateY(8px) scale(.98); } }`}</style>
-      <div onClick={e=>e.stopPropagation()} style={{
-        width:"min(1240px, 100%)", maxHeight:"94vh", background:"white", borderRadius:18,
-        boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)",
-        display:"grid", gridTemplateColumns:"320px 1fr", overflow:"hidden",
-        animation:"pop .3s cubic-bezier(.2,.7,.2,1)"
-      }}>
-        {/* Sidebar */}
-        <div style={{padding:24, borderRight:"1px solid var(--line)", background:"#fafbfe", display:"flex", flexDirection:"column", gap:20, overflowY:"auto"}}>
-          <div>
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-              <h2 style={{margin:0, fontSize:18, fontWeight:800, letterSpacing:"-.01em"}}>Exportar</h2>
-              <button onClick={onClose} className="icon-btn" style={{width:28, height:28}}><Icon.X size={14}/></button>
-            </div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Veja a prévia antes de baixar.</div>
-          </div>
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>FORMATO</div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-              {[
-                {k:"pdf", n:"PDF", d:"Multi-página, texto selecionável"},
-                {k:"png", n:"PNG", d:"Imagem única em alta resolução"},
-              ].map(o=>(
-                <button key={o.k} onClick={()=>setFormat(o.k)} style={{
-                  padding:"12px 12px", borderRadius:10, textAlign:"left", cursor:"pointer",
-                  border: format===o.k ? "1.5px solid var(--brand)" : "1px solid var(--line)",
-                  background: format===o.k ? "var(--brand-soft)" : "white"
-                }}>
-                  <div style={{fontWeight:700, fontSize:13, color: format===o.k ? "var(--brand-2)" : "var(--ink)"}}>{o.n}</div>
-                  <div style={{fontSize:11, color:"var(--muted)", marginTop:2}}>{o.d}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>TAMANHO</div>
-            <div style={{display:"flex", flexDirection:"column", gap:6}}>
-              {[
-                {k:"a4", n:"A4", d:"210 × 297 mm"},
-                {k:"letter", n:"Carta US", d:"216 × 279 mm"},
-                {k:"wide", n:"Apresentação", d:"16:9 widescreen"},
-              ].map(o=>(
-                <label key={o.k} style={{
-                  display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:8, cursor:"pointer",
-                  background: paper===o.k ? "white" : "transparent", border: paper===o.k ? "1px solid var(--brand)" : "1px solid transparent"
-                }}>
-                  <input type="radio" name="paper" checked={paper===o.k} onChange={()=>setPaper(o.k)} style={{accentColor:"var(--brand)"}}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600, fontSize:13}}>{o.n}</div>
-                    <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>{o.d}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {paper !== "wide" && (
-            <div>
-              <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>ORIENTAÇÃO</div>
-              <div className="seg" style={{padding:3, background:"var(--line-2)"}}>
-                <button onClick={()=>setOrient("portrait")} className={orient==="portrait"?"on":""}>Retrato</button>
-                <button onClick={()=>setOrient("landscape")} className={orient==="landscape"?"on":""}>Paisagem</button>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>INCLUIR</div>
-            <div style={{display:"flex", flexDirection:"column", gap:6}}>
-              {[
-                ["summary","Capa com resumo executivo"],
-                ["filters","Filtros aplicados"],
-                ["branding","Marca do Dash no rodapé"],
-              ].map(([k,n])=>(
-                <label key={k} style={{display:"flex", alignItems:"center", gap:10, padding:"6px 4px", cursor:"pointer"}}>
-                  <input type="checkbox" checked={opts[k]} onChange={()=>togOpt(k)} style={{accentColor:"var(--brand)"}}/>
-                  <span style={{fontSize:13}}>{n}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{marginTop:"auto", paddingTop:16, borderTop:"1px solid var(--line)"}}>
-            <div style={{display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--muted)", marginBottom:4}}>
-              <span>Resolução final</span>
-              <span className="mono">{pw} × {ph} px</span>
-            </div>
-            <div style={{display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--muted)", marginBottom:8}}>
-              <span>Blocos</span>
-              <span className="mono">{kpis.length} KPI · {charts.length} gráficos</span>
-            </div>
-            <button className="btn btn-primary" style={{width:"100%", justifyContent:"center", padding:"12px"}}>
-              <Icon.Download size={14}/> Baixar {format.toUpperCase()}
-            </button>
-            <button onClick={onClose} className="btn btn-ghost" style={{width:"100%", justifyContent:"center", marginTop:8, padding:"10px"}}>Cancelar</button>
-          </div>
-        </div>
-
-        {/* Preview */}
-        <div style={{padding:28, overflowY:"auto", background:"#eef0f7", display:"flex", flexDirection:"column", alignItems:"center", gap:14}}>
-          <div style={{display:"flex", justifyContent:"space-between", width:"100%", alignItems:"center", maxWidth: previewW}}>
-            <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <span className="chip" style={{background:"white", border:"1px solid var(--line)"}}><Icon.Eye size={11}/> Pré-visualização fiel</span>
-              <span className="mono" style={{fontSize:11, color:"var(--muted)"}}>{paperSizes[paper].n} · {orient==="portrait"?"retrato":"paisagem"}</span>
-            </div>
-          </div>
-          <div style={{
-            background:"white", boxShadow:"0 30px 60px -30px rgba(11,16,32,.4)",
-            width: previewW, height: previewH, padding: pad, overflow:"hidden",
-            display:"flex", flexDirection:"column", gap: 8,
-          }}>
-            {/* Header */}
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", paddingBottom:8, borderBottom:"1px solid var(--line-2)"}}>
-              <div>
-                <div style={{fontSize:8, color:"var(--muted)", letterSpacing:".08em", fontWeight:600}} className="mono">VISÃO GERAL DE VENDAS</div>
-                <div style={{fontWeight:800, fontSize:14, letterSpacing:"-.01em"}}>{fileInfo?.name || "vendas_exemplo.csv"}</div>
-              </div>
-              <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2}}>
-                {opts.branding && <Icon.Logo size={18}/>}
-                <span className="mono" style={{fontSize:8, color:"var(--muted)"}}>20/mai/2026 · {(fileInfo?.rows||120).toLocaleString("pt-BR")} linhas</span>
-              </div>
-            </div>
-
-            {opts.filters && (
-              <div style={{display:"flex", gap:4, fontSize:8.5, alignItems:"center", flexWrap:"wrap"}}>
-                <span className="mono" style={{color:"var(--muted)", fontWeight:600}}>FILTROS:</span>
-                <span style={{padding:"1px 6px", background:"var(--brand-soft)", color:"var(--brand-2)", borderRadius:99}}>regiao: CO, NE</span>
-                <span style={{padding:"1px 6px", background:"var(--brand-soft)", color:"var(--brand-2)", borderRadius:99}}>canal: Marketplace</span>
-                <span style={{color:"var(--muted)", marginLeft:"auto"}} className="mono">72/120 linhas</span>
-              </div>
-            )}
-
-            {opts.summary && (
-              <div style={{padding:"6px 8px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:6}}>
-                <div className="mono" style={{fontSize:7, fontWeight:700, color:"var(--muted)", marginBottom:2}}>RESUMO EXECUTIVO</div>
-                <div style={{fontSize:8.5, lineHeight:1.45, color:"var(--ink-2)"}}>Panorama saudável com forte expressão em Móveis e Eletrônicos, dominância do canal Marketplace e crescimento no Centro-Oeste. Alerta no ticket médio (−23%).</div>
-              </div>
-            )}
-
-            {/* Block grid — mirrors the dashboard */}
-            <div style={{display:"grid", gridTemplateColumns:"repeat(12, 1fr)", gap:5, flex:1, minHeight:0, overflow:"hidden"}}>
-              {visibleBlocks.map(b => (
-                <div key={b.id} style={{gridColumn:`span ${Math.min(12, b.span)}`, minHeight: 0}}>
-                  <MiniBlock block={b} accent={tweaks.accent} contentW={contentW}/>
-                </div>
-              ))}
-            </div>
-
-            {opts.branding && (
-              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:5, borderTop:"1px solid var(--line-2)", fontSize:7.5, color:"var(--muted)", flexShrink:0}}>
-                <span>Gerado com {tweaks.brandName} · IA Gemini 2.5</span>
-                <span className="mono">página 1/1</span>
-              </div>
-            )}
-          </div>
-          <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>
-            Os blocos seguem a mesma ordem e proporção do dashboard.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MiniBlock({ block, accent, contentW }){
-  if(block.kind === "kpi"){
-    const k = block.props;
-    return (
-      <div style={{
-        padding:"5px 7px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", display:"flex", flexDirection:"column", justifyContent:"space-between", overflow:"hidden"
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:3}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:k.color, flexShrink:0}}/>
-          <span style={{fontSize:7, color:"var(--muted)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.label}</span>
-        </div>
-        <div style={{display:"flex", alignItems:"baseline", gap:3, flexWrap:"nowrap"}}>
-          <span style={{fontWeight:800, fontSize:13, color:"var(--ink)", letterSpacing:"-.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.value}{k.suffix || ""}</span>
-          <span style={{fontSize:7, fontWeight:700, color: k.deltaDir==="up"?"#0a8a4a":"#c9234a", flexShrink:0}}>{k.deltaDir==="up"?"▲":"▼"} {k.delta}</span>
-        </div>
-        <div style={{fontSize:6.5, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.sub}</div>
-        <div style={{marginTop:2}}>
-          <Sparkline data={k.data} color={k.color} width={Math.max(80, Math.round(contentW*(block.span/12)))} height={18} fill={true}/>
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "chart"){
-    const c = block.props;
-    const cardW = Math.round(contentW * (block.span/12));
-    const chartH = block.span >= 8 ? 70 : block.span >= 6 ? 64 : 56;
-    return (
-      <div style={{
-        padding:"5px 7px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", display:"flex", flexDirection:"column", gap:3, overflow:"hidden"
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:c.color || accent, flexShrink:0}}/>
-          <div style={{fontSize:8, fontWeight:700, color:"var(--ink)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1}}>{c.title}</div>
-          <span style={{fontSize:7, color:"var(--muted)", fontFamily:"'Geist Mono', monospace", flexShrink:0}}>{c.dim}</span>
-        </div>
-        <div style={{fontSize:7, color:"var(--muted)", marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.sub}</div>
-        <div style={{flex:1, minHeight: chartH}}>
-          <MiniChart chart={c} color={c.color || accent} width={cardW-14} height={chartH}/>
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "insights"){
-    // Mirror the generated insights when present so the export preview matches
-    // the real block (CLAUDE.md §5); otherwise show the sales demo strip.
-    const gen = block.props && block.props.generated;
-    const items = (Array.isArray(gen) && gen.length)
-      ? gen.slice(0, 4).map(it => ({ t: it.t, d: it.ev || it.tag, risk: it.risk }))
-      : [
-          {t:"Móveis e Eletrônicos lideram", d:"42% do valor total"},
-          {t:"Centro-Oeste em alta", d:"R$ 212k · ↑22%"},
-          {t:"Marketplace dominante", d:"38% das vendas"},
-          {t:"Ticket caiu 23%", d:"alerta de receita", risk:true},
-        ];
-    return (
-      <div style={{
-        padding:"6px 8px", background:"linear-gradient(135deg, var(--brand-soft), white)",
-        border:"1px solid var(--brand-soft)", borderRadius:5, height:"100%", overflow:"hidden",
-        display:"flex", flexDirection:"column", gap:3
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <Icon.Sparkle size={9} color="var(--brand)"/>
-          <span className="mono" style={{fontSize:7.5, fontWeight:700, color:"var(--brand-2)"}}>ANÁLISES DA IA</span>
-          <span className="chip" style={{padding:"0 4px", fontSize:6.5, background:"#e7f7ef", color:"#0a8a4a"}}>89%</span>
-        </div>
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:4, flex:1, minHeight:0}}>
-          {items.map((it,i)=>(
-            <div key={i} style={{
-              padding:"4px 6px", borderRadius:4, background: it.risk?"#fff7f9":"white",
-              border:`1px solid ${it.risk?"#ffd2dd":"var(--line-2)"}`, minHeight: 0
-            }}>
-              <div style={{fontSize:7.5, fontWeight:700, color: it.risk?"#c9234a":"var(--ink)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.t}</div>
-              <div style={{fontSize:7, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.d}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  if(block.kind === "ranking"){
-    const items = (block.props?.items || []).slice(0,5);
-    return (
-      <div style={{
-        padding:"6px 8px", border:"1px solid var(--line)", borderRadius:5, background:"white",
-        height:"100%", overflow:"hidden", display:"flex", flexDirection:"column", gap:3
-      }}>
-        <div style={{display:"flex", alignItems:"center", gap:4}}>
-          <span style={{width:5, height:5, borderRadius:"50%", background:accent}}/>
-          <span style={{fontSize:8, fontWeight:700}}>Top produtos</span>
-        </div>
-        <div style={{display:"flex", flexDirection:"column", gap:2, flex:1}}>
-          {items.map((p,i)=>(
-            <div key={i} style={{display:"grid", gridTemplateColumns:"12px 1.6fr 1fr 60px", gap:5, alignItems:"center", fontSize:7}}>
-              <span className="mono" style={{color:"var(--muted)"}}>{String(i+1).padStart(2,"0")}</span>
-              <span style={{fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.n}</span>
-              <div style={{position:"relative", height:4, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
-                <div style={{width:p.pct+"%", height:"100%", background:`linear-gradient(90deg, ${accent}, var(--violet))`}}/>
-              </div>
-              <span style={{textAlign:"right", fontWeight:700, fontVariantNumeric:"tabular-nums"}}>R$ {(p.v/1000).toFixed(1)}k</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return null;
-}
-
-function MiniChart({ chart, color, width, height }){
-  const { type, data } = chart;
-  if(type==="line" || type==="area"){
-    return <LineChart data={data} width={width||200} height={height} color={color} fill={type==="area"} showAxis={false} animate={false}/>;
-  }
-  if(type==="donut"){
-    return (
-      <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100%", gap:6}}>
-        <Donut data={data.map((d,i)=>({v:d.v, color: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a","#1b2240","#ff7849"][i%5]}))} size={Math.min(height-4, 48)} thickness={6} animDelay={999}/>
-        <div style={{display:"flex", flexDirection:"column", gap:1, fontSize:6.5}}>
-          {data.slice(0,3).map((d,i)=>(
-            <div key={i} style={{display:"flex", alignItems:"center", gap:3}}>
-              <span style={{width:4, height:4, borderRadius:"50%", background: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a"][i%3]}}/>
-              <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth: 60}}>{d.l}</span>
-              <span className="mono" style={{color:"var(--muted)", marginLeft:"auto"}}>{d.v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return <MiniBars data={data} color={color} width={width||200} height={height}/>;
-}
-
-function MiniBars({ data, color, width, height }){
-  const pad = { l: 2, r: 2, t: 2, b: 10 };
-  const W = width - pad.l - pad.r;
-  const H = height - pad.t - pad.b;
-  const max = Math.max(...data.map(d=>d.v));
-  const barW = W / data.length * 0.7;
-  const gap = W / data.length * 0.3;
-  return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      {data.map((d,i)=>{
-        const h = (d.v/max)*H;
-        const x = pad.l + i*(barW+gap) + gap/2;
-        const y = pad.t + H - h;
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={barW} height={h} rx="1.5" fill={color}/>
-            <text x={x+barW/2} y={height-2} fontSize="5.5" textAnchor="middle" fill="#8c93a6">{String(d.l).slice(0,5)}</text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function RankingTable({ items, accent }){
+function RankingTable({ items, accent, title, sub, measure }){
   const ref = React.useRef(null);
   const [vis, setVis] = React.useState(false);
   React.useEffect(()=>{
@@ -3319,68 +2540,80 @@ function RankingTable({ items, accent }){
     if(ref.current) io.observe(ref.current);
     return ()=> io.disconnect();
   },[]);
+  items = items || [];
+  // Coluna só aparece se algum item tem o dado (antes: "—" em todas as linhas).
+  const hasCat = items.some(p => p.c && p.c !== "—");
+  const hasShare = items.some(p => p.s != null);
+  const cols = "40px minmax(0, 2.2fr)" + (hasCat ? " minmax(0, 1fr)" : "") + " minmax(0, 1.6fr) minmax(90px, .9fr)";
+  const money = (v)=>{
+    const a = Math.abs(v);
+    if(a >= 1e6) return "R$ " + (v/1e6).toLocaleString("pt-BR", {maximumFractionDigits:1}) + " mi";
+    if(a >= 1e3) return "R$ " + (v/1e3).toLocaleString("pt-BR", {maximumFractionDigits:1}) + " mil";
+    return "R$ " + Math.round(v).toLocaleString("pt-BR");
+  };
+  const initials = (n)=> String(n).split(/\s+/).filter(Boolean).map(x=>x[0]).slice(0,2).join("").toUpperCase() || "#";
   return (
     <div ref={ref} className="chart-card lift" style={{
       opacity: vis?1:0, transform: vis?"none":"translateY(20px)", transition:"all .7s cubic-bezier(.2,.7,.2,1)"
     }}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start"}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap"}}>
         <div>
           <div style={{display:"flex", alignItems:"center", gap:8}}>
             <span style={{width:8, height:8, borderRadius:"50%", background:accent}}/>
-            <span style={{fontWeight:700, fontSize:15}}>Top produtos</span>
+            <span style={{fontWeight:700, fontSize:15}}>{title || "Top produtos"}</span>
           </div>
-          <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>Os 5 itens com maior valor total no período</div>
+          <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>{sub || ("Os " + items.length + " itens com maior valor no período")}</div>
         </div>
-        <div style={{display:"flex", gap:6}}>
-          <span className="chip mono" style={{background:"var(--line-2)"}}>valor_total</span>
-          <span className="chip mono" style={{background:"var(--line-2)"}}>Soma</span>
-          <span className="icon-btn"><Icon.Download size={14}/></span>
-          <span className="icon-btn"><Icon.More size={14}/></span>
-        </div>
+        {measure && <span className="chip mono" style={{background:"var(--line-2)"}}>soma · {measure}</span>}
       </div>
-      <div style={{display:"grid", gridTemplateColumns:"36px 2.4fr 1fr .6fr 1.4fr 1fr", gap:12, alignItems:"center", marginTop:6}}>
-        {["#","Produto","Categoria","Região","Distribuição","Valor"].map((h,i)=>(
-          <div key={h} className="mono" style={{fontSize:11, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i>=5? "right":"left"}}>{h}</div>
-        ))}
-      </div>
-      <div style={{display:"flex", flexDirection:"column"}}>
-        {items.map((p, i)=>(
-          <div key={p.n} style={{
-            display:"grid", gridTemplateColumns:"36px 2.4fr 1fr .6fr 1.4fr 1fr", gap:12, alignItems:"center",
-            padding:"12px 0", borderTop:"1px solid var(--line-2)",
-            opacity: vis?1:0, transform: vis?"none":"translateX(10px)",
-            transition:`all .5s ${i*0.08}s cubic-bezier(.2,.7,.2,1)`
-          }}>
-            <div className="mono" style={{fontSize:13, color:"var(--muted)"}}>{String(i+1).padStart(2,"0")}</div>
-            <div style={{display:"flex", alignItems:"center", gap:10}}>
-              <div style={{width:32, height:32, borderRadius:8, background:`linear-gradient(135deg, ${accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700}}>{p.n.split(" ").map(x=>x[0]).slice(0,2).join("")}</div>
-              <div>
-                <div style={{fontWeight:600, fontSize:14}}>{p.n}</div>
-                <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>SKU-{1000+i*23}</div>
+      <div style={{overflowX:"auto"}}>
+        <div style={{minWidth:520}}>
+          <div style={{display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center", marginTop:10, padding:"0 0 8px"}}>
+            {["#","Item"].concat(hasCat ? ["Categoria"] : [], [hasShare ? "Participação" : "Comparativo", "Valor"]).map((h,i,arr)=>(
+              <div key={h} className="mono" style={{fontSize:10.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i===arr.length-1 ? "right":"left"}}>{h}</div>
+            ))}
+          </div>
+          {items.map((p, i)=>(
+            <div key={p.n + i} style={{
+              display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center",
+              padding:"11px 0", borderTop:"1px solid var(--line-2)",
+              opacity: vis?1:0, transform: vis?"none":"translateX(10px)",
+              transition:`all .5s ${i*0.08}s cubic-bezier(.2,.7,.2,1)`
+            }}>
+              <div className="mono" style={{fontSize:12.5, color: i < 3 ? "var(--ink)" : "var(--muted)", fontWeight: i < 3 ? 700 : 500}}>{String(i+1).padStart(2,"0")}</div>
+              <div style={{display:"flex", alignItems:"center", gap:10, minWidth:0}}>
+                <div style={{width:30, height:30, borderRadius:8, flexShrink:0, background:`color-mix(in oklch, ${accent} ${i === 0 ? 100 : 14}%, white)`, color: i === 0 ? "white" : accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11.5, fontWeight:700}}>{initials(p.n)}</div>
+                <div style={{fontWeight:600, fontSize:13.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}} title={p.n}>{p.n}</div>
               </div>
+              {hasCat && <div style={{fontSize:13, color:"var(--ink-2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.c}</div>}
+              <div style={{display:"flex", alignItems:"center", gap:10}}>
+                <div style={{flex:1, height:7, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
+                  <div style={{
+                    width: vis ? p.pct+"%" : "0%", height:"100%", borderRadius:99,
+                    background: `linear-gradient(90deg, ${accent}, var(--violet))`,
+                    transition:`width 1s ${0.3 + i*0.1}s cubic-bezier(.2,.7,.2,1)`
+                  }}/>
+                </div>
+                {p.s != null && <span className="mono" style={{fontSize:11.5, color:"var(--muted)", minWidth:42, textAlign:"right"}}>{p.s.toLocaleString("pt-BR", {maximumFractionDigits:1})}%</span>}
+              </div>
+              <div className="ticker" style={{textAlign:"right", fontWeight:700, fontSize:13.5}}>{money(p.v)}</div>
             </div>
-            <div style={{fontSize:13}}>{p.c}</div>
-            <div className="mono" style={{fontSize:12, color:"var(--muted)"}}>{p.r}</div>
-            <div style={{position:"relative", height:8, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
-              <div style={{
-                width: vis ? p.pct+"%" : "0%", height:"100%",
-                background: `linear-gradient(90deg, ${accent}, var(--violet))`,
-                transition:`width 1s ${0.3 + i*0.1}s cubic-bezier(.2,.7,.2,1)`
-              }}/>
-            </div>
-            <div style={{textAlign:"right", fontWeight:700, fontVariantNumeric:"tabular-nums"}}>R$ {(p.v/1000).toFixed(1)}k</div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 Object.assign(window, {
-  Dashboard, UploadView, PromptView,
+  Dashboard,
+  // Usados pelo fluxo de envio (dashboard-flow.jsx).
+  dashJsonToParsed, dashXlsxToParsed, dashEnsureXLSX, dashDecodeText, DASH_SAMPLE_JSON,
   // Exposed so App can drive a "Ver demonstração" flow without re-implementing
   // the CSV pipeline.
   dashParseCSV, dashParseNumber, dashParseDate, dashInferSchema, dashRowsToObjects, dashResolveColumns,
   dashFetchNarrative, AINarrative,
   DASH_SAMPLE_CSV,
+  // Reusados pela página pública de link compartilhado (share-view.jsx).
+  KPI, ChartCard, RankingTable,
 });

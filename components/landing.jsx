@@ -76,6 +76,12 @@ function useCount(target, when, ms=1400){
   return v;
 }
 
+// Rótulo do plano para exibição. Três tiers (free | essencial | pro); qualquer
+// outro valor cai em "Free", igual ao isPlanId do backend.
+function dashPlanLabel(plan){
+  return plan === "pro" ? "Pro" : plan === "essencial" ? "Essencial" : "Free";
+}
+
 // Reusable auth control. While unauthenticated → "Entrar" / "Criar conta"
 // buttons that route to the AuthView via window.__dashOpenAuth. Once
 // authenticated → an avatar bubble with the email's first letter that opens
@@ -95,7 +101,7 @@ function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, acc
       <div style={{display:"flex", alignItems:"center", gap:8}}>
         <button className="btn btn-ghost" onClick={onSignIn}>Entrar</button>
         {onSignUp && (
-          <button className="btn btn-ghost" onClick={onSignUp}
+          <button className="btn btn-ghost ab-signup" onClick={onSignUp}
             style={{color:"var(--ink)", fontWeight:600}}>
             Criar conta
           </button>
@@ -133,13 +139,11 @@ function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, acc
             {currentUser.plan && (
               <div style={{marginTop:6}}>
                 <span className="chip" style={{
-                  background: currentUser.plan === "pro" ? "#e7f7ef" : "var(--line-2)",
-                  color: currentUser.plan === "pro" ? "#0a5a30" : "var(--ink-2)",
+                  background: currentUser.plan !== "free" ? "#e7f7ef" : "var(--line-2)",
+                  color: currentUser.plan !== "free" ? "#0a5a30" : "var(--ink-2)",
                   fontSize:10, fontWeight:700, gap:4,
                 }}>
-                  {currentUser.plan === "pro"
-                    ? <><Icon.Crown size={10}/> Plano: Pro</>
-                    : <>Plano: Free</>}
+                  {currentUser.plan !== "free" && <Icon.Crown size={10}/>} Plano: {dashPlanLabel(currentUser.plan)}
                 </span>
               </div>
             )}
@@ -303,7 +307,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
       <div className="wrap resp-collapse" style={{position:"relative", display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:60, alignItems:"center"}}>
         <div>
           <div className="rv eyebrow" style={{marginBottom:18}}>
-            <span className="dot"/> v2.6 · agora com narrativa por IA
+            <span className="dot"/> Novo: 1 análise por IA grátis todo mês
           </div>
           <h1 className="rv rv-up h-display" style={{margin:"0 0 18px"}}>
             Da planilha ao<br/>
@@ -313,14 +317,14 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
             }}>dashboard</span> em segundos.
           </h1>
           <p className="rv lede" style={{margin:"0 0 28px", maxWidth: 520}}>
-            Suba um CSV, JSON ou Excel. Descreva o que quer ver. O {tweaks.brandName} monta KPIs, gráficos e análises — e você edita visualmente. Sem código.
+            Suba um CSV, JSON ou Excel. O {tweaks.brandName} monta KPIs, gráficos e um ranking, e a IA escreve a análise quando você pede. Sem código.
           </p>
           <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
             <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>Começar grátis <Icon.Arrow size={14}/></button>
             <button className="btn btn-ghost" onClick={onLoadDemo}><Icon.Sparkle size={12}/> Ver demonstração com dados de exemplo</button>
           </div>
           <div className="rv" style={{display:"flex", gap:18, flexWrap:"wrap"}}>
-            {["Sem cartão", "CSV · JSON · Excel", "100% no navegador", "LGPD"].map(t=>(
+            {["Sem cartão", "CSV · JSON · Excel", "Processamento local", "LGPD"].map(t=>(
               <span key={t} style={{display:"inline-flex", gap:6, alignItems:"center", color:"var(--muted)", fontSize:13}}>
                 <Icon.Check size={14} stroke={2.4}/> {t}
               </span>
@@ -343,19 +347,21 @@ function StatStrip(){
     if(ref.current) io.observe(ref.current);
     return ()=>io.disconnect();
   }, []);
-  const a = useCount(48000, vis);
-  const b = useCount(12, vis);
-  const c = useCount(99.4, vis);
-  const d = useCount(7, vis);
+  // Só fatos do produto (antes: "48.000 dashboards gerados", "99,4% de uptime"
+  // e "7 tipos de gráfico", números que não existiam).
+  const a = useCount(100, vis);
+  const b = useCount(4, vis);
+  const c = useCount(4, vis);
+  const d = useCount(1, vis);
   return (
     <section className="pad" style={{padding:"32px 24px 24px"}}>
       <div className="wrap rv" ref={ref}>
         <div className="strip soft-shadow">
           {[
-            { k: Math.round(a).toLocaleString("pt-BR"), s:"dashboards gerados" },
-            { k: b.toFixed(1)+"s", s:"tempo médio para o primeiro insight" },
-            { k: c.toFixed(1)+"%", s:"uptime de processamento local" },
-            { k: d.toFixed(0), s:"tipos de gráfico cobertos por padrão" },
+            { k: Math.round(a) + "%", s:"do arquivo processado no seu navegador" },
+            { k: Math.round(b), s:"formatos: CSV, TSV, JSON e Excel" },
+            { k: Math.round(c), s:"tipos de gráfico: barras, linha, área e donut" },
+            { k: Math.round(d), s:"análise por IA grátis por mês, sem cartão" },
           ].map((it,i)=>(
             <div key={i} style={{textAlign:"left"}}>
               <div className="ticker" style={{fontSize:30, fontWeight:800, letterSpacing:"-.02em"}}>{it.k}</div>
@@ -395,12 +401,12 @@ function PinnedSteps({ tweaks }){
           <div>
             <span className="eyebrow"><span className="dot"/> Como funciona</span>
             <h2 className="h-section" style={{margin:"18px 0 14px"}}>Três passos.<br/>Zero fricção.</h2>
-            <p className="lede" style={{maxWidth: 460, margin: 0}}>Role para ver — o {tweaks.brandName} processa, descreve e renderiza, tudo dentro do seu navegador.</p>
+            <p className="lede" style={{maxWidth: 460, margin: 0}}>Role para ver — o {tweaks.brandName} lê seu arquivo e monta o dashboard dentro do seu navegador.</p>
 
             <div style={{marginTop: 36, display:"flex", flexDirection:"column", gap:14}}>
               {[
                 {n:"01", t:"Suba seus dados", s:"CSV, JSON ou Excel. Nada sai do seu navegador.", icon: <Icon.Upload size={18}/>},
-                {n:"02", t:"Descreva as métricas", s:'Em linguagem natural — "receita por região, evolução mensal".', icon: <Icon.Wand size={18}/>},
+                {n:"02", t:"Escolha as métricas", s:"O Dash sugere KPIs, tendências e quebras; você marca o que entra.", icon: <Icon.Wand size={18}/>},
                 {n:"03", t:"Receba o dashboard", s:"KPIs, gráficos e análises. Edite, reorganize, exporte.", icon: <Icon.Chart size={18}/>},
               ].map((s,i)=>(
                 <div key={i} style={{
@@ -548,7 +554,7 @@ function ChartGallery({ tweaks }){
         <div style={{textAlign:"center", marginBottom: 48}}>
           <span className="rv eyebrow"><span className="dot"/> Exemplos visuais</span>
           <h2 className="rv h-section" style={{margin:"16px auto 8px"}}>Gráficos com qualidade de produto.</h2>
-          <p className="rv lede" style={{margin:"0 auto", maxWidth: 560}}>Tipografia limpa, cores acessíveis, animações suaves. Tudo ajustável no Pro.</p>
+          <p className="rv lede" style={{margin:"0 auto", maxWidth: 560}}>Tipografia limpa, cores acessíveis, animações suaves. Tudo ajustável nos planos pagos.</p>
         </div>
         <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr", gap:18}}>
           <div className="rv card soft-shadow lift" style={{padding:22}}>
@@ -608,12 +614,12 @@ function ChartGallery({ tweaks }){
 
 function Features({ tweaks }){
   const feats = [
-    { i: <Icon.Wand size={20}/>, t:"IA monta para você", d:"Descreva em português o que quer ver. Os gráficos certos aparecem.", c: tweaks.accent },
+    { i: <Icon.Wand size={20}/>, t:"Monta sozinho", d:"Detecta as colunas e sugere KPIs, tendências e rankings. Você escolhe o que entra.", c: tweaks.accent },
     { i: <Icon.Sparkle size={20}/>, t:"Análises automáticas", d:"Resumo executivo + insights destacando tendências e outliers.", c: "var(--violet)"},
     { i: <Icon.Chart size={20}/>, t:"Edição visual", d:"Troque tipo de gráfico, cores, ordem e título sem código.", c: "#0a8a4a"},
-    { i: <Icon.Lock size={20}/>, t:"Tudo no navegador", d:"Seus dados nunca saem do dispositivo durante a análise.", c: "#ff7849"},
-    { i: <Icon.Bars size={20}/>, t:"7 tipos de gráfico", d:"KPI, barras, linha, área, pizza, donut e tabela com tema unificado.", c: "#ff5e93"},
-    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Link público, embed ou PDF — com filtros aplicados.", c: "#1b2240" },
+    { i: <Icon.Lock size={20}/>, t:"Processamento local", d:"Seus arquivos são lidos no navegador. Só a análise da IA, quando você pede, envia uma amostra.", c: "#ff7849"},
+    { i: <Icon.Bars size={20}/>, t:"KPIs, gráficos e ranking", d:"Barras, linha, área e donut com legenda, no mesmo tema visual.", c: "#ff5e93"},
+    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Exporte em PDF ou PNG, ou crie um link público de leitura (Pro).", c: "#1b2240" },
   ];
   return (
     <section id="recursos" className="pad" style={{paddingTop: 80}}>
@@ -646,17 +652,18 @@ function Features({ tweaks }){
 }
 
 function Logos(){
-  const items = ["acme co","north star","quilo labs","oitava","datavela","helix","brisa","monorail","palmar"];
+  // Tipos de planilha que o Dash lê — não logos de clientes (não havia nenhum).
+  const items = ["Vendas","Financeiro","Estoque","Marketing","Pesquisas","RH","Atendimento","Logística","Exportações de ERP"];
   return (
     <section style={{padding:"24px 0 24px"}}>
       <div className="wrap" style={{textAlign:"center", marginBottom:18}}>
-        <span style={{fontSize:13, color:"var(--muted)"}}>Times de dados e produto usam para fechar o ciclo de análise:</span>
+        <span style={{fontSize:13, color:"var(--muted)"}}>Serve para qualquer planilha com cabeçalho:</span>
       </div>
       <div className="marquee">
         <div className="marquee-track">
           {[...items, ...items].map((t,i)=>(
-            <span key={i} className="marquee-item" style={{fontSize:22, letterSpacing:"-.03em", fontWeight:600, opacity:.55}}>
-              <span style={{width:18,height:18,borderRadius:5, background:"linear-gradient(135deg,#1b2240,#5b6478)"}}/>
+            <span key={i} className="marquee-item" style={{fontSize:20, letterSpacing:"-.02em", fontWeight:600, opacity:.6}}>
+              <Icon.Doc size={16}/>
               {t}
             </span>
           ))}
@@ -666,49 +673,84 @@ function Logos(){
   );
 }
 
+// Preços espelham src/plans.ts do backend (anual = 10× o mensal, ou seja,
+// 2 meses grátis). Usado por Pricing, PlansView, BillingSection e app.jsx.
+const DASH_PRICES = {
+  essencial: { monthly: 29.90, yearly: 299 },
+  pro:       { monthly: 49.90, yearly: 499 },
+};
+function dashFmtBRL(v){ return "R$ " + Number(v).toFixed(2).replace(".", ","); }
+
+// Seletor Mensal/Anual compartilhado pela landing e pela PlansView.
+function CycleToggle({ cycle, onChange }){
+  return (
+    <div className="seg" role="group" aria-label="Ciclo de cobrança" style={{padding:4, borderRadius:12}}>
+      <button className={cycle === "monthly" ? "on" : ""} aria-pressed={cycle === "monthly"} onClick={()=> onChange("monthly")} style={{padding:"8px 16px", fontSize:13, fontWeight:600}}>Mensal</button>
+      <button className={cycle === "yearly" ? "on" : ""} aria-pressed={cycle === "yearly"} onClick={()=> onChange("yearly")} style={{padding:"8px 14px", fontSize:13, fontWeight:600}}>
+        Anual <span className="chip" style={{marginLeft:6, padding:"1px 7px", fontSize:10.5, background:"#e7f7ef", color:"#0a8a4a"}}>2 meses grátis</span>
+      </button>
+    </div>
+  );
+}
+
+// Espelha os 3 tiers do backend (src/plans.ts) e a PlansView — manter os três
+// em sincronia ao mudar preço/limite.
 function Pricing({ onOpenApp }){
+  const [cycle, setCycle] = React.useState("monthly");
+  const yearly = cycle === "yearly";
+  const price = (k)=> {
+    const v = DASH_PRICES[k][cycle];
+    return yearly ? String(v) : v.toFixed(2).replace(".", ",");
+  };
+  const perMonth = (k)=> dashFmtBRL(DASH_PRICES[k].yearly / 12);
+  const plans = [
+    { k:"free", name:"Free", tagline:"Para experimentar.", price:"0", per:"/sempre",
+      features:["Upload CSV, Excel e JSON","Dashboard montado automaticamente","1 análise da IA por mês","Até 5 mil linhas por base"],
+      cta:"Começar grátis", onClick:()=> window.__dashEnterApp?.() },
+    { k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.", price:price("essencial"), per: yearly ? "/ano" : "/mês",
+      note: yearly ? "equivale a " + perMonth("essencial") + "/mês" : null,
+      features:["Tudo do Free, e mais:","50 análises da IA por mês","Editar e adicionar blocos","Até 100 mil linhas por base","Exportar PDF/PNG"],
+      cta:"Assinar o Essencial", onClick:()=> window.__dashUpgrade?.(cycle) },
+    { k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", price:price("pro"), per: yearly ? "/ano" : "/mês", highlight:true,
+      note: yearly ? "equivale a " + perMonth("pro") + "/mês" : null,
+      features:["Tudo do Essencial, e mais:","300 análises da IA por mês","Até 1 milhão de linhas por base","Compartilhamento por link","Sem a marca Dash"],
+      cta:"Assinar o Pro", onClick:()=> window.__dashUpgrade?.(cycle) },
+  ];
   return (
     <section id="planos" className="pad">
       <div className="wrap">
-        <div style={{textAlign:"center", marginBottom:48}}>
+        <div style={{textAlign:"center", marginBottom:32}}>
           <span className="rv eyebrow"><span className="dot"/> Planos</span>
-          <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Edite tudo no Pro.</h2>
-          <p className="rv lede" style={{margin:"0 auto", maxWidth:500}}>Sem cartão de crédito. Cancele a qualquer momento.</p>
+          <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Assine quando precisar de mais.</h2>
+          <p className="rv lede" style={{margin:"0 auto 24px", maxWidth:520}}>O Free não pede cartão e já inclui 1 análise da IA por mês. Nos planos pagos, sem fidelidade — cartão ou Pix.</p>
+          <div className="rv" style={{display:"flex", justifyContent:"center"}}><CycleToggle cycle={cycle} onChange={setCycle}/></div>
         </div>
-        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:18, maxWidth: 920, margin:"0 auto"}}>
-          <div className="rv card" style={{padding:32}}>
-            <div style={{fontWeight:700, fontSize:18}}>Free</div>
-            <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>Perfeito para experimentar.</div>
-            <div style={{margin:"24px 0 18px"}}>
-              <span style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em"}}>R$ 0</span>
-              <span style={{color:"var(--muted)"}}>/sempre</span>
+        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, maxWidth: 1080, margin:"0 auto"}}>
+          {plans.map(p=>(
+            <div key={p.k} className={"rv card" + (p.highlight ? " soft-shadow" : "")} style={{
+              padding:28, position:"relative", display:"flex", flexDirection:"column",
+              ...(p.highlight ? { border:"1.5px solid var(--brand)", background:"linear-gradient(180deg, #f5f8ff, white)" } : {})
+            }}>
+              {p.highlight && <span className="chip" style={{position:"absolute", top:22, right:22, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>}
+              <div style={{fontWeight:700, fontSize:18}}>{p.name}</div>
+              <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>{p.tagline}</div>
+              <div style={{margin:"22px 0 18px", minHeight:66}}>
+                <span className="ticker" style={{fontSize:40, fontWeight:800, letterSpacing:"-.03em", color: p.highlight ? "var(--brand)" : "var(--ink)"}}>R$ {p.price}</span>
+                <span style={{color:"var(--muted)"}}>{p.per}</span>
+                {p.note && <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>{p.note}</div>}
+              </div>
+              <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10, flex:1}}>
+                {p.features.map((t,i)=>(
+                  <li key={t} style={{display:"flex", gap:10, alignItems:"center", fontSize:14, fontWeight: (p.k !== "free" && i===0) ? 700 : 500}}>
+                    <Icon.Check size={16} stroke={2.4} color="var(--brand)"/> {t}
+                  </li>
+                ))}
+              </ul>
+              <button className={"btn " + (p.highlight ? "btn-primary" : "btn-ghost")} style={{width:"100%", justifyContent:"center"}} onClick={p.onClick}>
+                {p.k !== "free" && <Icon.Crown size={14}/>} {p.cta}
+              </button>
             </div>
-            <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10}}>
-              {["Upload CSV / JSON / Excel","Dashboard gerado por IA","Resumo + 3-5 análises automáticas","Visualizar 5 tipos de gráfico","Filtros por período e categoria"].map(t=>(
-                <li key={t} style={{display:"flex", gap:10, alignItems:"center", fontSize:14}}>
-                  <Icon.Check size={16} stroke={2.4} color="var(--brand)"/> {t}
-                </li>
-              ))}
-            </ul>
-            <button className="btn btn-ghost" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashEnterApp?.()}>Começar grátis</button>
-          </div>
-          <div className="rv card soft-shadow" style={{padding:32, border:"1.5px solid var(--brand)", position:"relative", background: "linear-gradient(180deg, #f5f8ff, white)"}}>
-            <span className="chip" style={{position:"absolute", top:24, right:24, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>
-            <div style={{fontWeight:700, fontSize:18}}>Pro</div>
-            <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>Para edição e exportação completas.</div>
-            <div style={{margin:"24px 0 18px"}}>
-              <span style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color:"var(--brand)"}}>R$ 29</span>
-              <span style={{color:"var(--muted)"}}>/mês</span>
-            </div>
-            <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10}}>
-              {["Tudo do Free, e mais:","Trocar tipo de gráfico (barra, linha, pizza, área)","Personalizar cores, métricas e agregações","Reordenar via drag-and-drop e layouts","Exportar PDF / PNG com pré-visualização","Reanálise com IA sobre dados filtrados"].map((t,i)=>(
-                <li key={t} style={{display:"flex", gap:10, alignItems:"center", fontSize:14, fontWeight: i===0?700:500}}>
-                  <Icon.Check size={16} stroke={2.4} color="var(--brand)"/> {t}
-                </li>
-              ))}
-            </ul>
-            <button className="btn btn-primary" style={{width:"100%", justifyContent:"center"}} onClick={()=> window.__dashUpgrade?.()}><Icon.Crown size={14}/> Experimentar Pro</button>
-          </div>
+          ))}
         </div>
       </div>
     </section>
@@ -720,12 +762,13 @@ function CTA({ onOpenApp }){
     <section className="pad" style={{paddingTop: 0}}>
       <div className="wrap rv">
         <div className="cta-banner">
-          <span className="chip" style={{background:"rgba(255,255,255,.18)", color:"white"}}><Icon.Sparkle size={12}/> Sem cadastro</span>
+          <span className="chip" style={{background:"rgba(255,255,255,.18)", color:"white"}}><Icon.Sparkle size={12}/> Grátis para começar</span>
           <h2 className="h-section" style={{margin:"14px 0 10px", color:"white"}}>Pronto para ver seus dados<br/>de outro jeito?</h2>
           <p style={{maxWidth:520, color:"rgba(255,255,255,.85)", margin:0}}>Suba sua primeira planilha agora. Em segundos, um dashboard interativo.</p>
-          <div style={{display:"flex", gap:10, marginTop:24}}>
+          <div style={{display:"flex", gap:10, marginTop:24, flexWrap:"wrap", position:"relative", zIndex:1}}>
             <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> window.__dashEnterApp?.()}>Abrir o app <Icon.Arrow size={14}/></button>
-            <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}}>Ver exemplos</button>
+            <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}}
+              onClick={()=> document.getElementById("exemplos")?.scrollIntoView({ behavior:"smooth" })}>Ver exemplos</button>
           </div>
           <svg style={{position:"absolute", right:-40, bottom:-40, opacity:.15}} width="320" height="320" viewBox="0 0 200 200">
             <circle cx="100" cy="100" r="90" fill="none" stroke="white" strokeWidth=".5"/>
@@ -750,12 +793,12 @@ function Footer({ tweaks }){
             <span className="mono" style={{fontSize:10, color:"var(--muted)"}}>DASHBOARDS · IA</span>
           </div>
         </div>
-        <div style={{display:"flex", gap:24, fontSize:13, color:"var(--muted)"}}>
+        <div style={{display:"flex", gap:"8px 24px", flexWrap:"wrap", fontSize:13, color:"var(--muted)"}}>
           <a href="#exemplos">Exemplos</a>
           <a href="#recursos">Recursos</a>
           <a href="#planos">Planos</a>
-          <a>Privacidade</a>
-          <a>Termos</a>
+          <a href="privacidade.html">Privacidade</a>
+          <a href="termos.html">Termos</a>
         </div>
         <div style={{fontSize:12, color:"var(--muted)"}}>© 2026 {tweaks.brandName}. Feito com IA, para humanos.</div>
       </div>
@@ -780,4 +823,4 @@ function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignU
   );
 }
 
-Object.assign(window, { Landing, AuthBubble, useReveal, useScrollProgress, useScrollY, useCount });
+Object.assign(window, { Landing, AuthBubble, useReveal, useScrollProgress, useScrollY, useCount, dashPlanLabel, DASH_PRICES, dashFmtBRL, CycleToggle });

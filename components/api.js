@@ -19,15 +19,29 @@
   function emit(user) { listeners.forEach(function (fn) { try { fn(user); } catch (e) {} }); }
 
   // Tenta renovar o access token usando o cookie de refresh. Retorna bool.
-  async function refresh() {
-    try {
-      var res = await fetch(BASE + "/auth/refresh", { method: "POST", credentials: "include" });
-      if (!res.ok) { setToken(null); return false; }
-      var data = await res.json();
-      setToken(data.access_token);
-      return true;
-    } catch (e) { setToken(null); return false; }
+  //
+  // Single-flight: o backend ROTACIONA o refresh e trata reapresentação de um
+  // token já revogado como roubo (revoga todas as sessões do usuário). Duas
+  // chamadas simultâneas com o mesmo cookie — boot do App + ?upgrade=ok, ou
+  // duas requisições que tomam 401 juntas — derrubavam a sessão. Todas as
+  // chamadas concorrentes reaproveitam a mesma promessa.
+  var refreshing = null;
+  function refresh() {
+    if (refreshing) return refreshing;
+    refreshing = (async function () {
+      try {
+        var res = await fetch(BASE + "/auth/refresh", { method: "POST", credentials: "include" });
+        if (!res.ok) { setToken(null); return false; }
+        var data = await res.json();
+        setToken(data.access_token);
+        return true;
+      } catch (e) { setToken(null); return false; }
+      finally { refreshing = null; }
+    })();
+    return refreshing;
   }
+
+  var PUBLIC_AUTH = /^\/auth\/(login|signup|logout|refresh|request-reset|reset|verify-email)\b/;
 
   // fetch base: anexa Bearer + cookie; em 401 tenta refresh 1x e repete.
   async function raw(path, opts, retry) {
@@ -36,7 +50,10 @@
     var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
     if (accessToken) headers["Authorization"] = "Bearer " + accessToken;
     var res = await fetch(BASE + path, Object.assign({}, opts, { headers: headers, credentials: "include" }));
-    if (res.status === 401 && retry && path !== "/auth/refresh") {
+    // Rotas públicas de /auth (login com senha errada, logout…) respondem 401
+    // por motivo próprio — não é token expirado, então não gastam um refresh.
+    // /auth/resend-verification exige login e renova normalmente.
+    if (res.status === 401 && retry && !PUBLIC_AUTH.test(path)) {
       if (await refresh()) return raw(path, opts, false);
     }
     return res;
@@ -107,23 +124,71 @@
     },
 
     // ── billing (Asaas) ─────────────────────────────────────────────────
-    // plan: 'essencial' | 'pro'    method: 'card' | 'pix'
+    // plan: 'essencial' | 'pro'    method: 'card' | 'pix'    cycle: 'monthly' | 'yearly'
     // 'card' = assinatura recorrente; 'pix' = entrada avulsa (boleto fica nas
     // renovações geradas pelo job no backend). Redireciona pro checkout do Asaas.
-    async checkout(plan, method) {
+    async checkout(plan, method, cycle) {
       var d = await json("/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ plan: plan, method: method || "card" }),
+        body: JSON.stringify({ plan: plan, method: method || "card", cycle: cycle === "yearly" ? "yearly" : "monthly" }),
       });
       if (d && d.url) { window.location.href = d.url; }
       return d;
     },
-    // Cancela a assinatura (cartão). O downgrade pra free vem pelo webhook.
+    // Troca de tier e/ou ciclo na assinatura do cartão. Upgrade: na hora;
+    // downgrade e troca de ciclo: na próxima cobrança.
+    // Resolve em { ok, plan, cycle, effective: 'now'|'next_cycle' }.
+    changePlan: function (plan, cycle) {
+      var body = { plan: plan };
+      if (cycle) body.cycle = cycle;
+      return json("/billing/change-plan", { method: "POST", body: JSON.stringify(body) });
+    },
+    // Cancela a assinatura (cartão). A renovação para e o acesso segue até o fim
+    // do período pago. Resolve em { ok, accessUntil }.
     cancel: function () { return json("/billing/cancel", { method: "POST" }); },
 
-    // ── ferramenta paga (IA) ────────────────────────────────────────────
+    // ── conta (perfil, segurança, LGPD) ─────────────────────────────────
+    resendVerification: function () { return json("/auth/resend-verification", { method: "POST" }); },
+    updateProfile: function (fullName) {
+      return json("/me", { method: "PATCH", body: JSON.stringify({ fullName: fullName || null }) });
+    },
+    // Troca a senha e encerra as outras sessões. Resolve em { ok, revoked }.
+    changePassword: function (current, next) {
+      return json("/me/password", { method: "POST", body: JSON.stringify({ current: current, next: next }) });
+    },
+    listSessions: function () { return json("/me/sessions"); },
+    revokeSession: function (id) { return json("/me/sessions/" + encodeURIComponent(id), { method: "DELETE" }); },
+    revokeOtherSessions: function () { return json("/me/sessions/revoke-others", { method: "POST" }); },
+    aiUsage: function () { return json("/me/ai-usage"); },
+    joinWaitlist: function (feature, source) {
+      return json("/me/waitlist", { method: "POST", body: JSON.stringify({ feature: feature, source: source || null }) });
+    },
+    // Tudo o que o servidor guarda da conta (portabilidade, LGPD).
+    exportData: function () { return json("/me/export"); },
+    // Exclui a conta: o backend cancela a assinatura e apaga os dados. Encerra a sessão local.
+    async deleteAccount(password) {
+      var d = await json("/me", { method: "DELETE", body: JSON.stringify({ password: password, confirm: "EXCLUIR" }) });
+      setToken(null); emit(null);
+      return d;
+    },
+    billingHistory: function () { return json("/billing/history"); },
+
+    // ── links públicos (Pro) ────────────────────────────────────────────
+    // payload = retrato do dashboard (blocos com valores agregados, sem linhas
+    // do arquivo). 402 = plano sem links públicos · 409 limite_links.
+    createShare: function (title, payload) {
+      return json("/share", { method: "POST", body: JSON.stringify({ title: title, payload: payload }) });
+    },
+    listShares: function () { return json("/share"); },
+    revokeShare: function (slug) {
+      return json("/share/" + encodeURIComponent(slug), { method: "DELETE" });
+    },
+    // Público: abre sem login (404 se desativado ou se o dono saiu do Pro).
+    getShare: function (slug) { return json("/share/" + encodeURIComponent(slug)); },
+
+    // ── análise por IA (cota mensal: Free 1 · Essencial 50 · Pro 300) ────
     // payload: { datasetName, columns:[{name,type?}], sampleRows:[{}], question? }
-    // 402 = plano insuficiente · 429 = quota de IA do mês excedida.
+    // 401 = sem sessão · 429 = quota de IA do mês excedida.
     analyze: function (payload) {
       return json("/tools/analyze", { method: "POST", body: JSON.stringify(payload) });
     },

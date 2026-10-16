@@ -19,7 +19,16 @@ function authErrorMessage(err){
   if(code === "credenciais_invalidas") return "E-mail ou senha incorretos.";
   if(code === "senha_fraca")           return "A senha precisa ter ao menos 8 caracteres.";
   if(code === "payload_invalido")      return "Verifique os dados informados.";
-  return (err && err.message) || "Falha de rede.";
+  if(code === "token_invalido")        return "Este link expirou ou já foi usado. Peça um novo em \u201cEsqueci minha senha\u201d.";
+  if(code === "senha_atual_incorreta" || code === "senha_incorreta") return "Senha atual incorreta.";
+  if(code === "email_ja_confirmado")   return "Seu e-mail já está confirmado.";
+  if(code === "sessao_encerrada")      return "Sua sessão foi encerrada. Entre de novo.";
+  // Sem err.status = o fetch nem chegou ao servidor (offline, CORS ou o backend
+  // ainda acordando do sleep da Render). err.message aqui seria "Failed to
+  // fetch" ou um código cru do backend — nunca mostrar isso ao usuário.
+  if(!err || !err.status) return "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente em instantes.";
+  if(err.status === 429) return "Muitas tentativas. Aguarde um pouco e tente novamente.";
+  return "Algo deu errado do nosso lado. Tente novamente em instantes.";
 }
 
 function AuthField({ label, htmlFor, children, hint }){
@@ -256,7 +265,7 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
               <label style={{display:"flex", alignItems:"flex-start", gap:8, margin:"4px 0 16px", cursor:"pointer", fontSize:13, color:"var(--ink-2)"}}>
                 <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}
                   style={{marginTop:3, accentColor:"var(--brand)"}}/>
-                <span>Aceito os termos de uso e a política de privacidade.</span>
+                <span>Aceito os <a href="termos.html" target="_blank" rel="noopener" style={{color:"var(--brand)"}}>termos de uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener" style={{color:"var(--brand)"}}>política de privacidade</a>.</span>
               </label>
               <button type="submit" className="btn btn-primary" disabled={loading || !acceptedTerms}
                 style={{width:"100%", justifyContent:"center", padding:"12px", opacity: acceptedTerms ? 1 : .6}}>
@@ -276,4 +285,4 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
   );
 }
 
-Object.assign(window, { AuthModal });
+Object.assign(window, { AuthModal, authErrorMessage });

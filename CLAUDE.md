@@ -38,7 +38,7 @@ Regras inegociáveis:
 - **Nunca** introduzir bundler / build step / framework pesado (Next, Vite, Webpack).
 - **Nunca** importar libs de gráfico externas (Recharts, Chart.js, D3, Plotly). Gráficos novos devem ser construídos com SVG inline seguindo o padrão de `components/charts.jsx`.
 - **Nunca** usar Tailwind, CSS-in-JS runtime ou Emotion. Estilo é CSS no `<style>` global do `Dash.html` + `style={{}}` inline em componentes.
-- Usar **as versões pinadas** do React/Babel já presentes em `Dash.html` (com `integrity` attributes). Não atualizar sem motivo.
+- Usar **as versões pinadas** do React/Babel já presentes em `Dash.html` (com `integrity` attributes). Não atualizar sem motivo. O React carrega o build de **produção** (`*.production.min.js`); para depurar com mensagens completas, troque temporariamente pelos `*.development.js` (hashes no comentário do `index.html`).
 - **JSX só funciona em `<script type="text/babel">`**. Importar com `<script type="text/babel" src="...">` no `Dash.html`, na ordem correta (icons → charts → landing → dashboard → app).
 - Componentes que precisam ser usados em outros arquivos JSX **devem ser exportados via `Object.assign(window, { Foo, Bar })`** no final do arquivo. Cada `<script type="text/babel">` é um escopo isolado após transpile.
 - Evite `const styles = { … }` em arquivos JSX — em escopo global colide com outros arquivos. Use nomes específicos (`dashboardStyles`) ou inline.
@@ -54,11 +54,16 @@ components/
   icons.jsx                # Icon.{Logo, Sparkle, …, User} — SVG inline. Lista canônica em §23.
   charts.jsx               # LineChart, BarChart, Donut, Sparkline (SVG)
   landing.jsx              # Landing page + AuthBubble (Nav/Topbar dropdown da conta)
-  dashboard.jsx            # Topbar, UploadView, PromptView, Dashboard, Insights, ChartCard, KPI, ExportModal, MiniBlock, PaywallModal, …
+  dashboard.jsx            # parsers, Topbar, Dashboard, Insights, AINarrative, ChartCard, KPI, RankingTable, PaywallModal, …
+  dashboard-flow.jsx       # fluxo de geração: FlowSteps, UploadView, ProcessingPanel, PromptView (seleção de métricas + foco da IA)
+  dashboard-export.jsx     # ExportModal + MiniBlock: PDF (impressão do navegador) e PNG (html-to-image lazy) do #dash-export-root
+  dashboard-saved.jsx      # DashSaved (IndexedDB) + SavedDashboards ("Continuar de onde parou" no UploadView)
+  share-view.jsx           # ShareModal (cria/lista/desativa link, Pro) + SharedView (página pública ?s=<slug>)
   auth-modal.jsx           # AuthModal (popover) — fallback para fluxos que preferem modal
   auth-view.jsx            # AuthView (rota auth) — sign-in / sign-up / reset, full-screen
   plans-view.jsx           # PlansView (rota plans) — pricing + comparativo
-  account-view.jsx         # AccountView (rota account) — Conta · Workspace · Faturamento · Histórico · Indique + AccountErrorBoundary
+  account-view.jsx         # AccountView (rota account): shell, Workspace (lista de espera real), Faturamento, Indique + AccountErrorBoundary
+  account-sections.jsx     # seções reais da Conta: perfil, senha, sessões, seus dados (exportar/excluir), faturas (Asaas), histórico de IA
   app.jsx                  # App root: roteamento de views, bootstrap Supabase, tweaks, expõe window.__dash* (ver §19)
 ```
 
@@ -156,6 +161,8 @@ Todo conteúdo do dashboard é um **bloco** num grid de 12 colunas. Modelo:
 - Chart default `span: 6` (½). ⅔=8, full=12.
 - Insights / Ranking / CTA preferencialmente `span: 12`.
 - Adicionar novo tipo de bloco? Crie a entrada em `renderBlock` + atualize `MiniBlock` no `ExportModal` (caso contrário a prévia quebra) + adicione no `AddPicker`.
+- **A seleção da tela de métricas é real**: `PromptView` manda `onGenerate({ metrics, focus })`; `metrics` (chaves `dashMetricKey`) filtra `dashSuggestMetrics` no `Dashboard`. Em base de vendas com seleção própria, a primeira visão é "Sua seleção"; o `focus` vai na pergunta da análise por IA. Nada de controle na UI que não tenha efeito.
+- **Dados de exemplo nunca se misturam com dados do usuário.** Com upload (`isUpload`), os arrays mock do `Dashboard` viram `[]`, KPI sem dado real recebe `props: null` e `dashFitBlocks` remove o bloco e fecha o grid. Presets cuja coluna não existe (região/produto/canal) somem. Mocks só existem no caminho de dev sem upload (Tweaks).
 
 ### Drag-and-drop nativo
 
@@ -203,11 +210,14 @@ Todo conteúdo do dashboard é um **bloco** num grid de 12 colunas. Modelo:
 
 ## 6. Gráficos & visualizações
 
-- Sempre usar os componentes em `components/charts.jsx`: `<LineChart>`, `<BarChart>`, `<Donut>`, `<Sparkline>`.
+- Sempre usar os componentes em `components/charts.jsx`: `<LineChart>`, `<BarChart>`, `<Donut>`, `<DonutLegend>`, `<Sparkline>`.
 - API:
   ```jsx
   <LineChart data={[{l:"Jan", v:30}, …]} height={200} color={accent} fill animate />
+  <DonutLegend data={[{l:"Site", v:38}, …]} height={260} color={accent} unit="%" />  // unit="%" quando v já é participação
   ```
+- `LineChart`/`BarChart` medem a largura do contêiner (`useChartWidth`) e desenham em pixels reais — **não** voltar ao viewBox fixo com `preserveAspectRatio="none"` (esticava texto e pontos). Eixo Y usa `chartNiceTicks` + `chartFmt` (pt-BR compacto: "1,8 mil", "2,4 mi"). Ambos mostram o valor no hover (tooltip/realce com `.no-export`).
+- Donut sempre com legenda (`DonutLegend`): fatia sem nome não comunica nada.
 - Tempo: a tendência principal vive em `fullTendency` (90 pontos). Slice baseado em `periodMeta.days`.
 - Para previews ultra-pequenos (export modal), usar `<MiniChart>` / `<MiniBars>` — **não** inflar `LineChart` em 50px.
 - Nunca renderizar > 200 pontos num gráfico inline; faça downsample.
@@ -240,17 +250,20 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - **Sampling para IA** (decisão [DECISION 2026-06-03], substitui a regra antiga de "1-3 linhas anonimizadas"):
   - **20 linhas cruas (sem anonimização)** são enviadas para o Gemini (via Edge Function `gemini-narrative`), junto com perfis de coluna + KPIs computados.
   - **Decisão**: priorizar qualidade da análise sobre minimização de dados. Insights mais ricos e específicos compensam o trade-off.
-  - **Free não envia nenhum dado** — o paywall bloqueia antes da chamada (a IA só roda para Pro).
+  - **Cota por conta**: Free 1 análise/mês, Essencial 50, Pro 300 (backend responde 429 ao estourar). **Anônimo não envia nada** — o bloco vira convite de cadastro; a IA exige conta.
+  - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base) e no dashboard salvo (IndexedDB), então reabrir não gasta cota.
   - **TODO pré-lançamento** (bloqueia ir a usuários reais):
-    - Adicionar aviso visual antes do primeiro uso da IA.
-    - Atualizar Termos de Uso citando o Google como processador de dados.
-    - Política de Privacidade explicando o fluxo de dados (navegador → Edge Function → Gemini).
+    - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Análise por IA", estado inicial).
+    - Termos de Uso e Política de Privacidade: rascunhos em `termos.html` / `privacidade.html`. **Preencher os campos entre colchetes (razão social, CNPJ, endereço, e-mails) e revisar com advogado** antes de lançar.
 - Quando aceitar URL pública (Importar de URL), validar contra `data:`, `javascript:`, hosts de loopback; só permitir `https://`.
 - `<input type="file">` com `accept` restrito (`.csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls,.parquet`).
 - Sanitizar nomes de arquivo antes de mostrar.
 - Não logar conteúdo do usuário em `console.log` em produção.
 - Não armazenar dados em `localStorage` exceto preferências de UI (período, tema, layout).
-- Headers de segurança (quando hospedar): `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. Permitir só `https://unpkg.com` e `https://fonts.googleapis.com/gstatic.com` na CSP.
+- **Exceção: dashboards salvos** (`dashboard-saved.jsx`). A base processada, o layout e a narrativa da IA ficam no **IndexedDB deste navegador**, por dono (id do usuário ou `"anon"`), nunca no servidor. Free guarda os 3 mais recentes, pagos 50; bases > 200 mil linhas não são salvas. A pessoa pode desligar ("Salvar neste navegador") e apagar. Dados de demonstração nunca são salvos.
+- **Métricas**: Vercel Web Analytics (sem cookies), carregado em `index.html` com auto-track desligado — a URL pode carregar tokens (`?verify=`, `?reset=`, `?s=`). O `App` manda `dashTrackView(view)` por tela; eventos-chave via `window.dashTrack(nome, dados)`. **Nunca** mandar nome de arquivo, conteúdo, e-mail ou id de usuário nos eventos — só categorias (plano, ciclo, faixa de linhas).
+- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção.
+- **Links públicos (Pro)**: guardam só o retrato agregado dos blocos (`dashBuildShareSnapshot`), nunca linhas do arquivo. A página pública sanitiza tudo (`dashSanitizeSharedBlock`) e tem `noindex`.
 - **LGPD**: copy precisa deixar claro que análise é local e que metadados podem ser enviados para a IA com opt-in.
 
 ---
@@ -487,16 +500,11 @@ Não criar um terceiro padrão. Se o caso não cabe nesses dois, abra discussão
 
 ---
 
-## 22. Wait-list de Workspace (TODO sprint futuro)
+## 22. Wait-list de Workspace (implementado)
 
-Hoje o botão "Notificar quando estiver disponível" em `WorkspaceComingSoon` só seta `notified=true` em estado local — perde no refresh. Quando o Team plan entrar no roadmap ativo:
+O botão "Notificar quando estiver disponível" em `WorkspaceComingSoon` chama `POST /me/waitlist {feature:'workspace'}` (tabela `waitlist`, PK `user_id+feature`, migration 007). O `/me` devolve `waitlist: string[]`, então o botão já abre como "Te avisaremos!" para quem entrou na lista. Quando o Team shippar, a query `select u.email from waitlist w join users u on u.id = w.user_id where feature = 'workspace'` dá a lista para o e-mail em massa (Resend).
 
-1. Criar tabela `workspace_waitlist (user_id uuid PK references auth.users, created_at timestamptz default now(), source text)` com RLS `auth.uid() = user_id` para insert e leitura própria.
-2. Trocar o `setNotified(true)` por `await supabase.from('workspace_waitlist').insert({ source:'account_view' })`.
-3. Reconciliação no mount: se já existe linha pro user, renderizar o botão como "Te avisaremos!" direto (sem precisar clicar de novo).
-4. Quando a feature shippar, query simples manda email em massa via Resend pra todos os `user_id`s da tabela.
-
-Por enquanto a UI **só promete em sessão**. Não vendamos como "te avisaremos" sem o backend — o copy atual está OK porque é claramente coming-soon, mas qualquer evolução no texto precisa garantir que o backend exista antes (senão é dark pattern).
+Não prometer data nem recurso que ainda não exista no copy dessa tela.
 
 ---
 

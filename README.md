@@ -20,16 +20,20 @@ indicadores, gráficos e análises escritas por IA, prontos para editar.
 | **Descoberta automática** | Analisa as colunas e gera os blocos do painel de acordo com o tipo de dado |
 | **Visões prontas** | Visão geral, por região, por produto, por canal, avançada (Pro) e descoberta, com filtro de 7, 30 ou 90 dias |
 | **Editor** | Arrastar e soltar, redimensionar e adicionar blocos |
-| **Análise com IA** | Texto explicando os dados, gerado no backend (Gemini) e limitado pela cota do plano |
+| **Análise com IA** | Texto explicando os dados, gerado no backend (Gemini) sob demanda e limitado pela cota do plano (o Free tem 1 por mês) |
+| **Dashboards salvos** | Cada base enviada fica salva neste navegador (IndexedDB) com layout, período e análise da IA, para reabrir depois em "Continuar de onde parou" |
 | **Conta** | Cadastro, login, verificação de e-mail e troca de senha |
-| **Assinatura** | Planos pagos por cartão ou Pix (Asaas), com cancelamento pela conta |
+| **Assinatura** | Planos mensais ou anuais (2 meses grátis) por cartão ou Pix (Asaas); cancelamento pela conta mantém o acesso até o fim do período pago |
+| **Métricas** | Vercel Web Analytics (sem cookies): uma visualização por tela e eventos do funil, sem nome de arquivo nem conteúdo |
 
 ## 💳 Planos
 
 | | Free | Essencial | Pro |
 |---|---|---|---|
-| Preço | R$ 0 | R$ 29,90/mês | R$ 49,90/mês |
-| Análises de IA por mês | 3 | 50 | 300 |
+| Preço mensal | R$ 0 | R$ 29,90 | R$ 49,90 |
+| Preço anual | — | R$ 299 | R$ 499 |
+| Análises de IA por mês | 1 | 50 | 300 |
+| Dashboards salvos no navegador | 3 | 50 | 50 |
 | Linhas por arquivo | 5 mil | 100 mil | 1 milhão |
 | Exportar PDF/PNG | — | ✓ | ✓ |
 | Link de compartilhamento | — | — | ✓ |
@@ -58,6 +62,8 @@ Abrir o `index.html` direto (`file://`) não funciona, porque o navegador precis
 
 O endereço da API fica em `window.__API_URL`, no `index.html`. Para testar login e IA localmente, aponte para um backend que aceite a sua origem (CORS).
 
+As métricas usam o Vercel Web Analytics: ative em Vercel → projeto → **Analytics** → Enable. Em `localhost` o script não é carregado. Eventos personalizados (`dashTrack`) só aparecem no plano Pro da Vercel; as visualizações por tela funcionam em qualquer plano.
+
 ## 📁 Estrutura
 
 ```
@@ -66,19 +72,26 @@ components/
 ├── app.jsx                    # raiz e navegação entre telas
 ├── api.js                     # cliente da API (auth, planos, IA)
 ├── landing.jsx                # página inicial
-├── dashboard.jsx              # upload, análise e editor do dashboard
+├── dashboard.jsx              # parsers e editor do dashboard
+├── dashboard-flow.jsx         # fluxo de geração: envio, escolha de métricas e foco da IA
 ├── dashboard-discovery.jsx    # perfil das colunas e geração dos blocos
+├── dashboard-export.jsx       # exportação PDF/PNG
+├── dashboard-saved.jsx        # dashboards salvos no navegador (IndexedDB)
+├── share-view.jsx             # link público (Pro) e página compartilhada
 ├── charts.jsx · icons.jsx     # gráficos em SVG e ícones
 ├── auth-view.jsx · auth-modal.jsx
 ├── plans-view.jsx             # planos e assinatura
-├── account-view.jsx           # conta, faturamento e histórico
+├── account-view.jsx           # conta: navegação, plano e workspace
+├── account-sections.jsx       # perfil, senha, sessões, exportar/excluir dados, faturas e histórico de IA
 └── dashboard-tests.js         # testes do parser (rodar no console do navegador)
 tweaks-panel.jsx               # painel de ajustes visuais para desenvolvimento
+termos.html · privacidade.html # páginas legais (rascunho: preencher dados da empresa)
+vercel.json                    # headers de segurança (CSP, HSTS…)
+favicon.svg · og-image.png     # ícone e prévia ao compartilhar o site
 ```
 
 ## 🗺️ Próximos passos
 
-- [ ] Download da exportação em PDF/PNG (a prévia já está pronta)
 - [ ] Entrar com Google
 - [ ] Importar de URL e do Google Sheets
 - [ ] Workspace para equipes

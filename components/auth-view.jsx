@@ -13,7 +13,7 @@
  *
  * authErrorMessage() é definido em auth-modal.jsx (carrega antes) e reusado aqui.
  *
- * Microsoft login removed; Google left as a placeholder (alert "Em breve").
+ * Login social (Google) ainda não existe: o botão saiu até o backend suportar OAuth.
  */
 
 function PasswordStrength({ value }){
@@ -58,30 +58,35 @@ function PasswordStrength({ value }){
   );
 }
 
+// O hint fica FORA do <label>: um <label> rotula o primeiro controle dentro
+// dele, então um botão no hint ("Esqueci minha senha") roubaria o rótulo do
+// input — e clicar em "Senha" dispararia o botão.
 function AuthField({ label, error, hint, children }){
   return (
-    <label style={{display:"block"}}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6}}>
-        <span style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{label}</span>
-        {hint && <span style={{fontSize:11, color:"var(--muted)"}}>{hint}</span>}
-      </div>
-      {children}
-      {error && <div style={{marginTop:6, fontSize:11, color:"#c9234a", display:"flex", alignItems:"center", gap:5}}>
-        <Icon.Bolt size={11}/> {error}
-      </div>}
-    </label>
+    <div style={{position:"relative"}}>
+      <label style={{display:"block"}}>
+        <div style={{display:"flex", alignItems:"center", marginBottom:6, minHeight:16}}>
+          <span style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{label}</span>
+        </div>
+        {children}
+        {error && <div style={{marginTop:6, fontSize:11, color:"#c9234a", display:"flex", alignItems:"center", gap:5}}>
+          <Icon.Bolt size={11}/> {error}
+        </div>}
+      </label>
+      {hint && <span style={{position:"absolute", top:0, right:0, fontSize:11, color:"var(--muted)", lineHeight:"16px"}}>{hint}</span>}
+    </div>
   );
 }
 
-function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
+function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onResetDone }){
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [company, setCompany] = React.useState("");
   const [terms, setTerms] = React.useState(false);
   const [showPw, setShowPw] = React.useState(false);
   const [errors, setErrors] = React.useState({});
   const [apiError, setApiError] = React.useState(null);
+  const [info, setInfo] = React.useState(null);
   const [state, setState] = React.useState("idle"); // idle | submitting | success
 
   const isSignup = mode === "signup";
@@ -90,9 +95,26 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
   // doesn't bleed into the signup form (and vice versa).
   React.useEffect(()=>{
     setApiError(null);
+    setInfo(null);
     setErrors({});
     setState("idle");
   }, [mode]);
+
+  // Recuperação de senha: o backend manda o link ?reset=<token>, tratado no
+  // index.html. Resposta é sempre 200 (não revela se o e-mail existe).
+  const onForgot = async ()=>{
+    setApiError(null); setInfo(null);
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){
+      setErrors(x=>({...x, email:"Informe seu e-mail acima para receber o link de redefinição."}));
+      return;
+    }
+    try {
+      await window.DashAPI.requestReset(email.trim());
+      setInfo("Se este e-mail estiver cadastrado, enviamos um link para redefinir a senha.");
+    } catch(err){
+      setApiError(authErrorMessage(err));
+    }
+  };
 
   const validate = ()=>{
     const e = {};
@@ -110,6 +132,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
     ev.preventDefault();
     if(state === "submitting") return;
     setApiError(null);
+    setInfo(null);
     if(!validate()) return;
     setState("submitting");
     try {
@@ -129,7 +152,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
     }
   };
 
-  const onGoogle = ()=> window.alert("Login com Google: em breve.");
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)", display:"flex", flexDirection:"column"}}>
@@ -150,8 +172,12 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
       <div className="auth-grid" style={{flex:1, display:"grid", gridTemplateColumns:"1fr 1.05fr", maxWidth:1400, margin:"0 auto", width:"100%", padding:"0 24px 24px", gap:48, alignItems:"center"}}>
         {/* LEFT — form */}
         <div style={{maxWidth: 460, width:"100%", margin:"0 auto", padding:"40px 0"}}>
-          {state === "success" ? (
-            <SuccessCard mode={mode} tweaks={tweaks} name={name} onBack={()=>{ setState("idle"); onMode("login"); }}/>
+          {mode === "reset" ? (
+            <ResetPasswordForm token={resetToken} tweaks={tweaks}
+              onDone={()=> onResetDone ? onResetDone() : onMode("login")}
+              onRestart={()=>{ onResetDone && onResetDone(); onMode("login"); }}/>
+          ) : state === "success" ? (
+            <SuccessCard mode={mode} tweaks={tweaks} name={name} onContinue={()=> onSuccess && onSuccess({ mode: "signup" })}/>
           ) : (
             <>
               <div style={{marginBottom: 28}}>
@@ -172,7 +198,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                 <p style={{margin:0, fontSize:14, color:"var(--muted)", lineHeight:1.55}}>
                   {isSignup
                     ? "Crie sua conta em segundos. Sem cartão. Faça upgrade quando quiser."
-                    : "Acesse seus dashboards salvos e a exportação dos seus arquivos."}
+                    : "Acesse sua conta, seu plano e as análises da IA."}
                 </p>
               </div>
 
@@ -185,20 +211,15 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                   <Icon.Bolt size={14}/> <span>{apiError}</span>
                 </div>
               )}
-
-              {/* Social */}
-              <div style={{marginBottom:18}}>
-                <button type="button" onClick={onGoogle} className="btn btn-ghost"
-                  style={{width:"100%", padding:"11px 12px", justifyContent:"center"}}>
-                  <GoogleLogo/> Continuar com Google
-                </button>
-              </div>
-
-              <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:18, color:"var(--muted)", fontSize:11}}>
-                <div style={{flex:1, height:1, background:"var(--line)"}}/>
-                <span style={{textTransform:"uppercase", letterSpacing:".08em", fontWeight:600}}>ou com email</span>
-                <div style={{flex:1, height:1, background:"var(--line)"}}/>
-              </div>
+              {info && (
+                <div role="status" style={{
+                  padding:"10px 14px", borderRadius:10, background:"#e7f7ef",
+                  border:"1px solid #bfe8d2", color:"#0a5a30",
+                  fontSize:13, marginBottom:14, display:"flex", alignItems:"flex-start", gap:8
+                }}>
+                  <Icon.Check size={14} stroke={2.6}/> <span>{info}</span>
+                </div>
+              )}
 
               <form onSubmit={onSubmit} style={{display:"flex", flexDirection:"column", gap:14}}>
                 {isSignup && (
@@ -215,7 +236,12 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                     style={inputStyle(errors.email)}/>
                 </AuthField>
                 <AuthField label="Senha" error={errors.password}
-                  hint={!isSignup ? <span style={{color:"var(--muted)"}}>Recuperação em breve</span> : null}>
+                  hint={!isSignup ? (
+                    <button type="button" onClick={onForgot} style={{
+                      background:"transparent", border:0, padding:0, cursor:"pointer",
+                      color:"var(--brand)", fontWeight:600, fontSize:11, fontFamily:"inherit"
+                    }}>Esqueci minha senha</button>
+                  ) : null}>
                   <div style={{position:"relative"}}>
                     <input type={showPw?"text":"password"} placeholder={isSignup?"Mínimo 8 caracteres":"••••••••"}
                       value={password}
@@ -233,13 +259,6 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                   {isSignup && password && <PasswordStrength value={password}/>}
                 </AuthField>
                 {isSignup && (
-                  <AuthField label="Empresa (opcional)">
-                    <input type="text" placeholder="Acme Co." value={company}
-                      onChange={e=>setCompany(e.target.value)}
-                      style={inputStyle()}/>
-                  </AuthField>
-                )}
-                {isSignup && (
                   <label style={{
                     display:"flex", alignItems:"flex-start", gap:10, padding:"4px 0",
                     fontSize:12, color: errors.terms ? "#c9234a" : "var(--ink-2)", cursor:"pointer"
@@ -247,7 +266,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
                     <input type="checkbox" checked={terms} onChange={e=>{ setTerms(e.target.checked); setErrors(x=>({...x, terms:""})); }}
                       style={{accentColor:"var(--brand)", marginTop:2}}/>
                     <span style={{lineHeight:1.5}}>
-                      Concordo com os <a style={{color:"var(--brand)", fontWeight:600}}>Termos</a> e a <a style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>. Meus dados nunca saem do navegador sem meu consentimento.
+                      Concordo com os <a href="termos.html" target="_blank" rel="noopener" style={{color:"var(--brand)", fontWeight:600}}>Termos de Uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener" style={{color:"var(--brand)", fontWeight:600}}>Política de Privacidade</a>.
                     </span>
                   </label>
                 )}
@@ -273,7 +292,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose }){
               }}>
                 <Icon.Lock size={14} color="#0a8a4a"/>
                 <div style={{fontSize:12, color:"var(--muted)", lineHeight:1.55}}>
-                  Conexão criptografada · Conformidade LGPD. Seus dados de planilha ficam no seu navegador.
+                  Conexão criptografada. Suas planilhas são processadas no navegador — só a análise por IA, quando você a pede, envia uma amostra das linhas.
                 </div>
               </div>
             </>
@@ -305,24 +324,13 @@ function Spinner(){
   );
 }
 
-function GoogleLogo(){
-  return (
-    <svg width="16" height="16" viewBox="0 0 18 18">
-      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.13 4.13 0 0 1-1.8 2.71v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.61z"/>
-      <path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.92-2.27c-.8.54-1.83.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.94v2.32A9 9 0 0 0 9 18z"/>
-      <path fill="#FBBC05" d="M3.97 10.71A5.4 5.4 0 0 1 3.67 9c0-.6.1-1.17.3-1.71V4.96H.94A9 9 0 0 0 0 9c0 1.45.35 2.83.94 4.04l3.03-2.33z"/>
-      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.34l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .94 4.96L3.97 7.3C4.68 5.17 6.66 3.58 9 3.58z"/>
-    </svg>
-  );
-}
-
 function AuthSidePanel({ tweaks, mode }){
   const features = [
-    "Análises da IA destravadas: resumo, riscos e recomendações",
-    "Edição completa do layout — drag-and-drop, ⅓/½/⅔/full",
-    "Dashboards avançados: cohort, sazonalidade, outliers",
-    "Exportação PDF/PNG fiel ao dashboard",
-    "Compartilhamento por link e embed",
+    "Até 300 análises da IA por mês: resumo, insights e recomendações",
+    "Edição completa do layout: arrastar, redimensionar, trocar gráficos",
+    "Visão avançada: sazonalidade, vendedores e mix por categoria",
+    "Exportação em PDF e PNG igual ao dashboard",
+    "Link público de leitura para compartilhar",
   ];
   return (
     <div style={{
@@ -340,7 +348,7 @@ function AuthSidePanel({ tweaks, mode }){
           display:"inline-flex", alignItems:"center", gap:7, padding:"4px 10px",
           borderRadius:99, background:"rgba(255,255,255,.18)", fontSize:11, fontWeight:600, marginBottom:18
         }}>
-          <Icon.Crown size={11}/> Pro · R$ 49/mês
+          <Icon.Crown size={11}/> Pro · R$ 49,90/mês
         </div>
         <h2 style={{margin:"0 0 12px", fontSize:32, fontWeight:800, letterSpacing:"-.025em", lineHeight:1.1}}>
           Da planilha ao dashboard.<br/>Sem código.
@@ -403,32 +411,94 @@ function AuthSidePanel({ tweaks, mode }){
         </ul>
       </div>
 
-      {/* Testimonial */}
-      <div style={{position:"relative", zIndex:2, paddingTop: 24, borderTop:"1px solid rgba(255,255,255,.15)", marginTop:24}}>
-        <p style={{margin:"0 0 10px", fontSize:14, fontStyle:"italic", color:"rgba(255,255,255,.92)", lineHeight:1.5}}>
-          "O Dash virou nosso primeiro lugar para olhar antes de qualquer reunião de produto."
-        </p>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <div style={{width:32, height:32, borderRadius:"50%", background:"linear-gradient(135deg,#ff7849,#ff5e93)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:12}}>BS</div>
-          <div style={{fontSize:12}}>
-            <div style={{fontWeight:600}}>Beatriz Sá</div>
-            <div style={{opacity:.7}}>Head of Data · North Star</div>
+      {/* Garantias (antes havia um depoimento inventado aqui). */}
+      <div style={{position:"relative", zIndex:2, paddingTop: 22, borderTop:"1px solid rgba(255,255,255,.15)", marginTop:24, display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:12}}>
+        {[
+          { i:<Icon.Lock size={14}/>, t:"Arquivo no navegador", d:"Seus dados não vão para o servidor" },
+          { i:<Icon.Check size={14} stroke={3}/>, t:"Sem cartão no Free", d:"Upgrade só se precisar" },
+          { i:<Icon.Refresh size={14}/>, t:"Sem fidelidade", d:"Cancele quando quiser" },
+        ].map(f=>(
+          <div key={f.t} style={{fontSize:12, lineHeight:1.4}}>
+            <span style={{width:26, height:26, borderRadius:8, background:"rgba(255,255,255,.16)", display:"inline-flex", alignItems:"center", justifyContent:"center", marginBottom:6}}>{f.i}</span>
+            <div style={{fontWeight:700}}>{f.t}</div>
+            <div style={{opacity:.75}}>{f.d}</div>
           </div>
-          <div style={{flex:1}}/>
-          <div style={{display:"flex", gap:6}}>
-            <span style={{padding:"3px 8px", background:"rgba(255,255,255,.12)", borderRadius:99, fontSize:10, fontWeight:600}}>LGPD</span>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// SuccessCard is shown after a successful signup. The user must click the
-// confirmation link in their inbox before they can sign in, so we don't
-// redirect — they read the message and either go check email or switch to
-// the login tab.
-function SuccessCard({ mode, tweaks, name, onBack }){
+// Tela do link "Redefinir senha" do e-mail (?reset=<token>): nova senha +
+// confirmação. Antes era um window.prompt no index.html.
+function ResetPasswordForm({ token, tweaks, onDone, onRestart }){
+  const [pw, setPw] = React.useState("");
+  const [pw2, setPw2] = React.useState("");
+  const [show, setShow] = React.useState(false);
+  const [st, setSt] = React.useState("idle"); // idle | saving | done
+  const [err, setErr] = React.useState(null);
+  const short = pw && pw.length < 8;
+  const mismatch = pw2 && pw !== pw2;
+  const submit = async (e)=>{
+    e.preventDefault();
+    if(!token){ setErr("Link inválido. Peça um novo em “Esqueci minha senha”."); return; }
+    if(pw.length < 8 || pw !== pw2 || st === "saving") return;
+    setSt("saving"); setErr(null);
+    try { await window.DashAPI.resetPassword(token, pw); setSt("done"); }
+    catch(e2){ setErr(authErrorMessage(e2)); setSt("idle"); }
+  };
+  if(st === "done"){
+    return (
+      <div style={{textAlign:"center", padding:"30px 20px"}}>
+        <div style={{width:56, height:56, margin:"0 auto 16px", borderRadius:16, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={26} stroke={3}/></div>
+        <h1 style={{margin:"0 0 8px", fontSize:26, fontWeight:800, letterSpacing:"-.02em"}}>Senha redefinida</h1>
+        <p style={{margin:"0 0 20px", fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Por segurança, encerramos as sessões abertas. Entre com a nova senha.</p>
+        <button className="btn btn-primary" style={{justifyContent:"center", width:"100%", padding:"13px"}} onClick={onDone}>Entrar <Icon.Arrow size={14}/></button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div style={{marginBottom: 24}}>
+        <div className="eyebrow" style={{marginBottom:14}}><span className="dot"/> Recuperar acesso</div>
+        <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>Defina uma nova senha.</h1>
+        <p style={{margin:0, fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Use pelo menos 8 caracteres. O link do e-mail vale por 1 hora e funciona uma vez.</p>
+      </div>
+      {err && (
+        <div role="alert" style={{padding:"10px 14px", borderRadius:10, background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a", fontSize:13, marginBottom:14}}>
+          {err} {/expirou|inválido/.test(err) && <button type="button" className="link-btn" onClick={onRestart}>Pedir um novo link</button>}
+        </div>
+      )}
+      <form onSubmit={submit} style={{display:"flex", flexDirection:"column", gap:14}}>
+        <AuthField label="Nova senha" htmlFor="rp-pw">
+          <div style={{position:"relative"}}>
+            <input id="rp-pw" type={show ? "text" : "password"} autoComplete="new-password" placeholder="Mínimo 8 caracteres" value={pw}
+              onChange={e=>setPw(e.target.value)} style={inputStyle(short)}/>
+            <button type="button" onClick={()=>setShow(v=>!v)} aria-label={show ? "Esconder senha" : "Mostrar senha"}
+              style={{position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"transparent", border:0, color:"var(--muted)", cursor:"pointer", padding:4}}>
+              <Icon.Eye size={14}/>
+            </button>
+          </div>
+          {pw && <PasswordStrength value={pw}/>}
+        </AuthField>
+        <AuthField label="Repita a nova senha" htmlFor="rp-pw2">
+          <input id="rp-pw2" type={show ? "text" : "password"} autoComplete="new-password" value={pw2}
+            onChange={e=>setPw2(e.target.value)} style={inputStyle(mismatch)}/>
+          {mismatch && <div style={{fontSize:12, color:"#c9234a", marginTop:4}}>As senhas não são iguais.</div>}
+        </AuthField>
+        <button type="submit" className="btn btn-primary" disabled={pw.length < 8 || pw !== pw2 || st === "saving"}
+          style={{justifyContent:"center", padding:"13px", opacity: (pw.length < 8 || pw !== pw2) ? .6 : 1}}>
+          {st === "saving" ? "Salvando…" : "Salvar nova senha"}
+        </button>
+      </form>
+    </>
+  );
+}
+
+// SuccessCard is shown after a successful signup. The backend already returns a
+// session on signup (login doesn't require a verified e-mail), so the CTA
+// continues into the app; the verification link can be clicked later.
+function SuccessCard({ mode, tweaks, name, onContinue }){
   return (
     <div style={{textAlign:"center", padding:"30px 20px"}}>
       <div style={{
@@ -445,14 +515,14 @@ function SuccessCard({ mode, tweaks, name, onBack }){
         Conta criada{name?`, ${name.split(" ")[0]}!`:" com sucesso!"}
       </h2>
       <p style={{margin:"0 0 20px", color:"var(--muted)", fontSize:14, lineHeight:1.55}}>
-        Enviamos um link de confirmação para o seu e-mail. Clique nele para ativar sua conta e fazer login.
+        Enviamos um link de confirmação para o seu e-mail. Você já pode usar o Dash — confirme o e-mail quando puder.
       </p>
-      <button onClick={onBack} className="btn btn-ghost"
+      <button onClick={onContinue} className="btn btn-primary"
         style={{padding:"10px 16px", fontSize:13}}>
-        Já confirmei → Entrar
+        Começar a usar <Icon.Arrow size={13}/>
       </button>
     </div>
   );
 }
 
-Object.assign(window, { AuthView });
+Object.assign(window, { AuthView, PasswordStrength });

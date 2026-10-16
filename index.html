@@ -4,11 +4,29 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Dash — Dashboards com IA</title>
+<meta name="description" content="Suba um CSV, Excel ou JSON e o Dash monta KPIs, gráficos e análises por IA em segundos. Comece grátis." />
+<meta name="theme-color" content="#2f6bff" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<!-- Prévia ao compartilhar o site (WhatsApp, LinkedIn, X). Trocar a URL se o domínio mudar. -->
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="pt_BR" />
+<meta property="og:site_name" content="Dash" />
+<meta property="og:title" content="Dash — Da planilha ao dashboard em segundos" />
+<meta property="og:description" content="Suba um CSV, Excel ou JSON e a IA monta KPIs, gráficos e análises. Comece grátis." />
+<meta property="og:image" content="https://dash-project-frontend.vercel.app/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<!-- crossorigin: deixa a exportação PNG (html-to-image) ler a folha e embutir a Geist. -->
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" crossorigin="anonymous" />
+<!-- Builds de PRODUÇÃO do React 18.3.1 (1,19 MB → 142 KB). Para depurar com as
+     mensagens completas, troque por react.development.js / react-dom.development.js
+     (sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L e
+      sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm). -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script>
   // Base pública da API do Dash (backend próprio: auth JWT + Asaas).
@@ -16,6 +34,28 @@
   // (components/api.js) guarda o access token só em memória e o refresh
   // token vive num cookie httpOnly.
   window.__API_URL = "https://dashproject-backend.onrender.com";
+  // E-mail de contato exibido em "Fale com a gente" (vazio = link oculto).
+  window.__CONTACT_EMAIL = "";
+
+  // Vercel Web Analytics (sem cookies). Ativar em Vercel → projeto → Analytics.
+  // O auto-track fica desligado: o app é uma página só, e a URL pode carregar
+  // tokens (?verify=, ?reset=, ?s=). O App manda um pageview por tela com um
+  // caminho virtual (/upload, /dashboard…) via dashTrackView; eventos-chave
+  // via dashTrack (eventos personalizados exigem o plano Pro da Vercel).
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  window.dashTrackView = function (name) {
+    try { window.va("pageview", { route: "/" + name, path: "/" + name }); } catch (e) {}
+  };
+  window.dashTrack = function (name, data) {
+    try { window.va("event", { name: name, data: data || {} }); } catch (e) {}
+  };
+  if (!/^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(window.location.hostname)) {
+    var vaScript = document.createElement("script");
+    vaScript.defer = true;
+    vaScript.src = "/_vercel/insights/script.js";
+    vaScript.setAttribute("data-disable-auto-track", "1");
+    document.head.appendChild(vaScript);
+  }
 </script>
 <script src="components/api.js"></script>
 <style>
@@ -307,13 +347,139 @@
     filter: blur(8px);
   }
 
-  /* Responsividade do funil de conversão (Landing · Auth · Plans).
-     Colapsa grids multi-coluna para 1 coluna no mobile. !important é
-     necessário porque as colunas vêm de estilo inline nos .jsx — só
-     author !important sobrescreve inline. Escopo restrito a estas classes,
-     que só existem nessas 3 telas; Dashboard e Account não as usam. */
+  /* Fluxo de geração (dashboard-flow.jsx) */
+  .flow-wrap{ max-width: 1120px; margin: 28px auto 0; padding: 0 24px 72px; }
+  .flow-title{ margin: 0 0 10px; font-size: clamp(28px, 3.6vw, 42px); line-height: 1.08; font-weight: 800; letter-spacing: -.03em; }
+  .flow-steps{ list-style: none; margin: 0 auto 22px; padding: 0; display: flex; justify-content: center; align-items: center; gap: 0; }
+  .flow-steps li{ display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .flow-steps li + li::before{ content: ""; width: 48px; height: 2px; border-radius: 2px; background: var(--line); margin: 0 12px; }
+  .flow-steps li.done + li::before, .flow-steps li.on + li.on::before{ background: var(--brand); }
+  .flow-steps li.done + li.on::before{ background: linear-gradient(90deg, var(--brand), color-mix(in oklch, var(--brand) 40%, white)); }
+  .flow-dot{ width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: white; border: 1.5px solid var(--line); color: var(--muted); font-family: "Geist Mono", monospace; }
+  .flow-steps li.on{ color: var(--ink); }
+  .flow-steps li.on .flow-dot{ background: var(--brand); border-color: var(--brand); color: white; box-shadow: 0 0 0 4px color-mix(in oklch, var(--brand) 18%, white); }
+  .flow-steps li.done{ color: var(--ink-2); }
+  .flow-steps li.done .flow-dot{ background: color-mix(in oklch, var(--brand) 12%, white); border-color: color-mix(in oklch, var(--brand) 40%, white); color: var(--brand); }
+  .dropzone{
+    min-height: 330px; border: 2px dashed #d5dbea; border-radius: 14px; background: #fafbfe;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    padding: 28px 20px; cursor: pointer; transition: border-color .2s ease, background .2s ease;
+  }
+  .dropzone:hover{ border-color: color-mix(in oklch, var(--brand) 55%, white); background: color-mix(in oklch, var(--brand) 4%, white); }
+  .dropzone.drag{ border-color: var(--brand); background: var(--brand-soft); }
+  .dropzone.busy{ cursor: default; border-style: solid; border-color: var(--line); background: white; }
+  .dz-icon{ width: 60px; height: 60px; border-radius: 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; color: white; background: linear-gradient(180deg, var(--brand), var(--brand-2)); box-shadow: 0 16px 32px -14px color-mix(in oklch, var(--brand) 70%, transparent); transition: transform .25s ease; }
+  .dropzone:hover .dz-icon, .dropzone.drag .dz-icon{ transform: translateY(-3px); }
+  .field{ width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-family: inherit; font-size: 14px; color: var(--ink); background: white; outline: none; transition: border-color .15s ease, box-shadow .15s ease; }
+  .field:focus{ border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in oklch, var(--brand) 18%, white); }
+  .sample-row, .format-row{ display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+  .sample-row{ padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+  .sample-row:hover{ border-color: color-mix(in oklch, var(--brand) 45%, white); box-shadow: 0 10px 24px -18px rgba(15,23,42,.35); }
+  .format-row{ padding: 10px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; }
+  .format-row:hover{ background: white; border-color: var(--line); }
+  .format-row.on{ background: white; border-color: var(--brand); box-shadow: 0 6px 16px -10px color-mix(in oklch, var(--brand) 60%, transparent); }
+  .metric-opt{ display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border-radius: 11px; text-align: left; cursor: pointer; font: inherit; color: inherit; border: 1px solid var(--line); background: white; transition: border-color .15s ease, background .15s ease; }
+  .metric-opt:hover{ border-color: #c8cee0; }
+  .metric-opt.on{ border-color: color-mix(in oklch, var(--brand) 55%, white); background: color-mix(in oklch, var(--brand) 5%, white); }
+  .metric-box{ width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0; border: 1.5px solid #c8cee0; background: white; color: white; display: inline-flex; align-items: center; justify-content: center; transition: background .15s ease, border-color .15s ease; }
+  .metric-opt.on .metric-box{ background: var(--brand); border-color: var(--brand); }
+  .metric-conf{ display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; font-size: 10.5px; color: var(--muted); }
+  .metric-conf-bar{ width: 34px; height: 3px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+  .metric-conf-bar span{ display: block; height: 100%; background: color-mix(in oklch, var(--brand) 70%, white); }
+  .link-btn{ border: 0; background: transparent; color: var(--brand-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+  .link-btn:hover{ background: var(--brand-soft); }
+  .idea-chip{ cursor: pointer; background: white; border: 1px solid var(--line); font: inherit; font-size: 12px; }
+  .idea-chip:hover{ border-color: color-mix(in oklch, var(--brand) 45%, white); color: var(--brand-2); }
+  .flow-sticky{ position: sticky; top: 84px; }
+  .flow-actionbar{
+    position: sticky; bottom: 16px; z-index: 20; margin-top: 18px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 12px 12px 20px; border-radius: 16px; border: 1px solid var(--line);
+    background: rgba(255,255,255,.92); backdrop-filter: blur(10px);
+    box-shadow: 0 24px 48px -24px rgba(15,23,42,.35);
+  }
+  .flow-spinner{ width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--brand); animation: flowSpin .8s linear infinite; }
+  @keyframes flowSpin{ to{ transform: rotate(360deg); } }
+  @media (max-width: 960px){
+    .flow-grid{ grid-template-columns: minmax(0, 1fr) !important; }
+    .flow-sticky{ position: static; }
+  }
   @media (max-width: 760px){
-    .resp-collapse{ grid-template-columns: 1fr !important; }
+    .flow-wrap{ padding: 0 16px 56px; margin-top: 18px; }
+    .flow-steps li + li::before{ width: 18px; margin: 0 6px; }
+    .flow-label{ display: none; }
+    .flow-steps li.on .flow-label{ display: inline; }
+    .flow-back{ display: none !important; }
+    .flow-actionbar{ padding: 10px 10px 10px 14px; }
+  }
+
+  /* Acessibilidade: foco visível em todo interativo (teclado) e animações
+     reduzidas para quem pede no sistema (CLAUDE.md §9). */
+  :focus-visible{ outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
+  .btn:focus-visible, .seg button:focus-visible{ outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+    }
+  }
+
+  /* Responsividade. Colapsa grids multi-coluna para 1 coluna no mobile.
+     !important é necessário porque as colunas vêm de estilo inline nos .jsx
+     — só author !important sobrescreve inline. Classes opt-in: resp-collapse
+     (grids), tb-* (Topbar do app), acct-* (Conta). */
+  /* Exportação PDF/PNG (components/dashboard-export.jsx). Enquanto o body tem
+     .dash-exporting, some tudo que é controle e aparece o que é só do arquivo.
+     Os gráficos têm o estado final como estilo base, então desligar as
+     animações (inclusive na cópia que o html-to-image faz) mostra tudo. */
+  /* Página pública de link (share-view.jsx): sem controles de edição. */
+  .dash-readonly .icon-btn,
+  .dash-readonly .block-menu-btn{ display: none !important; }
+
+  .export-only{ display: none !important; }
+  body.dash-exporting .export-only{ display: flex !important; }
+  body.dash-exporting.export-no-brand .export-brand{ display: none !important; }
+  body.dash-exporting .no-export,
+  body.dash-exporting .icon-btn,
+  body.dash-exporting .block-menu-btn,
+  body.dash-exporting .block-menu,
+  body.dash-exporting .fab-bar,
+  body.dash-exporting [data-kind="cta"]{ display: none !important; }
+  body.dash-exporting.export-no-ai [data-kind="insights"]{ display: none !important; }
+  body.dash-exporting .rv{ opacity: 1 !important; transform: none !important; filter: none !important; transition: none !important; }
+  body.dash-exporting svg *{ animation: none !important; }
+  @media print{
+    html, body{ background: #fff !important; }
+    body.dash-exporting .topbar,
+    body.dash-exporting #scroll-progress{ display: none !important; }
+    body.dash-exporting #dash-export-root{ max-width: none !important; padding: 0 !important; }
+    body.dash-exporting .block-wrap{ break-inside: avoid; page-break-inside: avoid; }
+    *{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
+  @media (max-width: 720px){
+    .export-modal{ grid-template-columns: minmax(0, 1fr) !important; overflow-y: auto !important; }
+  }
+
+  @media (max-width: 900px){
+    .tb-crumb{ display: none !important; }
+    .acct-grid{ grid-template-columns: minmax(0, 1fr) !important; gap: 20px !important; }
+    .acct-aside{ position: static !important; }
+  }
+  @media (max-width: 640px){
+    .cc-meta{ display: none !important; }
+    .fab-label{ display: none; }
+    .fab-bar{ bottom: 16px; }
+    .fab-bar button{ padding: 10px 12px !important; }
+    .tb-label{ display: none !important; }
+    .tb-brand{ display: none !important; }
+    .tb-row{ padding: 12px 16px !important; }
+    .topbar .ab-signup{ display: none !important; }
+  }
+  @media (max-width: 760px){
+    /* minmax(0,1fr), não 1fr: com 1fr a trilha cresce até o min-content do
+       filho mais largo (ex.: o preview do hero) e o texto vizinho era cortado
+       pelo overflow:hidden da seção em 375px. */
+    .resp-collapse{ grid-template-columns: minmax(0, 1fr) !important; }
     .strip{ grid-template-columns: 1fr 1fr !important; }
     .auth-grid{ grid-template-columns: 1fr !important; }
     .auth-grid > :last-child{ display: none !important; }
@@ -336,10 +502,15 @@
   <script type="text/babel" src="components/landing.jsx"></script>
   <script type="text/babel" src="components/dashboard-discovery.jsx"></script>
   <script type="text/babel" src="components/dashboard.jsx"></script>
+  <script type="text/babel" src="components/dashboard-flow.jsx"></script>
+  <script type="text/babel" src="components/dashboard-export.jsx"></script>
+  <script type="text/babel" src="components/dashboard-saved.jsx"></script>
+  <script type="text/babel" src="components/share-view.jsx"></script>
   <script type="text/babel" src="components/auth-modal.jsx"></script>
   <script type="text/babel" src="components/auth-view.jsx"></script>
   <script type="text/babel" src="components/plans-view.jsx"></script>
   <script type="text/babel" src="components/account-view.jsx"></script>
+  <script type="text/babel" src="components/account-sections.jsx"></script>
   <script type="text/babel" src="components/app.jsx"></script>
 
   <script type="text/babel">
@@ -357,30 +528,21 @@
 
       if (verify) {
         window.DashAPI.verifyEmail(verify)
-          .then(function () { window.alert("E-mail confirmado! Você já pode usar sua conta."); })
+          .then(function () {
+            window.DashAPI.me().catch(function () {}); // atualiza o selo "E-mail confirmado"
+            window.alert("E-mail confirmado! Você já pode usar sua conta.");
+          })
           .catch(function () { window.alert("Não foi possível confirmar o e-mail. O link pode ter expirado."); })
           .finally(clearQuery);
         return;
       }
 
-      if (reset) {
-        // Guarda o token; por ora um prompt valida o fluxo (o ideal depois é
-        // reaproveitar o visual do auth-view numa tela dedicada).
-        window.__resetToken = reset;
-        var nova = window.prompt("Defina sua nova senha (mín. 8 caracteres):");
-        if (nova && nova.length >= 8) {
-          window.DashAPI.resetPassword(reset, nova)
-            .then(function () { window.alert("Senha redefinida! Faça login com a nova senha."); })
-            .catch(function () { window.alert("Não foi possível redefinir a senha. O link pode ter expirado."); })
-            .finally(clearQuery);
-        } else {
-          if (nova !== null) window.alert("Senha muito curta. Tente o link novamente.");
-          clearQuery();
-        }
-        return;
-      }
+      // ?reset=<token> é tratado pelo App: abre a tela "Defina uma nova senha"
+      // (AuthView, modo reset) e tira o token da URL.
+      if (reset) return;
 
       if (upgrade === "ok") {
+        window.dashTrack("checkout_concluido");
         window.DashAPI.me()
           .catch(function () {})
           .finally(function () {
