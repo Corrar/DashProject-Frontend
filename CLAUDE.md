@@ -524,7 +524,7 @@ Lição do bug `9887c25` → `2a1078a`: a `AccountView` inteira foi pra tela bra
 
 ## 24. Onde paramos (memória de trabalho — atualizado em 16/10/2026)
 
-Leia esta seção primeiro ao retomar. **§1, §17, §18 e §20 ainda falam de Supabase/Stripe, mas o backend real é próprio**: `DashProject-Backend` (Express 5 + Postgres/Neon + JWT com refresh rotativo + Asaas para cartão e Pix). O README do backend é a referência das rotas.
+Leia esta seção primeiro ao retomar. A lista de pendências com checkboxes fica em **`PENDENCIAS.md`** (raiz do repositório); mantenha as duas em sincronia. **§1, §17, §18 e §20 ainda falam de Supabase/Stripe, mas o backend real é próprio**: `DashProject-Backend` (Express 5 + Postgres/Neon + JWT com refresh rotativo + Asaas para cartão e Pix). O README do backend é a referência das rotas.
 
 **Branch**: `claude/jolly-knuth-fafdvw` nos dois repositórios. Nada foi mergeado em `main` e não há PR aberto.
 
