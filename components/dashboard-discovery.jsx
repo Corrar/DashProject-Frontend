@@ -245,11 +245,28 @@ function dashScoreValueName(name){
 function dashSuggestMetrics(profiles, rows){
   const metrics = [];
   const dt = (profiles || []).find(p => p.pattern === "datetime");
+  // Primeira dimensão categórica (para "média/soma de X por Y").
+  const firstCat = (profiles || []).find(p => p.pattern === "category_low");
   const add = (m)=> metrics.push(m);
 
   (profiles || []).forEach(p => {
     switch(p.pattern){
-      case "monetary": {
+      case "monetary":
+      case "continuous":
+        // Medida NÃO aditiva (motor pandas: preço unitário, idade, taxa): somar
+        // não significa nada → média geral + média por categoria, sem "Total".
+        if(p.additive === false){
+          add({ kind:"avg", columns:{ primary:p.name }, label:"Média de "+p.name, priority:78, format: p.pattern === "monetary" ? "currency" : "number" });
+          if(firstCat) add({ kind:"group_avg", columns:{ primary:p.name, secondary:firstCat.name }, label:"Média de "+p.name+" por "+firstCat.name, priority:74, format: p.pattern === "monetary" ? "currency" : "number" });
+          break;
+        }
+        if(p.pattern === "continuous"){
+          add({ kind:"sum", columns:{ primary:p.name }, label:"Soma de "+p.name, priority:60, format:"number" });
+          if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95, format:"number" });
+          if(firstCat && p.additive === true) add({ kind:"group_sum", columns:{ primary:p.name, secondary:firstCat.name }, label:p.name+" por "+firstCat.name, priority:73, format:"number" });
+          break;
+        }
+        {
         // Tie-break by name score so that with multiple monetary columns
         // (e.g. valor_unitario + valor_total) the headline KPI and the trend
         // chart both lock onto the SAME column realAgg picks (valor_total).
@@ -257,12 +274,9 @@ function dashSuggestMetrics(profiles, rows){
         add({ kind:"sum", columns:{ primary:p.name }, label:"Total de "+p.name, priority:100 + vb, format:"currency" });
         if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95 + vb, format:"currency" });
         add({ kind:"avg", columns:{ primary:p.name }, label:"Média de "+p.name, priority:65 + vb, format:"currency" });
+        if(firstCat && p.additive === true) add({ kind:"group_sum", columns:{ primary:p.name, secondary:firstCat.name }, label:p.name+" por "+firstCat.name, priority:76 + vb, format:"currency" });
         break;
-      }
-      case "continuous":
-        add({ kind:"sum", columns:{ primary:p.name }, label:"Soma de "+p.name, priority:60, format:"number" });
-        if(dt) add({ kind:"trend", columns:{ primary:p.name, secondary:dt.name }, label:"Evolução de "+p.name, priority:95, format:"number" });
-        break;
+        }
       case "scale":
         add({ kind:"avg", columns:{ primary:p.name }, label:"Média de "+p.name, priority:80, format:"scale" });
         add({ kind:"distribution", columns:{ primary:p.name }, label:"Distribuição de "+p.name, priority:68, format:"number" });
@@ -292,7 +306,7 @@ function dashSuggestMetrics(profiles, rows){
   // Sort by priority desc, then dedup by kind+primary (keeps the highest).
   const seen = {}, out = [];
   metrics.sort((a,b)=> b.priority - a.priority).forEach(m => {
-    const key = m.kind + "|" + (m.columns.primary || "");
+    const key = m.kind + "|" + (m.columns.primary || "") + "|" + (m.columns.secondary || "");
     if(seen[key]) return;
     seen[key] = 1; out.push(m);
   });
@@ -330,7 +344,9 @@ function _monthly(rows, valueKey, dateKey){
     const key = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2, "0");
     map[key] = (map[key]||0) + v;
   });
-  return Object.keys(map).sort().map(k => ({ l: meses[parseInt(k.slice(5), 10)-1] || k.slice(5), v: map[k] }));
+  const keys = Object.keys(map).sort();
+  const multiYear = new Set(keys.map(k => k.slice(0, 4))).size > 1; // "Jan/24 … Jan/25" em vez de "Jan … Jan"
+  return keys.map(k => ({ l: (meses[parseInt(k.slice(5), 10)-1] || k.slice(5)) + (multiYear ? "/" + k.slice(2, 4) : ""), v: map[k] }));
 }
 function _short(label){ const s = String(label); return s.length > 14 ? s.slice(0,13)+"…" : s; }
 function _fmt(v, format){
@@ -393,6 +409,24 @@ function dashGenerateBlocks(profiles, metrics, rows){
         color: PAL[0], height:280, data: data
       }});
       nChart++; track(col, m.priority); track(dt.name);
+    } else if(m.kind === "group_avg" || m.kind === "group_sum"){
+      if(nChart >= 6) return;
+      const dim = m.columns.secondary;
+      const acc = {};
+      rows.forEach(r => {
+        const k = r[dim]; if(k == null || k === "") return;
+        const v = _asNum(r[col]); if(v == null) return;
+        const a = acc[k] || (acc[k] = { s:0, n:0 }); a.s += v; a.n++;
+      });
+      const g = Object.keys(acc).map(k => ({ l:k, v: m.kind === "group_avg" ? acc[k].s/acc[k].n : acc[k].s }))
+        .sort((a,b)=> b.v - a.v).slice(0, 8);
+      if(g.length < 2) return;
+      charts.push({ id:"g-chart-"+nChart, kind:"chart", span:6, props:{
+        title: m.label, sub: m.kind === "group_avg" ? "Média por "+dim : "Soma por "+dim, type:"bar", dim: dim,
+        agg: m.kind === "group_avg" ? "avg" : "sum", color: PAL[nChart % PAL.length], height:260,
+        data: g.map(d => ({ l:_short(d.l), v:d.v }))
+      }});
+      nChart++; track(col, m.priority); track(dim);
     } else if(m.kind === "top_n"){
       if(nChart >= 6) return;
       const g = _groupCount(rows, col).slice(0, 8);

@@ -258,8 +258,13 @@ function dashResolveColumns(schema){
   const scoreValue = window.dashScoreValueName;
   const measures = schema.filter(c => c.type === "measure");
   let value = null, bestScore = 0;
-  for(const c of measures){ const sc = scoreValue(c.name); if(sc > bestScore){ bestScore = sc; value = c.name; } }
-  if(!value){
+  // Motor pandas já decidiu a coluna de valor olhando os dados (receita =
+  // quantidade × preço, preço unitário não soma…). null = base sem "valor":
+  // o painel de descoberta assume em vez dos presets de vendas.
+  const fromEngine = schema.some(c => c.engine === "pandas");
+  if(fromEngine) value = (schema.find(c => c.isValue) || {}).name || null;
+  else for(const c of measures){ const sc = scoreValue(c.name); if(sc > bestScore){ bestScore = sc; value = c.name; } }
+  if(!value && !fromEngine){
     // No name matched: prefer a measure that isn't a qty/order id; only fall
     // back to the first raw measure as a last resort.
     const neutral = measures.find(c => scoreValue(c.name) === 0);
@@ -305,6 +310,15 @@ function dashFitBlocks(blocks){
       row.push(kept[i]); sum += kept[i].span; i++;
     }
     fill(row, sum);
+  }
+  // KPIs primeiro: o bloco de insights (grande) vem logo depois da linha de
+  // KPIs, em vez de empurrá-los para baixo da dobra.
+  const ins = kept.findIndex(b => b.kind === "insights");
+  if(ins >= 0){
+    const [blk] = kept.splice(ins, 1);
+    let lastKpi = -1;
+    kept.forEach((b, i)=>{ if(b.kind === "kpi") lastKpi = i; });
+    kept.splice(lastKpi + 1, 0, blk);
   }
   return kept;
 }
@@ -371,7 +385,7 @@ function dashFilterByPeriod(rows, dateKey, days){
  * mês). Só um sample limitado (≤20 linhas) + metadados de coluna saem do browser,
  * e só para planos pagos que pediram a análise (o tier/quota é reforçado no
  * servidor). */
-async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName, focus){
+async function dashFetchNarrative(profiles, metrics, facts, datasetName, focus){
   try {
     // profiles = saída de dashProfileColumns: { name, baseType, pattern, stats,… }.
     // Mapeia pro contrato do backend {name, type}. Filtra colunas sem name string
@@ -382,16 +396,20 @@ async function dashFetchNarrative(profiles, metrics, sampleRows, datasetName, fo
     // Injeta os KPIs reais como contexto na pergunta (o backend lê
     // datasetName/columns/sampleRows/question — campos extras são ignorados).
     // Foco escrito na tela de métricas vai na frente; o backend aceita até 500 caracteres.
+    // A IA só ESCREVE o resumo: recebe os fatos já calculados no navegador
+    // (pandas ou motor JS) e os KPIs — nenhuma linha do arquivo (sampleRows vazio).
+    // `facts` é o campo novo do backend; o resumo deles também vai em `question`
+    // (≤ 500) para backends que ainda não leem `facts`.
+    const factList = (facts || []).map(f => String(f).slice(0, 300)).filter(Boolean).slice(0, 40);
     const parts = [];
     if(focus && String(focus).trim()) parts.push("Foco pedido pelo usuario: " + String(focus).trim().slice(0, 200) + ".");
-    if(metrics && metrics.length) parts.push("KPIs calculados: " + JSON.stringify(metrics));
-    const question = parts.length ? parts.join(" ").slice(0, 500) : null;
-    const result = await window.DashAPI.analyze({
-      datasetName: datasetName,
-      columns: columns,
-      sampleRows: sampleRows,
-      question: question,
-    });
+    const kpiVal = (v)=> typeof v === "number" ? v.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : String(v);
+    if(metrics && metrics.length) parts.push("KPIs: " + metrics.map(m => m.label + " = " + kpiVal(m.value)).join("; ") + ".");
+    if(factList.length) parts.push("Fatos: " + factList.join(" "));
+    const question = parts.length ? parts.join(" ").slice(0, 500) : undefined; // null era rejeitado (400) pelo zod
+    const payload = { datasetName: datasetName, columns: columns, sampleRows: [], facts: factList };
+    if(question) payload.question = question;
+    const result = await window.DashAPI.analyze(payload);
     return result; // { narrative, model }
   } catch(err){
     if(err && err.status === 402){            // plano insuficiente (ex.: plano venceu no meio da sessão)
@@ -841,6 +859,29 @@ const _dashNarrativeCache = new Map();
 
 // anon: visitante sem conta — a análise grátis (1/mês) exige conta, então o
 // bloco vira convite de cadastro em vez de chamar a API.
+/* Markdown mínimo (parágrafos, listas "- ", **negrito**, "# título") renderizado
+ * como elementos React — a resposta do Gemini vinha crua num <p> com "**" à mostra.
+ * Nada de dangerouslySetInnerHTML: o texto da IA nunca vira HTML. */
+function DashMiniMarkdown({ text }){
+  const inline = (line, key)=> String(line).split(/(\*\*[^*]+\*\*)/g).map((part, i)=>
+    /^\*\*[^*]+\*\*$/.test(part) ? <b key={key + "-" + i}>{part.slice(2, -2)}</b> : <React.Fragment key={key + "-" + i}>{part}</React.Fragment>);
+  const blocks = [];
+  let list = null;
+  String(text || "").split(/\r?\n/).forEach((raw, idx)=>{
+    const line = raw.trim();
+    const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if(item){ (list || (list = [])).push(<li key={idx}>{inline(item[1], idx)}</li>); return; }
+    if(list){ blocks.push(<ul key={"ul" + idx} style={{margin:"6px 0", paddingLeft:20}}>{list}</ul>); list = null; }
+    if(!line) return;
+    const h = line.match(/^#{1,4}\s+(.*)$/);
+    blocks.push(h
+      ? <div key={idx} style={{fontWeight:700, fontSize:14, margin:"8px 0 2px"}}>{inline(h[1], idx)}</div>
+      : <p key={idx} style={{margin:"0 0 8px"}}>{inline(line, idx)}</p>);
+  });
+  if(list) blocks.push(<ul key="ul-end" style={{margin:"6px 0", paddingLeft:20}}>{list}</ul>);
+  return <div style={{color:"var(--ink-2)", fontSize:14, lineHeight:1.6}}>{blocks}</div>;
+}
+
 function AINarrative({ tweaks, live, limits, anon }){
   const accent = tweaks.accent;
   const isFreePlan = tweaks.plan === "free";
@@ -880,18 +921,18 @@ function AINarrative({ tweaks, live, limits, anon }){
         </div>
         <div>
           <div style={{display:"flex", alignItems:"center", gap:8}}>
-            <span style={{fontWeight:700, fontSize:16}}>Análise por IA</span>
+            <span style={{fontWeight:700, fontSize:16}}>Resumo em texto pela IA</span>
             <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
           </div>
           <div style={{fontSize:12, color:"var(--muted)", marginTop:2, display:"inline-flex", alignItems:"center", gap:5}}>
-            <Icon.Sparkle size={10}/> Análise gerada por IA
+            <Icon.Sparkle size={10}/> Escrito pela IA a partir dos insights calculados
           </div>
         </div>
       </div>
       {!anon && !quota && data && (
         <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13, opacity: loading ? 0.6 : 1}} disabled={loading}
           onClick={reload} title="Gerar uma nova análise com a IA">
-          <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Recarregar análise" : "Gerar análise"}
+          <Icon.Refresh size={12}/> {loading ? "Gerando…" : data ? "Gerar de novo" : "Gerar resumo"}
         </button>
       )}
     </div>
@@ -904,8 +945,8 @@ function AINarrative({ tweaks, live, limits, anon }){
         {Header}
         <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
           <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
-            <div style={{fontWeight:700, marginBottom:4}}>Crie uma conta grátis e gere 1 análise por mês</div>
-            A IA escreve um resumo executivo, insights e recomendações a partir desta base. Sem cartão de crédito. Seus dados continuam aqui enquanto você cria a conta.
+            <div style={{fontWeight:700, marginBottom:4}}>Crie uma conta grátis e gere 1 resumo por mês com IA</div>
+            Os insights acima já foram calculados no seu navegador, sem conta. A IA só escreve o resumo em texto a partir deles. Sem cartão de crédito.
           </div>
           <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
             <button className="btn btn-primary" onClick={signup}><Icon.Sparkle size={13}/> Criar conta grátis</button>
@@ -1002,7 +1043,7 @@ function AINarrative({ tweaks, live, limits, anon }){
         </div>
         <div style={{flex:"1 1 360px", minWidth:0}}>
           <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
-            <span style={{fontWeight:700, fontSize:15}}>Análise por IA</span>
+            <span style={{fontWeight:700, fontSize:15}}>Resumo em texto pela IA</span>
             <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
             {cap != null && <span style={{fontSize:12, color:"var(--muted)"}}>
               {isFreePlan
@@ -1011,11 +1052,11 @@ function AINarrative({ tweaks, live, limits, anon }){
             </span>}
           </div>
           <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5, marginTop:3}}>
-            Resumo executivo, insights e recomendações sobre esta base{focus ? <> com foco em <b>“{focus}”</b></> : null}.
-            {" "}<span style={{color:"var(--muted)"}}>Envia ao Google Gemini os nomes das colunas, os indicadores e até 20 linhas; o resto do arquivo fica no seu navegador.</span>
+            Um resumo executivo escrito a partir dos insights calculados acima{focus ? <> com foco em <b>“{focus}”</b></> : null}. Opcional: os insights não dependem dele.
+            {" "}<span style={{color:"var(--muted)"}}>Envia ao Google Gemini só os nomes das colunas, os indicadores e esses fatos — nenhuma linha do arquivo.</span>
           </div>
         </div>
-        <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar análise</button>
+        <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar resumo</button>
       </div>
     );
   }
@@ -1035,7 +1076,7 @@ function AINarrative({ tweaks, live, limits, anon }){
       {summary && (
         <div style={{padding:"16px 18px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO</div>
-          <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.6, whiteSpace:"pre-wrap"}}>{summary}</p>
+          <DashMiniMarkdown text={summary}/>
         </div>
       )}
 
@@ -1096,7 +1137,7 @@ function AINarrative({ tweaks, live, limits, anon }){
   );
 }
 
-function Insights({ tweaks, onAddChart, generated }){
+function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: summaryProp, source, quality }){
   const [tab, setTab] = React.useState("insights");
 
   const highlights = [
@@ -1145,9 +1186,22 @@ function Insights({ tweaks, onAddChart, generated }){
   } : null;
   const tabsData = isGen ? genTabs : tabs;
   const hlUse = isGen
-    ? generated.slice(0, 4).map(it => ({ l: it.tag, v: it.ev, s: String(it.t).length > 26 ? String(it.t).slice(0,25)+"…" : it.t, c: catColor(it.cat) }))
+    ? (Array.isArray(hlProp) && hlProp.length
+        ? hlProp.map(h => ({ ...h, c: h.c || "var(--brand)" }))
+        : generated.slice(0, 4).map(it => ({ l: it.tag, v: it.ev, s: String(it.t).length > 26 ? String(it.t).slice(0,25)+"…" : it.t, c: catColor(it.cat) })))
     : highlights;
-  const genSummary = isGen ? ("Painel gerado automaticamente a partir dos seus dados: " + generated.slice(0,3).map(it => it.t).join("; ") + ".") : null;
+  const genSummary = isGen ? (summaryProp || ("Painel gerado automaticamente a partir dos seus dados: " + generated.slice(0,3).map(it => it.t).join("; ") + ".")) : null;
+  const [copied, setCopied] = React.useState(false);
+  const copySummary = ()=>{
+    const text = [genSummary].concat(generated.map(it => "• " + it.t + " — " + it.d)).join("\n");
+    try { navigator.clipboard.writeText(text).then(()=>{ setCopied(true); setTimeout(()=> setCopied(false), 1800); }, ()=>{}); } catch(e){}
+  };
+  const qualityNotes = (isGen && quality) ? [
+    quality.titleRowsSkipped ? quality.titleRowsSkipped + " linha(s) de título ignorada(s)" : null,
+    quality.totalRowsRemoved ? quality.totalRowsRemoved + " linha(s) de total removida(s)" : null,
+    quality.emptyColumnsDropped ? quality.emptyColumnsDropped + " coluna(s) vazia(s) removida(s)" : null,
+    quality.repeatedHeaderRows ? quality.repeatedHeaderRows + " cabeçalho(s) repetido(s) removido(s)" : null,
+  ].filter(Boolean) : [];
   const cur = (tabsData[tab]) || [];
 
   return (
@@ -1158,17 +1212,30 @@ function Insights({ tweaks, onAddChart, generated }){
             <Icon.Sparkle size={20}/>
           </div>
           <div>
-            <div style={{display:"flex", alignItems:"center", gap:8}}>
-              <span style={{fontWeight:700, fontSize:16}}>Análises da IA</span>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini 2.5</span>
-              <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>confiança 89%</span>
+            <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+              <span style={{fontWeight:700, fontSize:16}}>{isGen ? "Insights dos seus dados" : "Análises da IA"}</span>
+              {isGen
+                ? <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>{source === "pandas" ? "Calculado com pandas no navegador" : "Calculado no navegador"}</span>
+                : <>
+                    <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini 2.5</span>
+                    <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>confiança 89%</span>
+                  </>}
             </div>
-            <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>{tabsData.insights.length + tabsData.risks.length + tabsData.recs.length} insights · gerados há 2 min</div>
+            <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>
+              {tabsData.insights.length + tabsData.risks.length + tabsData.recs.length} insights
+              {isGen ? " · sem IA e sem enviar seus dados" : " · gerados há 2 min"}
+            </div>
           </div>
         </div>
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
-          <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13}}><Icon.Share size={12}/> Copiar resumo</button>
-          <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13}}><Icon.Refresh size={12}/> Reanalisar</button>
+          {isGen
+            ? <button className="btn btn-ghost no-export" style={{padding:"6px 12px", fontSize:13}} onClick={copySummary} title="Copiar o resumo e os insights">
+                <Icon.Doc size={12}/> {copied ? "Copiado" : "Copiar resumo"}
+              </button>
+            : <>
+                <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13}}><Icon.Share size={12}/> Copiar resumo</button>
+                <button className="btn btn-ghost" style={{padding:"6px 12px", fontSize:13}}><Icon.Refresh size={12}/> Reanalisar</button>
+              </>}
         </div>
       </div>
 
@@ -1177,7 +1244,14 @@ function Insights({ tweaks, onAddChart, generated }){
         <div style={{padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO EXECUTIVO</div>
           {isGen ? (
-            <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>{genSummary}</p>
+            <>
+              <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>{genSummary}</p>
+              {qualityNotes.length > 0 && (
+                <div style={{marginTop:8, fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+                  <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Tratamento automático: {qualityNotes.join(" · ")}.
+                </div>
+              )}
+            </>
           ) : (
             <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>
               Panorama saudável de vendas com forte expressão em <b>Móveis</b> e <b>Eletrônicos</b>, dominância do canal <b>Marketplace</b> e crescimento sustentado em <b>Centro-Oeste</b>. Há sinal de alerta no <b>ticket médio</b>, que recuou 23%, e dependência de poucos SKUs no topo.
@@ -1255,7 +1329,7 @@ function Insights({ tweaks, onAddChart, generated }){
                     <span className="mono">{it.conf}%</span>
                   </span>
                   <div style={{flex:1}}/>
-                  {it.addType && onAddChart && (
+                  {(it.addType || (it.chart && it.chart.data && it.chart.data.length)) && onAddChart && (
                     <button onClick={()=>onAddChart(it)} style={{
                       padding:"4px 10px", border:`1px solid ${m.c}`, color: m.c, background:"white",
                       borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer",
@@ -1343,7 +1417,13 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // confident AND the data isn't a classic sales shape. Sales/sample CSVs and
   // low-confidence data keep the existing realAgg/mock presets (no regression).
   const profiles = React.useMemo(()=> (fileInfo && fileInfo.profiles) || [], [fileInfo]);
-  const presetCompat = React.useMemo(()=> window.dashPresetCompat ? window.dashPresetCompat(profiles) : { salesShape:false }, [profiles]);
+  const engineMeta = (fileInfo && fileInfo.engine) || null; // saída do motor pandas (null no motor JS)
+  const presetCompat = React.useMemo(()=>{
+    const base = window.dashPresetCompat ? window.dashPresetCompat(profiles) : { salesShape:false };
+    // O pandas sabe se é venda (valor de receita + produto/canal/cliente…). Despesas
+    // ou folha com valor e data não caem mais em "Ticket médio / Pedidos".
+    return engineMeta ? { ...base, salesShape: !!engineMeta.salesShape } : base;
+  }, [profiles, engineMeta]);
   const suggestedMetrics = React.useMemo(()=>
     (profiles.length && window.dashSuggestMetrics) ? window.dashSuggestMetrics(profiles, dataset) : [],
     [profiles, dataset]);
@@ -1360,6 +1440,12 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const generated = React.useMemo(()=>
     (metricPick && profiles.length && window.dashGenerateBlocks) ? window.dashGenerateBlocks(profiles, pickedMetrics, filteredData) : generatedAll,
     [metricPick, profiles, pickedMetrics, filteredData, generatedAll]);
+  // Insights calculados sem IA: os do pandas quando o motor rodou; senão os do
+  // motor JS de descoberta. Valem para todos os planos — não custam nada.
+  const localInsights = React.useMemo(()=>
+    (engineMeta && Array.isArray(engineMeta.insights) && engineMeta.insights.length) ? engineMeta.insights
+      : ((generatedAll && generatedAll.insights) || []),
+    [engineMeta, generatedAll]);
   // A confiança vem da base inteira: marcar menos métricas não troca o modo do painel.
   const useGenerated = !!(generatedAll && generatedAll.overallConfidence > 0.7 && generated && (generated.kpis.length || generated.charts.length));
   const salesShape = !!presetCompat.salesShape;
@@ -1411,8 +1497,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     // a small, representative slice (period-independent so the cache stays warm).
     const metricsPayload = (generated && Array.isArray(generated.kpis) ? generated.kpis : [])
       .map(k => ({ label: k.props.label, value: k.props.value, format: k.props.format }));
-    const sampleRows = dataset.slice(0, 20);
-    dashFetchNarrative(profiles, metricsPayload, sampleRows, (fileInfo && fileInfo.name) || "dados", fileInfo && fileInfo.aiFocus)
+    const facts = (engineMeta && engineMeta.facts && engineMeta.facts.length)
+      ? engineMeta.facts
+      : localInsights.map(it => it.t + (it.ev ? " (" + it.ev + ")" : "") + ". " + (it.d || ""));
+    dashFetchNarrative(profiles, metricsPayload, facts, (fileInfo && fileInfo.name) || "dados", fileInfo && fileInfo.aiFocus)
       .then(result => {
         if(reqId !== narrativeReqRef.current) return; // a newer request superseded this one
         if(result && result.quotaExceeded){ // 429 — quota do mês esgotada: card de upgrade, não erro genérico
@@ -1438,7 +1526,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       .catch(()=>{ // dashFetchNarrative already swallows errors, but stay defensive
         if(reqId === narrativeReqRef.current){ setNarrativeError(true); setNarrativeLoading(false); }
       });
-  }, [narrativeKey, narrativeLoading, profiles, dataset, generated, fileInfo, currentUser, tweaks.plan]);
+  }, [narrativeKey, narrativeLoading, profiles, generated, localInsights, engineMeta, fileInfo, currentUser, tweaks.plan]);
 
   // Drag state
   const [dragId, setDragId] = React.useState(null);
@@ -1530,8 +1618,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
         map.set(key, (map.get(key) || 0) + val);
       }
+      const keys = [...map.keys()];
+      const multiYear = new Set(keys.map(k => k.slice(0, 4))).size > 1;
       return [...map.entries()].sort(([a],[b])=> a<b?-1:1).map(([k, v])=>({
-        l: meses[parseInt(k.slice(5), 10) - 1] || k.slice(5),
+        l: (meses[parseInt(k.slice(5), 10) - 1] || k.slice(5)) + (multiYear ? "/" + k.slice(2, 4) : ""),
         v,
       }));
     })() : [];
@@ -1793,8 +1883,8 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         name: "Descoberta", icon: <Icon.Sparkle size={13}/>,
         desc: "Métricas detectadas automaticamente nos seus dados — sem assumir um tipo de planilha.",
         blocks: [
-          { id:"disc-insights", kind:"insights", span:12, props:{ generated: generated.insights } },
           ...generated.kpis,
+          { id:"disc-insights", kind:"insights", span:12, props:{ generated: generated.insights } },
           ...generated.charts,
         ],
       };
@@ -1926,6 +2016,20 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
   const addChartFromInsight = (it)=> {
     const id = "b-"+Date.now();
+    // Insight calculado (pandas/descoberta) traz o gráfico pronto com dados reais.
+    if(it.chart && Array.isArray(it.chart.data) && it.chart.data.length){
+      setBlocks(bs => [...bs, { id, kind:"chart", span:6, props:{
+        title: it.chart.title || it.t, sub: "Dos insights · " + (it.tag || "Novo"),
+        type: it.chart.type || "bar", dim: it.chart.dim || "", agg: it.chart.agg || "sum",
+        color: tweaks.accent, height: 240, data: it.chart.data,
+      }}]);
+      setTimeout(()=>{
+        const el = document.querySelector(`[data-block-id="${id}"]`);
+        el?.scrollIntoView && el.scrollIntoView({behavior:"smooth", block:"center"});
+      }, 100);
+      return;
+    }
+    if(isUpload) return; // sem dado real para este insight: não inventa gráfico
     setBlocks(bs => [...bs, { id, kind:"chart", span:6, props:{
       title: it.addTitle || it.t,
       sub: "Sugerido pela IA · " + (it.tag || "Novo"),
@@ -2027,8 +2131,15 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       }
       // Real Gemini narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
+      // Com upload: insights calculados no navegador (sempre, sem custo) e, abaixo,
+      // o resumo em texto pela IA — opcional, por clique, a partir desses fatos.
       const inner = isUpload
-        ? <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, focus: fileInfo && fileInfo.aiFocus, onReload: ()=>loadNarrative(true) }}/>
+        ? <>
+            {localInsights.length > 0 && <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={localInsights}
+              highlights={engineMeta && engineMeta.highlights} summary={engineMeta && engineMeta.summary}
+              source={engineMeta ? "pandas" : "local"} quality={engineMeta && engineMeta.quality}/>}
+            <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, focus: fileInfo && fileInfo.aiFocus, onReload: ()=>loadNarrative(true) }}/>
+          </>
         : <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={b.props && b.props.generated}/>;
       return (
         <BlockShell editing={editing} kind="Análises da IA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
@@ -2075,7 +2186,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 22, gap:24, flexWrap:"wrap"}}>
           <div>
             <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Gerado por IA</span>
+              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> {fileInfo && fileInfo.engine ? "Gerado dos seus dados · pandas" : "Gerado automaticamente"}</span>
               <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}><span style={{width:6, height:6, borderRadius:"50%", background:"#0a8a4a"}}/> Atualizado</span>
               {editing && <span className="chip" style={{background:"var(--ink)", color:"white"}}><Icon.Bolt size={11}/> Modo edição</span>}
             </div>
