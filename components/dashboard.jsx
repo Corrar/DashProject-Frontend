@@ -407,7 +407,8 @@ async function dashFetchNarrative(profiles, metrics, facts, datasetName, focus){
     if(metrics && metrics.length) parts.push("KPIs: " + metrics.map(m => m.label + " = " + kpiVal(m.value)).join("; ") + ".");
     if(factList.length) parts.push("Fatos: " + factList.join(" "));
     const question = parts.length ? parts.join(" ").slice(0, 500) : undefined; // null era rejeitado (400) pelo zod
-    const payload = { datasetName: datasetName, columns: columns, sampleRows: [], facts: factList };
+    // Sem datasetName: o nome do arquivo pode identificar a pessoa ou o cliente.
+    const payload = { columns: columns, sampleRows: [], facts: factList };
     if(question) payload.question = question;
     const result = await window.DashAPI.analyze(payload);
     return result; // { narrative, model }

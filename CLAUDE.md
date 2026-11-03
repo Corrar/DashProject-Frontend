@@ -32,6 +32,7 @@ Stack **deliberadamente leve**, sem bundler, roda direto no navegador:
 | Gráficos            | **SVG inline** desenhado por funções próprias — **sem libs de chart**      |
 | Fontes              | **Geist** e **Geist Mono** via Google Fonts (com `preconnect`)             |
 | APIs                | `IntersectionObserver`, `MutationObserver`, HTML5 Drag & Drop, `requestAnimationFrame` |
+| Dados               | **pandas 2.2.3 + numpy 2.0.2** no **Pyodide 0.27.7** (Python 3.12 em WebAssembly), num Web Worker. Motor JS como fallback. Ver §24 |
 
 Regras inegociáveis:
 
@@ -42,6 +43,7 @@ Regras inegociáveis:
 - **JSX só funciona em `<script type="text/babel">`**. Importar com `<script type="text/babel" src="...">` no `Dash.html`, na ordem correta (icons → charts → landing → dashboard → app).
 - Componentes que precisam ser usados em outros arquivos JSX **devem ser exportados via `Object.assign(window, { Foo, Bar })`** no final do arquivo. Cada `<script type="text/babel">` é um escopo isolado após transpile.
 - Evite `const styles = { … }` em arquivos JSX — em escopo global colide com outros arquivos. Use nomes específicos (`dashboardStyles`) ou inline.
+- O Pyodide **não é build step**: é baixado do CDN pelo worker só quando a pessoa abre a tela de upload, e o navegador guarda em cache. Só `numpy` e `pandas` (nada de scipy/sklearn: peso e tempo de carga). Versão pinada em `components/py-worker.js` **e** nos testes (`engine/tests`), sempre iguais.
 
 ---
 
@@ -65,6 +67,11 @@ components/
   account-view.jsx         # AccountView (rota account): shell, Workspace (lista de espera real), Faturamento, Indique + AccountErrorBoundary
   account-sections.jsx     # seções reais da Conta: perfil, senha, sessões, seus dados (exportar/excluir), faturas (Asaas), histórico de IA
   app.jsx                  # App root: roteamento de views, bootstrap Supabase, tweaks, expõe window.__dash* (ver §19)
+  py-engine.js             # window.DashPy: ponte com o motor pandas (JS puro, carregado como api.js). Ver §24
+  py-worker.js             # Web Worker que carrega o Pyodide e roda engine/dash_engine.py
+engine/
+  dash_engine.py           # motor de dados em pandas: limpeza, tipos, semântica, insights sem IA
+  tests/test_engine.py     # pytest do motor (fora do deploy, ver .vercelignore)
 ```
 
 A pasta `design-v2/` continha mocks da iteração de design (account/plans/auth/app-novo); foi integrada em `components/` e removida. Está em `.gitignore` para não voltar.
@@ -247,13 +254,14 @@ Antes de fazer merge de qualquer mudança grande, validar visualmente em:
 Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 
 - **Processar arquivos via FileReader / Blob no client.** Nunca subir para servidor sem consentimento explícito.
-- **Sampling para IA** (decisão [DECISION 2026-06-03], substitui a regra antiga de "1-3 linhas anonimizadas"):
-  - **20 linhas cruas (sem anonimização)** são enviadas para o Gemini (via Edge Function `gemini-narrative`), junto com perfis de coluna + KPIs computados.
-  - **Decisão**: priorizar qualidade da análise sobre minimização de dados. Insights mais ricos e específicos compensam o trade-off.
+- **IA só onde não dá para calcular** (decisão [DECISION 2026-11-03], substitui a de 2026-06-03 que mandava 20 linhas cruas):
+  - **Insights, destaques, resumo executivo e qualidade dos dados são calculados no navegador** (motor pandas, §24; ou motor JS no fallback), para todos os planos, sem custo e sem enviar nada.
+  - **O Gemini só escreve o resumo em texto**, a partir dos fatos calculados (`facts`), nomes de colunas e KPIs. **Nenhuma linha do arquivo é enviada** (`sampleRows: []`) e o nome do arquivo também não.
+  - Colunas com cara de dado pessoal (e-mail, CPF, CNPJ, telefone) são marcadas `pii` pelo motor e nunca entram em insights nem fatos.
   - **Cota por conta**: Free 1 análise/mês, Essencial 50, Pro 300 (backend responde 429 ao estourar). **Anônimo não envia nada** — o bloco vira convite de cadastro; a IA exige conta.
-  - **Opt-in por clique**: a análise só roda quando o usuário clica em "Gerar análise", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base) e no dashboard salvo (IndexedDB), então reabrir não gasta cota.
+  - **Opt-in por clique**: o resumo só roda quando o usuário clica em "Gerar resumo", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base) e no dashboard salvo (IndexedDB), então reabrir não gasta cota.
   - **TODO pré-lançamento** (bloqueia ir a usuários reais):
-    - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Análise por IA", estado inicial).
+    - ~~Adicionar aviso visual antes do primeiro uso da IA.~~ Feito (bloco "Resumo em texto pela IA", estado inicial).
     - Termos de Uso e Política de Privacidade: rascunhos em `termos.html` / `privacidade.html`. **Preencher os campos entre colchetes (razão social, CNPJ, endereço, e-mails) e revisar com advogado** antes de lançar.
 - Quando aceitar URL pública (Importar de URL), validar contra `data:`, `javascript:`, hosts de loopback; só permitir `https://`.
 - `<input type="file">` com `accept` restrito (`.csv,.tsv,.txt,.json,.ndjson,.xlsx,.xls,.parquet`).
@@ -262,7 +270,7 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - Não armazenar dados em `localStorage` exceto preferências de UI (período, tema, layout).
 - **Exceção: dashboards salvos** (`dashboard-saved.jsx`). A base processada, o layout e a narrativa da IA ficam no **IndexedDB deste navegador**, por dono (id do usuário ou `"anon"`), nunca no servidor. Free guarda os 3 mais recentes, pagos 50; bases > 200 mil linhas não são salvas. A pessoa pode desligar ("Salvar neste navegador") e apagar. Dados de demonstração nunca são salvos.
 - **Métricas**: Vercel Web Analytics (sem cookies), carregado em `index.html` com auto-track desligado — a URL pode carregar tokens (`?verify=`, `?reset=`, `?s=`). O `App` manda `dashTrackView(view)` por tela; eventos-chave via `window.dashTrack(nome, dados)`. **Nunca** mandar nome de arquivo, conteúdo, e-mail ou id de usuário nos eventos — só categorias (plano, ciclo, faixa de linhas).
-- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção.
+- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção. O `components/py-worker.js` tem uma CSP **própria** (regra separada no `vercel.json`): `cdn.jsdelivr.net`, `'unsafe-eval'` e `'wasm-unsafe-eval'`, que o Pyodide exige, ficam só no worker; a página continua sem eval (só ganhou `worker-src 'self'`).
 - **Links públicos (Pro)**: guardam só o retrato agregado dos blocos (`dashBuildShareSnapshot`), nunca linhas do arquivo. A página pública sanitiza tudo (`dashSanitizeSharedBlock`) e tem `noindex`.
 - **LGPD**: copy precisa deixar claro que análise é local e que metadados podem ser enviados para a IA com opt-in.
 
@@ -519,6 +527,28 @@ Lição do bug `9887c25` → `2a1078a`: a `AccountView` inteira foi pra tela bra
 3. **Nunca** referencie um ícone como "TODO adiciono depois" — o crash é total, não graceful.
 
 **Error Boundary por feature de tela:** views que compõem múltiplas seções (`AccountView` com 5 abas, futuro `DashboardView` com presets) devem envolver o conteúdo dinâmico num `class XErrorBoundary extends React.Component` local — com `getDerivedStateFromError` + reset por `resetKey` quando a aba/preset muda. Referência: `AccountErrorBoundary` em `account-view.jsx`. Boundary global no `App` não basta: ele bloqueia *toda* a app quando um sub-componente quebra, em vez de só a seção afetada.
+
+---
+
+## 24. Motor de dados (pandas no navegador)
+
+Fluxo: `UploadView` lê o arquivo (CSV/TSV/colado → `dashParseCSV`; Excel → SheetJS; JSON vai cru) e chama `DashPy.analyze({kind:"matrix", matrix} | {kind:"json", text})`. O worker roda `dash_engine.run(json) → json` no Pyodide; `py-engine.js` converte para o `fileInfo` de sempre (`schema`, `data` com `Date` local, `profiles`) + `fileInfo.engine` (`roles`, `salesShape`, `quality`, `insights`, `highlights`, `summary`, `facts`). `dashboard-saved.jsx` guarda `engine` junto, então reabrir não carrega o Pyodide.
+
+**Fallback para o motor JS** (o de antes, intacto) quando: navegador sem Worker/WebAssembly, Pyodide não carrega em 30 s (8 s na amostra), base > 200 mil linhas (`DashPy.MAX_ROWS`), ou o Python devolve `ok:false`. Nada quebra; só os insights ficam mais simples.
+
+O que o motor faz (e o JS não):
+
+- **Tipos pela coluna inteira**: separador decimal votado nos valores inequívocos (`2,500` com `1,75` na mesma coluna = 2,5; coluna toda ambígua usa a tendência do arquivo, senão milhar) e ordem dia/mês (algum dia > 12 decide; sem evidência, DD/MM). Datas `DD-MM-AAAA`, `MM/AAAA`, `jan/25`, `15 de março de 2025`, ISO com hora.
+- **Estrutura**: cabeçalho abaixo de título/"Emitido em"/`sep=;`, linhas de TOTAL/SUBTOTAL (e total sem rótulo que bate com a soma), cabeçalho repetido, colunas vazias, nomes repetidos (`valor (2)`), JSON aninhado achatado (`cliente.endereco.uf`), NDJSON em `.json`.
+- **Semântica**: identificadores (CEP/CPF com zero à esquerda viram texto), ano como dimensão, flag 0/1 como sim/não, grafias unidas ("SP"/"sp "), dado pessoal (`pii`), medida **não aditiva** (preço unitário, idade, taxa → média, nunca "Total de"), relação `total = a × b` para achar a coluna de valor, `salesShape` (despesas e folha não viram "Ticket médio/Pedidos").
+- **Insights** (formato `{cat, t, d, tag, ev, conf, risk?, chart?}`; `chart` traz dados reais para "Adicionar ao dashboard"): líder e concentração (top-K + "Outros"), tendência (regressão), maior alta/queda e mudança de mix entre as metades do período, itens novos/sumidos, dia da semana, média por categoria escolhida por **η²**, dimensões redundantes removidas por **Theil's U**, correlação, outliers (3×IQR), assimetria (média × mediana), qualidade (vazios, ilegíveis, duplicadas, colunas idênticas). Métricas "quanto maior, pior" (custo, devolução…) invertem cores e textos. Técnicas inspiradas em sweetviz, sketch, pandas-ai, streamlit e taipy, reimplementadas (nada copiado).
+
+Regras:
+
+- **Saída sempre JSON estrito** (sem NaN/inf) e `run()` **nunca lança**: erro vira `{ok:false}` e o front cai para o JS.
+- **Performance**: tudo sobre valores únicos (`pd.factorize`) — 100 mil linhas ≈ 4 s em CPython (≈ 2-3× no WebAssembly); 5 mil linhas ≈ 0,2 s. Nada de laço por célula.
+- **Testes**: `python -m pytest engine/tests -q` com Python 3.12 + `pandas==2.2.3 numpy==2.0.2` (as versões do Pyodide 0.27.7). Todo insight ou regra de tipo novo ganha teste.
+- Novo insight: adicionar em `_insights`, com texto em PT-BR, número formatado (`_fmt_compact`, `_fmt_pct`) e, se fizer sentido, `chart` com `data` real e um fato curto em `facts` (é o que a IA recebe).
 
 ---
 

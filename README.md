@@ -17,10 +17,12 @@ indicadores, gráficos e análises escritas por IA, prontos para editar.
 | | |
 |---|---|
 | **Importar dados** | CSV, TSV, TXT, JSON/NDJSON e Excel (XLSX/XLS), colar dados direto ou usar o exemplo pronto |
+| **Tratamento com pandas** | Python + pandas rodando no próprio navegador (Pyodide): decimais e datas no padrão certo de cada coluna, linhas de título e de total removidas, grafias unidas, dados pessoais protegidos |
 | **Descoberta automática** | Analisa as colunas e gera os blocos do painel de acordo com o tipo de dado |
+| **Insights sem IA** | Líderes, concentração, tendência, maior alta e queda, mudança de mix, outliers e qualidade dos dados, calculados no navegador para todos os planos |
 | **Visões prontas** | Visão geral, por região, por produto, por canal, avançada (Pro) e descoberta, com filtro de 7, 30 ou 90 dias |
 | **Editor** | Arrastar e soltar, redimensionar e adicionar blocos |
-| **Análise com IA** | Texto explicando os dados, gerado no backend (Gemini) sob demanda e limitado pela cota do plano (o Free tem 1 por mês) |
+| **Resumo com IA** | Resumo em texto escrito pelo Gemini a partir dos insights já calculados, sob demanda e dentro da cota do plano (o Free tem 1 por mês). Nenhuma linha do arquivo é enviada |
 | **Dashboards salvos** | Cada base enviada fica salva neste navegador (IndexedDB) com layout, período e análise da IA, para reabrir depois em "Continuar de onde parou" |
 | **Conta** | Cadastro, login, verificação de e-mail e troca de senha |
 | **Assinatura** | Planos mensais ou anuais (2 meses grátis) por cartão ou Pix (Asaas); cancelamento pela conta mantém o acesso até o fim do período pago |
@@ -59,6 +61,18 @@ python3 -m http.server 8000
 ```
 
 Abrir o `index.html` direto (`file://`) não funciona, porque o navegador precisa buscar os `.jsx`.
+
+Na primeira vez que a tela de envio abre, o navegador baixa o Pyodide (Python + pandas, uns 10 MB, depois fica em cache) de `cdn.jsdelivr.net`. Sem ele, o app usa o motor JavaScript.
+
+Testes do motor pandas (Python 3.12, as mesmas versões do Pyodide 0.27.7):
+
+```bash
+pip install pandas==2.2.3 numpy==2.0.2 pytest
+```
+
+```bash
+python -m pytest engine/tests -q
+```
 
 O endereço da API fica em `window.__API_URL`, no `index.html`. Para testar login e IA localmente, aponte para um backend que aceite a sua origem (CORS).
 
