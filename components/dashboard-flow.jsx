@@ -66,7 +66,17 @@ function UploadView({ onUploaded, maxRows, children }){
   const [step, setStep] = React.useState(""); // "" | reading | parsing | analyzing | done
   const [pasteText, setPasteText] = React.useState("");
   const [parseError, setParseError] = React.useState(null);
+  const [engineLabel, setEngineLabel] = React.useState(null); // nome do motor que tratou a base
   const fileInputRef = React.useRef(null);
+  // Começa a baixar o motor pandas (Pyodide) assim que a tela abre: quando a
+  // pessoa escolher o arquivo, ele costuma já estar pronto. Nada é enviado.
+  React.useEffect(()=>{ window.DashPy && window.DashPy.warm(); }, []);
+  // O pandas pode levar dezenas de segundos na 1ª carga. Se nesse meio-tempo a
+  // pessoa abrir um dashboard salvo, sair da tela ou começar outro upload, o
+  // resultado antigo não pode puxá-la de volta: cada processamento tem um id.
+  const runIdRef = React.useRef(0);
+  const mountedRef = React.useRef(true);
+  React.useEffect(()=>{ mountedRef.current = true; return ()=>{ mountedRef.current = false; }; }, []);
 
   // Parse a CSV/TSV text payload and forward the full dataset (header + typed
   // rows + schema) via onUploaded. The progress markers below are cosmetic —
@@ -75,6 +85,8 @@ function UploadView({ onUploaded, maxRows, children }){
   // sequence setStep with short timers to keep that affordance.
   const runProcessing = (file)=>{
     const name = file?.name || "dados.csv";
+    const myRun = ++runIdRef.current;
+    const alive = ()=> mountedRef.current && runIdRef.current === myRun;
     const sizeKB = file?.size ? Math.round(file.size/1024) : Math.round((file?.text?.length || 0)/1024) || 1;
     setParseError(null);
     setFilename({ name, sizeKB, rows: 0, cols: 0 });
@@ -82,13 +94,13 @@ function UploadView({ onUploaded, maxRows, children }){
     setProgress(10);
 
     const ext = String(name).toLowerCase().split(".").pop();
-    const fail = (msg)=>{ setParseError(msg); setStep(""); };
+    const fail = (msg)=>{ if(!alive()) return; setParseError(msg); setStep(""); };
 
     // Cauda compartilhada: recebe { header, rows } e roda o MESMO pipeline de
     // schema/dados/profiles para todo formato (CSV, Excel, JSON). É o corpo
     // original do ingest() a partir do dashInferSchema — os fixes de coluna/
     // período/número vivem aqui embaixo e seguem intactos.
-    const ingestParsed = (header, rows)=>{
+    const ingestParsed = (header, rows, enginePayload)=>{
       if(!header.length || !rows.length){
         fail("Não consegui detectar cabeçalho ou linhas no arquivo.");
         return;
@@ -99,23 +111,42 @@ function UploadView({ onUploaded, maxRows, children }){
           <a onClick={()=> window.__dashUpgrade?.()} style={{color:"var(--brand)", fontWeight:700, cursor:"pointer", textDecoration:"underline"}}>Ver planos</a></>);
         return;
       }
-      const schema = dashInferSchema(header, rows);
-      setProgress(70); setStep("analyzing");
-      setTimeout(()=>{
-        const data = dashRowsToObjects(header, rows, schema);
-        // Profile on the RAW rows — currency/percent symbols still intact here.
-        const profiles = window.dashProfileColumns ? window.dashProfileColumns(header, rows) : [];
+      const deliver = (parts)=>{
+        if(!alive()) return;
         setProgress(100); setStep("done");
-        setFilename(prev => ({...prev, rows: data.length, cols: header.length}));
-        setTimeout(()=> onUploaded && onUploaded({
-          name, sizeKB,
-          rows: data.length,
-          cols: header.length,
-          schema, data, profiles,
+        setFilename(prev => ({...prev, rows: parts.rows, cols: parts.cols}));
+        setTimeout(()=> alive() && onUploaded && onUploaded({
+          name, sizeKB, ...parts,
           // Amostra do próprio app: não vira "dashboard salvo".
           ...(file && file.isDemo ? { isDemo: true } : {}),
         }), 400);
-      }, 400);
+      };
+      // Motor JavaScript: fallback quando o pandas não está disponível.
+      const runJS = ()=>{
+        if(!alive()) return;
+        setEngineLabel("JavaScript");
+        const schema = dashInferSchema(header, rows);
+        setProgress(70); setStep("analyzing");
+        setTimeout(()=>{
+          const data = dashRowsToObjects(header, rows, schema);
+          // Profile on the RAW rows — currency/percent symbols still intact here.
+          const profiles = window.dashProfileColumns ? window.dashProfileColumns(header, rows) : [];
+          deliver({ rows: data.length, cols: header.length, schema, data, profiles });
+        }, 400);
+      };
+      // Motor pandas (Pyodide, no navegador): limpeza, tipos por coluna, linhas de
+      // total, cabeçalho deslocado e insights calculados. Qualquer falha → JS.
+      if(!window.DashPy || window.DashPy.status() === "unsupported"){ runJS(); return; }
+      setProgress(50); setStep("cleaning"); setEngineLabel("pandas");
+      window.DashPy.analyze(enginePayload || { kind:"matrix", matrix:[header].concat(rows) },
+        { rows: rows.length, waitMs: file && file.isDemo ? 8000 : 30000 })
+        .then(parts => {
+          if(!alive()) return;
+          if(parts && parts.rows > 0){
+            setProgress(85); setStep("analyzing");
+            setTimeout(()=> deliver(parts), 300);
+          } else runJS();
+        });
     };
 
     // Porta CSV/TSV/TXT — caminho ORIGINAL: dashParseCSV → cauda compartilhada.
@@ -131,7 +162,7 @@ function UploadView({ onUploaded, maxRows, children }){
     const ingestJSON = (text)=>{
       setProgress(35); setStep("parsing");
       setTimeout(()=>{
-        try { const p = dashJsonToParsed(text, ext === "ndjson"); ingestParsed(p.header, p.rows); }
+        try { const p = dashJsonToParsed(text, ext === "ndjson"); ingestParsed(p.header, p.rows, { kind:"json", text }); }
         catch(e){ fail("Não consegui ler o JSON: " + (e && e.message ? e.message : "formato inválido")); }
       }, 400);
     };
@@ -274,7 +305,7 @@ function UploadView({ onUploaded, maxRows, children }){
                   </>
                 )}
                 {step && filename && (
-                  <ProcessingPanel filename={filename} progress={progress} step={step}/>
+                  <ProcessingPanel filename={filename} progress={progress} step={step} engine={engineLabel}/>
                 )}
               </div>
             </div>
@@ -309,7 +340,7 @@ function UploadView({ onUploaded, maxRows, children }){
               <div style={{fontWeight:700, fontSize:15}}>Testar com dados de exemplo</div>
               <div style={{fontSize:13, color:"var(--muted)", marginBottom:4}}>Uma base de vendas fictícia para ver o fluxo completo. Não é salva na sua lista.</div>
               {samples.map(s=>(
-                <button key={s.n} className="sample-row" onClick={()=>{ setTab("file"); runProcessing({name:s.n, text: s.text, isDemo: true}); }}>
+                <button key={s.n} className="sample-row" disabled={!!step && step !== "done"} onClick={()=>{ setTab("file"); runProcessing({name:s.n, text: s.text, isDemo: true}); }}>
                   <span style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
                     <Icon.Doc size={16}/>
                   </span>
@@ -411,14 +442,15 @@ function UploadView({ onUploaded, maxRows, children }){
   );
 }
 
-function ProcessingPanel({ filename, progress, step }){
+function ProcessingPanel({ filename, progress, step, engine }){
   const stages = [
     { k:"reading", n:"Lendo o arquivo", i:<Icon.Upload size={13}/> },
     { k:"parsing", n:"Identificando colunas e tipos", i:<Icon.Doc size={13}/> },
-    { k:"analyzing", n:"Sugerindo as melhores métricas", i:<Icon.Sparkle size={13}/> },
+    { k:"cleaning", n: engine === "pandas" ? "Tratando os dados com pandas, no seu navegador" : "Tratando os dados", i:<Icon.Filter size={13}/> },
+    { k:"analyzing", n:"Calculando métricas e insights", i:<Icon.Sparkle size={13}/> },
     { k:"done", n:"Pronto", i:<Icon.Check size={13} stroke={3}/> },
   ];
-  const order = ["reading","parsing","analyzing","done"];
+  const order = ["reading","parsing","cleaning","analyzing","done"];
   const curIdx = order.indexOf(step);
   return (
     <div style={{textAlign:"left", maxWidth: 420, margin:"0 auto", width:"100%"}} aria-live="polite">
@@ -528,7 +560,8 @@ function PromptView({ onGenerate, onBack, fileInfo }){
   const groups = realMetrics ? (()=>{
     const kindDesc = { sum:"soma", avg:"média", count:"contagem", count_unique:"contagem distinta",
       percent_positive:"% positivo", trend:"evolução no tempo", top_n:"ranking",
-      distribution:"distribuição", frequency_by_item:"frequência por item" };
+      distribution:"distribuição", frequency_by_item:"frequência por item",
+      group_avg:"média por categoria", group_sum:"soma por categoria" };
     const famOf = (kind)=> (["sum","avg","count","count_unique","percent_positive"].indexOf(kind) >= 0) ? "kpi"
       : kind === "trend" ? "trend" : "dim";
     const meta = {
@@ -675,7 +708,7 @@ function PromptView({ onGenerate, onBack, fileInfo }){
                 <div style={{fontWeight:700, fontSize:15}}>Foco da análise por IA <span style={{fontWeight:500, color:"var(--muted)", fontSize:13}}>(opcional)</span></div>
                 <div style={{fontSize:12, color:"var(--muted)", marginTop:3}}>Diga o que a IA deve destacar quando você gerar a análise no dashboard.</div>
               </div>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Gemini</span>
+              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Claude</span>
             </div>
             <textarea
               aria-label="Foco da análise por IA"

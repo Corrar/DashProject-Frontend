@@ -1,0 +1,4 @@
+# Testes do motor pandas não vão para o site.
+engine/tests/
+__pycache__/
+.pytest_cache/

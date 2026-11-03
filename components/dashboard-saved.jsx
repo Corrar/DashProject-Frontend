@@ -113,6 +113,9 @@ const DashSaved = {
     const dataset = {
       id: id, header: header, rows: rows,
       schema: dashSavedPlain(fileInfo.schema || []), profiles: dashSavedPlain(fileInfo.profiles || []),
+      // Saída do motor pandas (insights, qualidade, papéis das colunas): reabrir
+      // não precisa carregar o Pyodide de novo.
+      engine: fileInfo.engine ? dashSavedPlain(fileInfo.engine) : null,
     };
     return dashSavedTx(["dashboards", "datasets"], "readwrite", function(s){
       s.datasets.put(dataset);
@@ -163,6 +166,7 @@ const DashSaved = {
         fileInfo: {
           name: out.meta.name, sizeKB: out.meta.sizeKB, rows: data.length, cols: out.meta.cols,
           schema: out.dataset.schema || [], data: data, profiles: out.dataset.profiles || [],
+          engine: out.dataset.engine || null,
           savedId: id, savedLayout: out.meta.layout || null, savedNarrative: out.meta.narrative || null,
           metricPick: Array.isArray(out.meta.metricPick) ? out.meta.metricPick : null, aiFocus: out.meta.aiFocus || "",
         },

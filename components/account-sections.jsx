@@ -425,7 +425,7 @@ function HistorySection({ tweaks, currentUser }){
         {st.loading && !st.data && <div style={{fontSize:13, color:"var(--muted)"}}>Carregando…</div>}
         {!st.loading && recent.length === 0 && !st.error && (
           <div style={{padding:"22px 18px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", textAlign:"center", fontSize:13, color:"var(--muted)"}}>
-            Você ainda não gerou nenhuma análise. Abra um dashboard e clique em “Gerar análise”.
+            Você ainda não gerou nenhum resumo com IA. Abra um dashboard e clique em “Gerar resumo”.
           </div>
         )}
         {recent.map((ts, i)=>{
