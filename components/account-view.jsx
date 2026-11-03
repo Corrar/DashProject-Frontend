@@ -716,4 +716,4 @@ function ReferralSection({ tweaks }){
   );
 }
 
-Object.assign(window, { AccountView, SettingsCard, SectionHeader, TextField });
+Object.assign(window, { AccountView, SettingsCard, SectionHeader, TextField, PlanGate });

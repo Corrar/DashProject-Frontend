@@ -69,6 +69,11 @@ components/
   app.jsx                  # App root: roteamento de views, bootstrap Supabase, tweaks, expõe window.__dash* (ver §19)
   py-engine.js             # window.DashPy: ponte com o motor pandas (JS puro, carregado como api.js). Ver §24
   py-worker.js             # Web Worker que carrega o Pyodide e roda engine/dash_engine.py
+  home-view.jsx            # HomeView (rota home): Painel do usuário logado — dashboards, links, uso, instalar app. Ver §25
+  pwa.js                   # window.DashPWA: registra o sw.js e guarda o pedido de instalação (JS puro, como api.js)
+sw.js                      # service worker do app instalável (cache da casca; nunca API nem URLs com token)
+manifest.webmanifest       # manifesto PWA (nome, ícones, atalhos "Novo dashboard"/"Meus dashboards")
+icons/                     # ícones do app: 192/512 "any", 192/512 "maskable", apple-touch-icon 180
 engine/
   dash_engine.py           # motor de dados em pandas: limpeza, tipos, semântica, insights sem IA
   tests/test_engine.py     # pytest do motor (fora do deploy, ver .vercelignore)
@@ -270,7 +275,7 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - Não armazenar dados em `localStorage` exceto preferências de UI (período, tema, layout).
 - **Exceção: dashboards salvos** (`dashboard-saved.jsx`). A base processada, o layout e a narrativa da IA ficam no **IndexedDB deste navegador**, por dono (id do usuário ou `"anon"`), nunca no servidor. Free guarda os 3 mais recentes, pagos 50; bases > 200 mil linhas não são salvas. A pessoa pode desligar ("Salvar neste navegador") e apagar. Dados de demonstração nunca são salvos.
 - **Métricas**: Vercel Web Analytics (sem cookies), carregado em `index.html` com auto-track desligado — a URL pode carregar tokens (`?verify=`, `?reset=`, `?s=`). O `App` manda `dashTrackView(view)` por tela; eventos-chave via `window.dashTrack(nome, dados)`. **Nunca** mandar nome de arquivo, conteúdo, e-mail ou id de usuário nos eventos — só categorias (plano, ciclo, faixa de linhas).
-- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção. O `components/py-worker.js` tem uma CSP **própria** (regra separada no `vercel.json`): `cdn.jsdelivr.net/pyodide/v0.27.7/full/` (só esse caminho), `'unsafe-eval'` e `'wasm-unsafe-eval'`, que o Pyodide exige, ficam só no worker; a página continua sem eval (só ganhou `worker-src 'self'`).
+- Headers de segurança ficam em `vercel.json` (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none). A CSP permite scripts de `unpkg.com` (React, Babel, html-to-image) e `cdn.sheetjs.com` (Excel), estilos/fontes do Google Fonts e `connect-src` só para a API e o Google Fonts. **Novo domínio externo = atualizar a CSP**, senão quebra em produção. O `components/py-worker.js` tem uma CSP **própria** (regra separada no `vercel.json`): `cdn.jsdelivr.net/pyodide/v0.27.7/full/` (só esse caminho), `'unsafe-eval'` e `'wasm-unsafe-eval'`, que o Pyodide exige, ficam só no worker; a página continua sem eval (só ganhou `worker-src 'self'`). O `sw.js` também tem CSP própria: `connect-src` só para o próprio site, `unpkg.com`, `cdn.sheetjs.com` e Google Fonts (são as origens que ele guarda em cache). **CDN novo usado pela página = avaliar se entra no cache do `sw.js` e na CSP dele.**
 - **Links públicos (Pro)**: guardam só o retrato agregado dos blocos (`dashBuildShareSnapshot`), nunca linhas do arquivo. A página pública sanitiza tudo (`dashSanitizeSharedBlock`) e tem `noindex`.
 - **LGPD**: copy precisa deixar claro que análise é local e que metadados podem ser enviados para a IA com opt-in.
 
@@ -455,18 +460,19 @@ Para voltar ao modo Free: idem, editar `plan` de volta pra `'free'` e dar refres
 
 ## 19. Matriz de helpers `window.__dash*`
 
-`app.jsx` registra 6 helpers globais durante a vida do componente `App` (montados em `useEffect`, deletados no cleanup). Sempre chame com `?.()` no call site — `?.` evita crash durante mount inicial ou HMR antes do effect rodar.
+`app.jsx` registra 7 helpers globais durante a vida do componente `App` (montados em `useEffect`, deletados no cleanup). Sempre chame com `?.()` no call site — `?.` evita crash durante mount inicial ou HMR antes do effect rodar.
 
 | Helper | Anônimo | Free logado | Pro logado | Intenção |
 | --- | --- | --- | --- | --- |
-| `__dashEnterApp()` | → AuthView (signup) | → UploadView | → UploadView | "Usar o produto" — CTA primário da Landing. |
-| `__dashUpgrade()` | → AuthView (signup) | → PlansView | → UploadView | "Comprar / explorar Pro" — paywalls e CTAs secundárias. |
+| `__dashEnterApp()` | → AuthView (signup) | → Painel (HomeView) | → Painel | "Usar o produto" — "Abrir app" da Landing. |
+| `__dashUpgrade()` | → AuthView (signup) | → PlansView | → Painel | "Comprar / explorar Pro" — paywalls e CTAs secundárias. |
+| `__dashOpenHome(section)` | → AuthView (login) | → Painel | → Painel | Painel do usuário (`section` opcional: `"overview"\|"dashboards"\|"links"\|"usage"\|"app"`). Item "Painel" do menu da conta. |
 | `__dashOpenAuth(mode)` | → AuthView | → AuthView | → AuthView | Login/signup explícito (`mode` = `"login"` ou `"signup"`). |
 | `__dashOpenPlans()` | → PlansView | → PlansView | → PlansView | Ver tabela de planos. |
 | `__dashOpenAccount(section)` | → AccountView (guard interno pede login) | → AccountView | → AccountView | Configurações (`section` opcional: `"account"\|"workspace"\|"billing"\|"history"\|"referral"`). |
 | `__dashOpenLanding()` | → Landing | → Landing | → Landing | Voltar pra home. |
 
-**Por que separar `enterApp` e `upgrade`?** Eles colidem no caminho anônimo (ambos → signup), mas divergem para logged-free: `enterApp` quer que a pessoa **use** (Upload), `upgrade` quer que ela **compre** (Plans). Um único helper esconderia essa diferença e levaria a CTAs ambíguas. Mantenha-os separados (commit `532ee82`).
+**Por que separar `enterApp` e `upgrade`?** Eles colidem no caminho anônimo (ambos → signup), mas divergem para logged-free: `enterApp` quer que a pessoa **use** (Painel), `upgrade` quer que ela **compre** (Plans). Um único helper esconderia essa diferença e levaria a CTAs ambíguas. Mantenha-os separados (commit `532ee82`).
 
 Helpers de navegação secundária (`openAuth`, `openPlans`, `openAccount`) gravam `returnView` antes de trocar — o botão "Voltar" da view restaura de onde a pessoa veio (Landing, Dashboard, etc.) em vez de despejar todo mundo na home.
 
@@ -549,6 +555,37 @@ Regras:
 - **Performance**: tudo sobre valores únicos (`pd.factorize`) — 100 mil linhas ≈ 4 s em CPython (≈ 2-3× no WebAssembly); 5 mil linhas ≈ 0,2 s. Nada de laço por célula.
 - **Testes**: `python -m pytest engine/tests -q` com Python 3.12 + `pandas==2.2.3 numpy==2.0.2` (as versões do Pyodide 0.27.7). Todo insight ou regra de tipo novo ganha teste.
 - Novo insight: adicionar em `_insights`, com texto em PT-BR, número formatado (`_fmt_compact`, `_fmt_pct`) e, se fizer sentido, `chart` com `data` real e um fato curto em `facts` (é o que a IA recebe).
+
+
+---
+
+## 25. Painel do usuário e app instalável (PWA)
+
+**Painel (`home-view.jsx`, rota `home`)** é a tela de entrada de quem está logado: "Abrir app", login/cadastro e os botões "Início"/fechar do Topbar e do Dashboard levam para lá (anônimo continua indo para a Landing). Seções, com estado `homeSection` no `App`:
+
+- **Início**: atalho "Novo dashboard", "Continuar de onde parou", medidores do mês (resumos de IA `limits.aiUsed/aiMonthly`, dashboards salvos/limite, links ativos, linhas por base) e os recentes.
+- **Meus dashboards**: lista do `DashSaved` (busca, ordenar, abrir, renomear, apagar, ligar/desligar "Salvar neste navegador").
+- **Links públicos**: `DashAPI.listShares`/`revokeShare` (abrir, copiar, desativar). Sem `limits.shareLinks` → `PlanGate` (agora exportado em `account-view.jsx`).
+- **Plano e uso**: plano, forma de cobrança, medidores e o que o plano inclui; atalhos para Faturamento e Planos.
+- **Instalar o app**: botão de instalar (Chrome/Edge/Android), passo a passo no iPhone e no menu do navegador.
+- **Configurações** (atalhos): Conta, Faturamento e Histórico da IA abrem a `AccountView` — o Painel não duplica essas telas.
+
+O Painel chama `DashAPI.me()` ao abrir para atualizar o uso do mês. Não mostrar número que não venha de `limits` ou do `DashSaved`.
+
+**App instalável (PWA)**: `manifest.webmanifest` + `icons/` + `sw.js`, registrados por `components/pwa.js` (`window.DashPWA`).
+
+- **Instalação**: o `beforeinstallprompt` **não** leva `preventDefault`. Assim o navegador continua oferecendo a instalação do jeito dele para qualquer visitante, inclusive na Landing, que segue com só dois botões. O evento fica guardado para o botão do Painel.
+- **Ao abrir instalado** (`display-mode: standalone`), quem tem sessão vai direto para o Painel. Atalhos do manifesto: `?abrir=novo` (upload) e `?abrir=dashboards`; o `?origem=`/`?abrir=` sai da URL na hora.
+- **Cache do `sw.js`**:
+  - Arquivos do site: **rede primeiro** e cache só sem rede. Misturar `.jsx` antigo com novo quebraria o app, então deploy novo vale na próxima abertura.
+  - CDN com versão na URL (unpkg, SheetJS): cache primeiro.
+  - Fontes: devolve do cache e atualiza por trás.
+- **Nunca cacheia**:
+  - a API (login, conta, IA, links);
+  - o Pyodide (jsDelivr);
+  - URLs com token: toda navegação é guardada como `/`.
+- **Mudou a lógica do `sw.js`?** Suba `VERSION` (`dash-vN`) para limpar os caches antigos.
+- **Sem internet**: a página abre do cache, mas sem sessão. O refresh token depende da API, então não prometa "funciona offline" no copy.
 
 ---
 
