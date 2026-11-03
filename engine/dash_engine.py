@@ -45,6 +45,12 @@ BOOL_TOKENS = {"sim", "não", "nao", "true", "false", "yes", "no", "y", "n", "1"
 POS_TOKENS = {"sim", "true", "yes", "y", "1", "verdadeiro", "v", "t", "ativo", "pago", "on", "s"}
 
 TOTAL_LABEL = re.compile(r"^\s*(sub\s*-?\s*total|total(\s+geral)?|totais|soma(\s+geral)?|grand\s+total|sum)\b", re.I)
+# Rótulo que é SÓ "total" (sem nome de produto/cliente junto): "TOTAL", "Total geral:".
+TOTAL_WHOLE = re.compile(r"^\s*(sub\s*-?\s*total|total(\s+geral)?|totais|soma(\s+geral)?|grand\s+total|sum|total\s+do\s+(m[eê]s|dia|per[ií]odo|ano))\s*:?\s*$", re.I)
+# Id "forte" no nome: com valores inteiros vira identificador mesmo repetindo
+# (ID Cliente, Código do Produto em tabela de vendas). Plural ("pedidos") é contagem.
+STRONG_ID_NAME = re.compile(r"(^|[_\s.])id($|[_\s.])|^id_|_id$|\bc[oó]d(igo)?\b|\bsku\b|matr[ií]cula|\bcpf\b|\bcnpj\b|\bcep\b|protocolo|\bpedido\b|nota\s+fiscal|^nf$", re.I)
+METRIC_NAME = re.compile(r"impress|clique|click|visit|sess[aãoõ]|alcance|seguidor|view|total|valor|receita|venda|fatur", re.I)
 ID_NAME = re.compile(r"(^|[_\s])id($|[_\s])|c[oó]d|sku|cpf|cnpj|matr[ií]c|^numero|num_|_num|pedido|nota|protocolo|cep|telefone|celular|fone|^n[ºo°]\s|^#$", re.I)
 ORDER_NAME = re.compile(r"(pedido|order|num_venda|venda_id|cod_venda|numero_pedido|nota_fiscal|^nf$|^id$|order_id)", re.I)
 QTY_NAME = re.compile(r"(qtd|qtde|qty|quantidade|unidades|volume|count|^num$|^qt$|^n$|itens)", re.I)
@@ -52,11 +58,27 @@ SALARY_NAME = re.compile(r"sal[aá]ri|remunera|folha|proventos|vencimento", re.I
 MONEY_NAME = re.compile(r"receita|fatur|custo|preç|preco|montante|gmv|revenue|price|amount|sal[aá]rio|ticket|valor|venda|despesa|gasto|pagamento|lucro|margem|r\$", re.I)
 # Medidas em que SOMAR não tem significado (idade somada, preço unitário somado…).
 NON_ADDITIVE_NAME = re.compile(
-    r"idade|^age$|_age|preç|preco|price|unit[aá]ri|por_unidade|taxa|rate|percent|pct|%|m[eé]dia|avg|mean|"
-    r"nota|score|rating|avalia|temperatura|^temp|latitude|longitude|^lat$|^lon$|^lng$|ticket|margem|margin|"
+    r"(^|[\s_])idade($|[\s_])|^age$|_age|preç|preco|price|unit[aá]ri|por_unidade|taxa|(^|[\s_])rate|percent|pct|%|m[eé]dia|avg|mean|"
+    r"(^|[\s_])nota($|[\s_])|score|rating|avalia|temperatura|^temp|latitude|longitude|^lat$|^lon$|^lng$|ticket|margem|margin|"
     r"[ií]ndice|ratio|raz[aã]o|nps|satisf|estrela|^ano$|year|altura|peso_m[eé]dio|cota[cç][aã]o|c[aâ]mbio|saldo|estoque_atual",
     re.I,
 )
+# Termos que, sozinhos, já dizem "não some" (média, unitário, taxa…).
+_ALWAYS_NON_ADDITIVE = re.compile(r"m[eé]dia|avg|mean|unit[aá]ri|por_unidade|taxa|(^|[\s_])rate|percent|pct|%", re.I)
+_TOTAL_WORD = re.compile(r"\b(valor|total|receita|faturamento|montante|soma)\b", re.I)
+
+
+def _non_additive(lname):
+    """Medida em que somar não faz sentido? Quantidade é sempre aditiva, e
+    "Valor da Nota"/"Preço Total" também (o nome diz que é um total)."""
+    n = _strip_accents(lname)
+    if _ALWAYS_NON_ADDITIVE.search(n):
+        return True
+    if QTY_NAME.search(n) or _TOTAL_WORD.search(n):
+        return False
+    return bool(NON_ADDITIVE_NAME.search(n))
+
+
 VALUE_TERMS = ["receita", "faturamento", "revenue", "gmv", "montante", "vendas", "venda", "valor", "total", "sales", "amount"]
 SALES_DIM = re.compile(r"produto|product|sku|item|canal|channel|cliente|customer|vendedor|seller|loja|store|marketplace|pedido|order", re.I)
 SALES_VALUE = re.compile(r"receita|fatur|venda|revenue|gmv|sales|ticket", re.I)
@@ -73,6 +95,14 @@ PII_VALUE = re.compile(
     r"|\d{3}\.?\d{3}\.?\d{3}-?\d{2}"                    # CPF
     r"|\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}"             # CNPJ
     r"|(\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}",          # telefone BR
+    re.I,
+)
+# Para mascarar trechos dentro de um texto (insight, fato, rótulo de gráfico).
+PII_SEARCH = re.compile(
+    r"[\w.+-]+@[\w-]+(\.[\w-]+)+"
+    r"|\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b"
+    r"|\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b"
+    r"|(\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b",
     re.I,
 )
 PII_NAME = re.compile(r"e-?mail|cpf|cnpj|telefone|celular|whats|fone|rg$|^rg_|documento", re.I)
@@ -196,10 +226,32 @@ def _matrix_from_json(text):
     records = [r for r in records if isinstance(r, dict)]
     if not records:
         raise ValueError("o JSON não tem objetos com campos reconhecíveis.")
+
+    # Inteiros acima de 2^53 (ids, chaves de NF-e) perderiam dígitos ao virar
+    # float64 numa coluna com nulos: viram texto antes do json_normalize.
+    def keep_big(v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, int) and abs(v) > 2 ** 53:
+            return str(v)
+        if isinstance(v, dict):
+            return {k: keep_big(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [keep_big(x) for x in v]
+        return v
+
+    records = [keep_big(r) for r in records]
     df = pd.json_normalize(records, max_level=3)
+    # Coluna de inteiros com nulo vira float64 ("101.0"): volta a ser inteiro.
+    for c in df.columns:
+        col = df[c]
+        if pd.api.types.is_float_dtype(col) and col.notna().any():
+            vals = col.dropna()
+            if np.all(np.mod(vals, 1) == 0) and vals.abs().max() < 2 ** 53:
+                df[c] = col.astype("Int64")
 
     def cell(v):
-        if v is None:
+        if v is None or v is pd.NA:
             return None
         if isinstance(v, float) and math.isnan(v):
             return None
@@ -367,10 +419,43 @@ def _parse_number_series(values, dataset_decimal=None, native_dot=False):
             f = _to_float(core.replace(",", "").replace(".", ""), ".")
         else:
             f = _to_float(core, decimal)
-        out.append(np.nan if f is None else (-f if neg else f))
+        # 1e308 e afins somam infinito ("R$ inf bi"): ninguém tem esse valor.
+        out.append(np.nan if f is None or not math.isfinite(f) or abs(f) >= 1e15 else (-f if neg else f))
     arr = np.array(out, dtype="float64")
     return arr, {"decimal": decimal, "decimalSource": how, "votes": votes,
                  "hasCurrency": has_currency, "hasPercent": has_percent}
+
+
+_COORD_NAME = re.compile(r"lat|long|lng|^lon$|coord|geo", re.I)
+
+
+def _dataset_decimal(raw_df, native_numeric):
+    """Separador decimal predominante no arquivo, que desempata colunas em que
+    todo valor é ambíguo ("85.000"). Vota por COLUNA, não por célula, e ignora
+    coordenadas e valores com 4+ casas: latitude "-23.3471" vem com ponto até em
+    planilha brasileira e não pode transformar R$ 85.000 em 85,0."""
+    col_votes = {",": 0, ".": 0}
+    for c in raw_df.columns:
+        if c in native_numeric or _COORD_NAME.search(str(c)):
+            continue
+        votes = {",": 0, ".": 0}
+        for v in raw_df[c].dropna().head(500):
+            sh = _number_shape(_NUM_STRIP.sub("", v))
+            if not sh or sh[2] is not None:
+                continue
+            core = sh[1]
+            dv = _decimal_vote(core)
+            if not dv:
+                continue
+            both = "." in core and "," in core
+            if not both and len(core.rsplit(dv, 1)[-1]) >= 4:
+                continue
+            votes[dv] += 1
+        if votes[","] or votes["."]:
+            col_votes["," if votes[","] >= votes["."] else "."] += 1
+    if not (col_votes[","] or col_votes["."]):
+        return None
+    return "," if col_votes[","] >= col_votes["."] else "."
 
 
 # ─────────────────────────── datas ───────────────────────────
@@ -397,9 +482,20 @@ def _year(y):
     return y
 
 
+_MONTH_FULL = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro",
+               "outubro", "novembro", "dezembro", "january", "february", "march", "april", "may", "june",
+               "july", "august", "september", "october", "november", "december"]
+
+
 def _month_token(tok):
-    tok = _strip_accents(tok.lower())[:3]
-    return MONTH_TOKENS.get(tok)
+    """Abreviação ("set", "out") ou começo do nome do mês ("março", "sept").
+    "Setor 01", "Outlet 21" e "Novo 24" NÃO são datas."""
+    tok = _strip_accents(tok.lower())
+    if len(tok) < 3:
+        return None
+    if len(tok) > 3 and not any(full.startswith(tok) for full in _MONTH_FULL):
+        return None
+    return MONTH_TOKENS.get(tok[:3])
 
 
 def _parse_date_series(values):
@@ -540,8 +636,12 @@ def _profile_numeric(name, raw, uniq, counts, nums, ninfo, base, unique_count, u
     two_dec = sum(int(c) for s, c in zip(uniq, counts) if _RE_TWO_DEC.search(_NUM_STRIP.sub("", s))) / p
     lead_zero = any(re.fullmatch(r"0\d+", s) for s in uniq)
     lens = {len(s) for s in uniq}
-    fixed_width = len(lens) == 1 and next(iter(lens)) >= 6
+    has_sep = any(("." in s or "," in s) for s in uniq[:200])
+    # Largura fixa longa sugere código, mas não em métrica ("Impressões" 120000+)
+    # nem quando há separador de milhar ("13.700").
+    fixed_width = len(lens) == 1 and next(iter(lens)) >= 6 and not has_sep and not METRIC_NAME.search(lname)
     name_id = bool(ID_NAME.search(lname))
+    strong_id = bool(STRONG_ID_NAME.search(lname)) and not QTY_NAME.search(lname)
     money_name = bool(MONEY_NAME.search(lname))
     base["hints"].update(hasCurrency=ninfo["hasCurrency"], hasPercent=ninfo["hasPercent"])
     base["numberInfo"] = {"decimal": ninfo["decimal"], "decimalSource": ninfo["decimalSource"]}
@@ -565,10 +665,14 @@ def _profile_numeric(name, raw, uniq, counts, nums, ninfo, base, unique_count, u
     # Identificadores numéricos (CEP, CPF, código): ficam como TEXTO, sem somar,
     # preservando zeros à esquerda. Exige nome de id, zero à esquerda ou largura
     # fixa longa — inteiros de 4-5 dígitos (valores!) não viram id sozinhos.
-    if (unique_ratio > 0.95 and ints and not ninfo["hasCurrency"] and not ninfo["hasPercent"]
-            and not money_name and (name_id or lead_zero or fixed_width)):
+    plain_int = ints and not ninfo["hasCurrency"] and not ninfo["hasPercent"] and not money_name
+    if plain_int and (PII_NAME.search(lname) or (unique_ratio > 0.95 and (name_id or lead_zero or fixed_width))
+                      or (strong_id and vmin >= 0 and unique_count >= 2)):
+        pii = bool(PII_NAME.search(lname))
         base.update(baseType="string", pattern="identifier", confidence=round(min(0.98, 0.78 + (0.1 if name_id else 0)), 2),
-                    schemaType="dimension", additive=False, semantic="identifier", coerced=0)
+                    schemaType="dimension", additive=False, semantic="pii" if pii else "identifier", coerced=0)
+        if pii:
+            base["pii"] = True
         base["stats"].update(min=None, max=None, sum=0, avg=None, median=None)
         return base, list(raw)
     if lead_zero and ints and not money_name:
@@ -601,9 +705,11 @@ def _profile_numeric(name, raw, uniq, counts, nums, ninfo, base, unique_count, u
     else:
         conf += 0.1 if re.search(r"qtd|quant|total|count|num|idade|peso|volume|estoque|valor|preç|preco", lname) else 0
 
-    additive = pattern in ("continuous", "monetary") and not NON_ADDITIVE_NAME.search(_strip_accents(lname))
-    if NON_ADDITIVE_NAME.search(_strip_accents(lname)) and pattern in ("continuous", "monetary"):
-        semantic = "unit_price" if re.search(r"pre[cç]|price|unit", lname) else ("age" if re.search(r"idade|age", lname) else "rate")
+    non_add = _non_additive(lname)
+    additive = pattern in ("continuous", "monetary") and not non_add
+    if non_add and pattern in ("continuous", "monetary"):
+        semantic = ("unit_price" if re.search(r"pre[cç]|price|unit", lname)
+                    else "age" if re.search(r"(^|[\s_])idade($|[\s_])|^age$|_age", lname) else "rate")
     base.update(baseType="number", pattern=pattern, confidence=round(min(0.98, conf), 2),
                 schemaType="measure", additive=bool(additive), semantic=semantic)
     typed = pd.Series(nums).astype(object).where(np.isfinite(nums), None).tolist()
@@ -638,8 +744,10 @@ def _profile_text(name, uniq, counts, base, unique_count, unique_ratio, p, raw):
     raw = list(raw)
     # Dados pessoais: marcados e mantidos como identificador (nunca vão para
     # insights, gráficos de ranking ou fatos da IA).
+    # Basta o nome (CPF/CNPJ com "CONSUMIDOR FINAL" repete muito) ou uma fração
+    # pequena de valores com cara de documento/e-mail (coluna "cliente" mista).
     pii_hits = sum(int(c) for u, c in zip(uniq, counts) if PII_VALUE.fullmatch(u.strip()))
-    if pii_hits / p >= 0.5 or (PII_NAME.search(lname) and unique_ratio > 0.5):
+    if PII_NAME.search(lname) or pii_hits / p >= 0.1:
         base.update(baseType="string", pattern="identifier", confidence=0.9, schemaType="dimension",
                     additive=False, semantic="pii", pii=True)
         return base, raw
@@ -700,7 +808,16 @@ def _detect_products(df, measures):
                 err = ((prod[mask] - df[c][mask]).abs() / df[c][mask].abs())
                 if (err < 0.011).mean() >= 0.9:
                     rel.append((c, a, b))
-    return rel
+    # Com quantidade quase sempre 1, "preço = qtd × total" também fecha. O total
+    # de verdade é o maior: descarta a relação cujo "total" é fator de outra
+    # relação com um total maior.
+    mean = {c: float(df[c].abs().mean()) for c in cols}
+    keep = []
+    for c, a, b in rel:
+        if any(c in (a2, b2) and c2 in (a, b) and mean[c2] > mean[c] for c2, a2, b2 in rel):
+            continue
+        keep.append((c, a, b))
+    return keep
 
 
 def _score_value_name(name):
@@ -766,29 +883,77 @@ def _role_columns(profiles, value):
 
 # ─────────────────────────── qualidade ───────────────────────────
 
-def _drop_total_rows(df, profiles):
-    """Remove linhas de TOTAL/SUBTOTAL que exports de Excel/ERP colocam no meio
-    ou no fim — se ficarem, o KPI principal sai em dobro."""
-    dims = [pr["name"] for pr in profiles if pr["schemaType"] == "dimension"]
+_TOTAL_PREFIX = re.compile(r"^\s*(sub\s*-?\s*total|total)\b", re.I)
+_TOTAL_GROUP_WORD = re.compile(r"\d|semana|m[eê]s|dia|per[ií]odo|geral|parcial|acumulad|trimestre|ano\b", re.I)
+
+
+def _drop_total_rows_raw(raw_df):
+    """Tira linhas de TOTAL/SUBTOTAL e o rodapé ("Emitido por…") ANTES de tipar
+    as colunas. Se ficassem, o KPI principal sai em dobro, a coluna de data pode
+    deixar de ser data e a linha removida ainda contaria como célula vazia.
+    O rótulo pode estar em qualquer coluna (inclusive na de data). Um produto
+    chamado "Total Flex" ou um cliente "Soma Distribuidora" não é total: o
+    rótulo tem que ser só "total" ou vir numa linha incompleta, sem outro texto."""
+    n = len(raw_df)
+    if n < 3:
+        return raw_df.reset_index(drop=True), 0, 0
+    filled = raw_df.notna().sum(axis=1)
+    typical = int(filled.median())
+    footer = 0
+    keep_idx = list(raw_df.index)
+    while keep_idx and typical >= 3 and len(keep_idx) > 2:
+        cells = [c for c in raw_df.loc[keep_idx[-1]] if c is not None]
+        if len(cells) == 1 and not _looks_like_value(cells[0]) and not _TOTAL_PREFIX.match(cells[0]):
+            keep_idx.pop()
+            footer += 1
+        else:
+            break
+    df = raw_df.loc[keep_idx]
+    label_cells = {}
+    for c in df.columns:
+        col = df[c]
+        codes, uniq = pd.factorize(col, use_na_sentinel=True)
+        hits = [i for i, u in enumerate(uniq) if len(str(u)) <= 40 and TOTAL_LABEL.match(str(u))]
+        if not hits:
+            continue
+        counts = np.bincount(codes[codes >= 0], minlength=len(uniq))
+        for i in hits:
+            for r in df.index[codes == i]:
+                label_cells.setdefault(r, []).append((c, str(uniq[i]), int(counts[i])))
+    drop = []
+    for r, labels in label_cells.items():
+        row = df.loc[r]
+        for c, label, count in labels:
+            others = [v for k, v in row.items() if k != c and v is not None]
+            if any(not _looks_like_value(v) for v in others):
+                continue   # tem outro texto na linha (nome, produto): é dado
+            strict = TOTAL_WHOLE.match(label) and count <= max(3, 0.3 * len(df))
+            prefix = (_TOTAL_PREFIX.match(label) and
+                      (filled[r] < typical or _TOTAL_GROUP_WORD.search(label[5:])) and count <= max(3, 0.3 * len(df)))
+            if strict or prefix:
+                drop.append(r)
+                break
+    df = df.drop(index=drop)
+    return df.reset_index(drop=True), len(drop), footer
+
+
+def _unlabeled_total_row(df, profiles):
+    """Última linha sem nenhuma dimensão preenchida cujo valor bate com a soma
+    das outras: é um total sem rótulo. Devolve a posição dela ou None."""
+    dims = [pr["name"] for pr in profiles if pr["schemaType"] in ("dimension", "date")]
     meas = [pr["name"] for pr in profiles if pr["schemaType"] == "measure"]
     if not dims or not meas or len(df) < 3:
-        return df, 0
-    is_total = pd.Series(False, index=df.index)
-    for d in dims:
-        col = df[d].astype("string")
-        is_total |= col.str.match(TOTAL_LABEL, na=False) & (col.str.len() <= 40)
-    # Linha sem nenhuma dimensão preenchida no fim do arquivo + soma batendo.
+        return None
     last = df.index[-1]
-    if not is_total[last] and df.loc[last, dims].isna().all():
-        rest = df.drop(index=last)
-        for m in meas:
-            tot = rest[m].sum(skipna=True)
-            v = df.loc[last, m]
-            if pd.notna(v) and tot and abs(v - tot) / abs(tot) < 0.005:
-                is_total[last] = True
-                break
-    n = int(is_total.sum())
-    return (df[~is_total].reset_index(drop=True), n) if n else (df, 0)
+    if not df.loc[last, dims].isna().all():
+        return None
+    rest = df.drop(index=last)
+    for m in meas:
+        tot = rest[m].sum(skipna=True)
+        v = df.loc[last, m]
+        if pd.notna(v) and tot and abs(v - tot) / abs(tot) < 0.005:
+            return int(len(df) - 1)
+    return None
 
 
 def _outliers(series):
@@ -800,8 +965,9 @@ def _outliers(series):
     if iqr <= 0:
         return None
     hi, lo = q3 + 3 * iqr, q1 - 3 * iqr
-    mask = (series > hi) | (series < lo)
-    return {"count": int(mask.sum()), "high": _r(hi), "low": _r(lo), "mask": mask}
+    up, down = series > hi, series < lo
+    return {"count": int((up | down).sum()), "up": int(up.sum()), "down": int(down.sum()),
+            "high": _r(hi), "low": _r(lo), "mask": up | down}
 
 
 # ─────────────────────────── insights (sem IA) ───────────────────────────
@@ -825,6 +991,22 @@ def _monthly(df, date, value, how="sum"):
         return pd.Series(dtype="float64")
     g = d.groupby(d[date].dt.to_period("M"))[value]
     return g.sum() if how == "sum" else g.mean()
+
+
+def _full_months(df, date, mon):
+    """Tira o 1º/último mês quando cobrem menos de 80% dos dias: export que para
+    no dia 5 faria um mês estável parecer uma queda de 30%."""
+    if len(mon) < 4:
+        return mon
+    d = df[date].dropna()
+    first, last = d.min(), d.max()
+    keep = mon
+    p0, p1 = mon.index[0], mon.index[-1]
+    if (p0.days_in_month - first.day + 1) / p0.days_in_month < 0.8:
+        keep = keep.iloc[1:]
+    if last.day / p1.days_in_month < 0.8 and len(keep) > 3:
+        keep = keep.iloc[:-1]
+    return keep if len(keep) >= 3 else mon
 
 
 def _month_label(period, with_year):
@@ -934,6 +1116,13 @@ def _insights(df, profiles, roles, quality):
     good, bad = ("#0a8a4a", "#c9234a") if not inverse else ("#c9234a", "#0a8a4a")
 
     total = float(df[value].sum()) if value else None
+    # Livro-caixa (receita +, despesa −): participação e "maior alta" de grupos
+    # negativos não fazem sentido, então essas contas usam só grupos positivos.
+    mixed_sign = False
+    if value:
+        pos_sum = float(df[value].clip(lower=0).sum())
+        neg_sum = float(-df[value].clip(upper=0).sum())
+        mixed_sign = neg_sum > 0.05 * max(pos_sum, 1e-9)
     if value:
         facts.append(f"Total de {value}: {fmtv(total)} em {_fmt_num(len(df))} linhas.")
 
@@ -942,11 +1131,13 @@ def _insights(df, profiles, roles, quality):
         dim = pr["name"]
         if value:
             g = df.groupby(dim, dropna=True)[value].sum().sort_values(ascending=False)
+            if mixed_sign:
+                g = g[g > 0]
             base_total = g.sum()
         else:
             g = df[dim].value_counts(dropna=True)
             base_total = g.sum()
-        if len(g) < 2 or not base_total:
+        if len(g) < 2 or not base_total or base_total < 0:
             continue
         top, top_v = g.index[0], float(g.iloc[0])
         share = top_v / base_total * 100
@@ -956,10 +1147,10 @@ def _insights(df, profiles, roles, quality):
         chart = {"type": "bar", "title": (f"{value} por {dim}" if value else f"Registros por {dim}"),
                  "dim": dim, "agg": "sum" if value else "count", "sort": "value_desc", "data": _topk_other(g)}
         out.append({"cat": "comparison", "t": f'"{_short(top, 30)}" lidera em {dim}', "tag": dim,
-                    "d": f"Responde por {_fmt_pct(share, 1)} do {'valor total' if value else 'total de registros'} ({unit}), "
+                    "d": f"Responde por {_fmt_pct(share, 1)} do {('valor positivo' if mixed_sign else 'valor total') if value else 'total de registros'} ({unit}), "
                          f"à frente de \"{_short(g.index[1], 30)}\" ({_fmt_pct(float(g.iloc[1]) / base_total * 100, 1)}).",
                     "ev": unit, "conf": 95, "chart": chart})
-        facts.append(f"Líder em {dim}: {top} com {_fmt_pct(share, 1)} do total.")
+        facts.append(f"Líder em {dim}: {top} com {_fmt_pct(share, 1)} do {'valor positivo' if mixed_sign else 'total'}.")
         if "concentracao" not in highlights and len(g) >= 5:
             highlights["concentracao"] = {"l": "Concentração", "v": _fmt_pct(top_share), "s": f"Top {k} de {len(g)} · {_short(dim, 18)}", "d": "flat"}
             if top_share >= 60:
@@ -972,19 +1163,21 @@ def _insights(df, profiles, roles, quality):
 
     # 2) Tendência no tempo + maior alta/queda por dimensão (metade recente x antiga).
     if date and value:
-        mon = _monthly(df, date, value)
+        mon_all = _monthly(df, date, value)
+        mon = _full_months(df, date, mon_all)
+        partial = len(mon) < len(mon_all)
         if len(mon) >= 3:
-            with_year = len(mon) > 12 or mon.index[0].year != mon.index[-1].year
+            with_year = len(mon_all) > 12 or mon_all.index[0].year != mon_all.index[-1].year
             y = mon.to_numpy(dtype=float)
             x = np.arange(len(y))
             slope = float(np.polyfit(x, y, 1)[0]) if len(y) >= 3 else 0.0
             rel = slope / (abs(y.mean()) or 1) * 100
             best_m, worst_m = mon.idxmax(), mon.idxmin()
             chart = {"type": "line", "title": f"Evolução mensal de {value}", "dim": date, "agg": "sum",
-                     "sort": "natural", "data": [{"l": _month_label(p, with_year), "v": _r(v)} for p, v in mon.items()][-200:]}
+                     "sort": "natural", "data": [{"l": _month_label(p, with_year), "v": _r(v)} for p, v in mon_all.items()][-200:]}
             direction = "alta" if rel > 2 else ("queda" if rel < -2 else "estabilidade")
             out.append({"cat": "trend", "t": f"Tendência de {direction} em {value}", "tag": "Tendência",
-                        "d": f"Ao longo de {len(mon)} meses, {value} varia em média {_fmt_pct(rel, 1)} ao mês (regressão linear). "
+                        "d": f"Ao longo de {len(mon)} meses{' completos' if partial else ''}, {value} varia em média {_fmt_pct(rel, 1)} ao mês (regressão linear). "
                              f"Melhor mês: {_month_label(best_m, True)} ({fmtv(float(mon.max()))}); pior: {_month_label(worst_m, True)} ({fmtv(float(mon.min()))}).",
                         "ev": f"{'+' if rel > 0 else ''}{_fmt_pct(rel, 1)}/mês", "conf": 85 if len(mon) >= 6 else 70, "chart": chart})
             facts.append(f"Tendência mensal de {value}: {direction} ({_fmt_pct(rel, 1)} ao mês); melhor mês {_month_label(best_m, True)}, pior {_month_label(worst_m, True)}.")
@@ -1004,6 +1197,11 @@ def _insights(df, profiles, roles, quality):
                 dim = pr["name"]
                 a = older.groupby(dim)[value].sum()
                 b = recent.groupby(dim)[value].sum()
+                if mixed_sign:
+                    # Só grupos que somam positivo nas duas metades (receitas).
+                    ok_k = a.index.union(b.index)
+                    ok_k = [k for k in ok_k if a.get(k, 0) >= 0 and b.get(k, 0) >= 0]
+                    a, b = a.reindex([k for k in ok_k if k in a.index]), b.reindex([k for k in ok_k if k in b.index])
                 diff = b.subtract(a, fill_value=0).sort_values()
                 if len(diff) < 2:
                     continue
@@ -1186,10 +1384,12 @@ def _insights(df, profiles, roles, quality):
     if value:
         o = _outliers(df[value])
         if o and o["count"]:
+            where = " e ".join(x for x in (f"{o['up']} acima de {fmtv(o['high'])}" if o["up"] else "",
+                                            f"{o['down']} abaixo de {fmtv(o['low'])}" if o["down"] else "") if x)
             out.append({"cat": "outlier", "t": f"{o['count']} valor(es) fora da curva em {value}", "tag": "Outlier",
-                        "d": f"Ficam acima de {fmtv(o['high'])} (3× o intervalo interquartil). Confira se são vendas reais ou erro de digitação antes de decidir com base no total.",
+                        "d": f"{where[0].upper() + where[1:]} (3× o intervalo interquartil). Confira se são lançamentos reais ou erro de digitação antes de decidir com base no total.",
                         "ev": f"{o['count']} de {_fmt_num(len(df))} linhas", "conf": 80})
-            facts.append(f"{o['count']} outliers em {value} acima de {fmtv(o['high'])}.")
+            facts.append(f"Outliers em {value}: {where}.")
         neg = int((df[value] < 0).sum())
         if neg:
             out.append({"cat": "risk", "risk": True, "t": f"{neg} valor(es) negativo(s) em {value}", "tag": "Qualidade",
@@ -1230,6 +1430,27 @@ def _insights(df, profiles, roles, quality):
     return out, hl[:4], facts
 
 
+def _redact(text):
+    """Defesa extra (LGPD): mesmo que uma coluna escape da detecção de dado
+    pessoal, e-mail/CPF/CNPJ/telefone nunca saem num texto do motor, que vira
+    fato para a IA."""
+    return PII_SEARCH.sub("[dado pessoal]", text) if isinstance(text, str) else text
+
+
+def _redact_output(insights, highlights, facts):
+    for it in insights:
+        for k in ("t", "d", "ev"):
+            it[k] = _redact(it.get(k))
+        ch = it.get("chart")
+        if ch:
+            ch["title"] = _redact(ch.get("title"))
+            for pt in ch.get("data", []):
+                pt["l"] = _redact(pt.get("l"))
+    for h in highlights:
+        h["s"] = _redact(h.get("s"))
+    return insights, highlights, [_redact(f) for f in facts]
+
+
 def _summary(df, profiles, roles, insights):
     value, date = roles["value"], roles["date"]
     parts = [f"A base tem {_fmt_num(len(df))} linhas e {len(profiles)} colunas"]
@@ -1251,6 +1472,22 @@ def _summary(df, profiles, roles, insights):
 
 
 # ─────────────────────────── orquestração ───────────────────────────
+
+def _profile_frame(raw_df, ctx):
+    """Perfila cada coluna e monta o DataFrame tipado para a análise."""
+    profiles, typed = [], {}
+    for c in raw_df.columns:
+        pr, vals = _profile_column(c, raw_df[c].tolist(), ctx)
+        profiles.append(pr)
+        typed[c] = vals
+    df = pd.DataFrame({
+        pr["name"]: (pd.to_datetime(pd.Series(typed[pr["name"]], dtype=object), errors="coerce") if pr["schemaType"] == "date"
+                     else pd.to_numeric(pd.Series(typed[pr["name"]], dtype=object), errors="coerce") if pr["schemaType"] == "measure"
+                     else pd.Series(typed[pr["name"]], dtype=object))
+        for pr in profiles
+    })
+    return profiles, df
+
 
 def analyze(payload):
     kind = payload.get("kind", "matrix")
@@ -1284,36 +1521,19 @@ def analyze(payload):
     if raw_df.empty or not len(raw_df.columns):
         raise ValueError("o arquivo não tem linhas de dados depois do cabeçalho.")
 
-    # Separador decimal predominante no arquivo (desempata colunas ambíguas).
-    votes = {",": 0, ".": 0}
-    for c in raw_df.columns:
-        if c in native_numeric:
-            continue
-        for v in raw_df[c].dropna().head(500):
-            sh = _number_shape(_NUM_STRIP.sub("", v))
-            if sh and sh[2] is None:
-                dv = _decimal_vote(sh[1])
-                if dv:
-                    votes[dv] += 1
-    dataset_decimal = None
-    if votes[","] or votes["."]:
-        dataset_decimal = "," if votes[","] >= votes["."] else "."
+    # Totais e rodapé saem antes de tipar (senão contaminam tipos e estatísticas).
+    raw_df, total_rows, footer_rows = _drop_total_rows_raw(raw_df)
+    if raw_df.empty:
+        raise ValueError("o arquivo não tem linhas de dados depois do cabeçalho.")
+
+    dataset_decimal = _dataset_decimal(raw_df, native_numeric)
     ctx = {"decimal": dataset_decimal, "native_numeric": native_numeric}
-
-    profiles, typed = [], {}
-    for c in raw_df.columns:
-        pr, vals = _profile_column(c, raw_df[c].tolist(), ctx)
-        profiles.append(pr)
-        typed[c] = vals
-
-    # DataFrame tipado para análise.
-    df = pd.DataFrame({
-        pr["name"]: (pd.to_datetime(pd.Series(typed[pr["name"]], dtype=object), errors="coerce") if pr["schemaType"] == "date"
-                     else pd.to_numeric(pd.Series(typed[pr["name"]], dtype=object), errors="coerce") if pr["schemaType"] == "measure"
-                     else pd.Series(typed[pr["name"]], dtype=object))
-        for pr in profiles
-    })
-    df, total_rows = _drop_total_rows(df, profiles)
+    profiles, df = _profile_frame(raw_df, ctx)
+    pos = _unlabeled_total_row(df, profiles)
+    if pos is not None:
+        raw_df = raw_df.drop(index=raw_df.index[pos]).reset_index(drop=True)
+        profiles, df = _profile_frame(raw_df, ctx)
+        total_rows += 1
     measures = [pr["name"] for pr in profiles if pr["schemaType"] == "measure"]
     relations = _detect_products(df, measures) if len(df) >= 5 else []
     totals = {c for c, _, _ in relations}
@@ -1336,15 +1556,15 @@ def analyze(payload):
     quality = {
         "rowsIn": rows_in, "rowsOut": int(len(df)), "headerRow": h + 1,
         "titleRowsSkipped": h, "repeatedHeaderRows": len(repeated),
-        "emptyColumnsDropped": len(empty_cols), "totalRowsRemoved": total_rows,
+        "emptyColumnsDropped": len(empty_cols), "totalRowsRemoved": total_rows, "footerRowsRemoved": footer_rows,
         "duplicateRows": dup, "renamedHeaders": [x for x, y in zip(header, raw_header) if (y or "") != x],
         "coercedCells": {pr["name"]: pr["coerced"] for pr in profiles if pr.get("coerced")},
         "mergedVariants": {pr["name"]: pr["mergedVariants"] for pr in profiles if pr.get("mergedVariants")},
         "piiColumns": [pr["name"] for pr in profiles if pr.get("pii")],
         "_relations": relations,
     }
-    insights, highlights, facts = _insights(df, profiles, roles, quality)
-    summary = _summary(df, profiles, roles, insights)
+    insights, highlights, facts = _redact_output(*_insights(df, profiles, roles, quality))
+    summary = _redact(_summary(df, profiles, roles, insights))
     quality.pop("_relations")
     quality["relations"] = [{"total": c, "a": a, "b": b} for c, a, b in relations]
 

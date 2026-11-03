@@ -91,12 +91,23 @@
     });
   }
 
+  // Run que estourou o tempo segue ocupando o worker (o Python roda síncrono lá
+  // dentro) e o próximo upload esperaria atrás dele. Derruba o worker: o próximo
+  // warm() sobe outro, e o Pyodide volta do cache do navegador.
+  function resetWorker() {
+    if (worker) { try { worker.terminate(); } catch (e) {} }
+    worker = null;
+    pending.forEach(function (p) { clearTimeout(p.timer); p.resolve(null); });
+    pending.clear();
+    setStatus("idle");
+  }
+
   function runRaw(payload) {
     var w = ensureWorker();
     if (!w) return Promise.resolve(null);
     var id = ++seq;
     return new Promise(function (resolve) {
-      var timer = setTimeout(function () { pending.delete(id); resolve(null); }, RUN_TIMEOUT_MS);
+      var timer = setTimeout(function () { pending.delete(id); resolve(null); resetWorker(); }, RUN_TIMEOUT_MS);
       pending.set(id, { resolve: resolve, timer: timer });
       w.postMessage({ type: "run", id: id, payload: JSON.stringify(payload), engineUrl: ENGINE_URL });
     });

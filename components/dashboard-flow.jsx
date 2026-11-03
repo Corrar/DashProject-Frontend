@@ -71,6 +71,12 @@ function UploadView({ onUploaded, maxRows, children }){
   // Começa a baixar o motor pandas (Pyodide) assim que a tela abre: quando a
   // pessoa escolher o arquivo, ele costuma já estar pronto. Nada é enviado.
   React.useEffect(()=>{ window.DashPy && window.DashPy.warm(); }, []);
+  // O pandas pode levar dezenas de segundos na 1ª carga. Se nesse meio-tempo a
+  // pessoa abrir um dashboard salvo, sair da tela ou começar outro upload, o
+  // resultado antigo não pode puxá-la de volta: cada processamento tem um id.
+  const runIdRef = React.useRef(0);
+  const mountedRef = React.useRef(true);
+  React.useEffect(()=>{ mountedRef.current = true; return ()=>{ mountedRef.current = false; }; }, []);
 
   // Parse a CSV/TSV text payload and forward the full dataset (header + typed
   // rows + schema) via onUploaded. The progress markers below are cosmetic —
@@ -79,6 +85,8 @@ function UploadView({ onUploaded, maxRows, children }){
   // sequence setStep with short timers to keep that affordance.
   const runProcessing = (file)=>{
     const name = file?.name || "dados.csv";
+    const myRun = ++runIdRef.current;
+    const alive = ()=> mountedRef.current && runIdRef.current === myRun;
     const sizeKB = file?.size ? Math.round(file.size/1024) : Math.round((file?.text?.length || 0)/1024) || 1;
     setParseError(null);
     setFilename({ name, sizeKB, rows: 0, cols: 0 });
@@ -86,7 +94,7 @@ function UploadView({ onUploaded, maxRows, children }){
     setProgress(10);
 
     const ext = String(name).toLowerCase().split(".").pop();
-    const fail = (msg)=>{ setParseError(msg); setStep(""); };
+    const fail = (msg)=>{ if(!alive()) return; setParseError(msg); setStep(""); };
 
     // Cauda compartilhada: recebe { header, rows } e roda o MESMO pipeline de
     // schema/dados/profiles para todo formato (CSV, Excel, JSON). É o corpo
@@ -104,9 +112,10 @@ function UploadView({ onUploaded, maxRows, children }){
         return;
       }
       const deliver = (parts)=>{
+        if(!alive()) return;
         setProgress(100); setStep("done");
         setFilename(prev => ({...prev, rows: parts.rows, cols: parts.cols}));
-        setTimeout(()=> onUploaded && onUploaded({
+        setTimeout(()=> alive() && onUploaded && onUploaded({
           name, sizeKB, ...parts,
           // Amostra do próprio app: não vira "dashboard salvo".
           ...(file && file.isDemo ? { isDemo: true } : {}),
@@ -114,6 +123,7 @@ function UploadView({ onUploaded, maxRows, children }){
       };
       // Motor JavaScript: fallback quando o pandas não está disponível.
       const runJS = ()=>{
+        if(!alive()) return;
         setEngineLabel("JavaScript");
         const schema = dashInferSchema(header, rows);
         setProgress(70); setStep("analyzing");
@@ -131,6 +141,7 @@ function UploadView({ onUploaded, maxRows, children }){
       window.DashPy.analyze(enginePayload || { kind:"matrix", matrix:[header].concat(rows) },
         { rows: rows.length, waitMs: file && file.isDemo ? 8000 : 30000 })
         .then(parts => {
+          if(!alive()) return;
           if(parts && parts.rows > 0){
             setProgress(85); setStep("analyzing");
             setTimeout(()=> deliver(parts), 300);
@@ -329,7 +340,7 @@ function UploadView({ onUploaded, maxRows, children }){
               <div style={{fontWeight:700, fontSize:15}}>Testar com dados de exemplo</div>
               <div style={{fontSize:13, color:"var(--muted)", marginBottom:4}}>Uma base de vendas fictícia para ver o fluxo completo. Não é salva na sua lista.</div>
               {samples.map(s=>(
-                <button key={s.n} className="sample-row" onClick={()=>{ setTab("file"); runProcessing({name:s.n, text: s.text, isDemo: true}); }}>
+                <button key={s.n} className="sample-row" disabled={!!step && step !== "done"} onClick={()=>{ setTab("file"); runProcessing({name:s.n, text: s.text, isDemo: true}); }}>
                   <span style={{width:36, height:36, borderRadius:10, background: `color-mix(in oklch, ${s.c} 15%, white)`, color:s.c, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
                     <Icon.Doc size={16}/>
                   </span>

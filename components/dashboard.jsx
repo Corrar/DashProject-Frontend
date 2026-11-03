@@ -385,28 +385,35 @@ function dashFilterByPeriod(rows, dateKey, days){
  * mês). Só um sample limitado (≤20 linhas) + metadados de coluna saem do browser,
  * e só para planos pagos que pediram a análise (o tier/quota é reforçado no
  * servidor). */
+// Máscara de dado pessoal (LGPD) para tudo que vai à IA, venha do motor pandas
+// ou do JS: e-mail, CPF, CNPJ e telefone viram "[dado pessoal]".
+const DASH_PII_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b|\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b|(?:\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b/gi;
+function dashRedactPII(text){
+  return String(text == null ? "" : text).replace(DASH_PII_RE, "[dado pessoal]");
+}
+
 async function dashFetchNarrative(profiles, metrics, facts, datasetName, focus){
   try {
     // profiles = saída de dashProfileColumns: { name, baseType, pattern, stats,… }.
     // Mapeia pro contrato do backend {name, type}. Filtra colunas sem name string
     // não-vazio (o zod do backend exige name) → nunca manda name:""/undefined.
+    // Nomes longos (pergunta inteira de formulário) e bases largas cabem no
+    // limite do backend (200 caracteres, 200 colunas) em vez de virar 400.
     const columns = (profiles || [])
       .filter(function(p){ return p && typeof p.name === "string" && p.name.trim() !== ""; })
-      .map(function(p){ return { name: p.name, type: p.baseType || p.pattern || null }; });
-    // Injeta os KPIs reais como contexto na pergunta (o backend lê
-    // datasetName/columns/sampleRows/question — campos extras são ignorados).
-    // Foco escrito na tela de métricas vai na frente; o backend aceita até 500 caracteres.
+      .slice(0, 200)
+      .map(function(p){ return { name: dashRedactPII(p.name).replace(/\s+/g, " ").slice(0, 200), type: (p.baseType || p.pattern || null) }; });
     // A IA só ESCREVE o resumo: recebe os fatos já calculados no navegador
     // (pandas ou motor JS) e os KPIs — nenhuma linha do arquivo (sampleRows vazio).
-    // `facts` é o campo novo do backend; o resumo deles também vai em `question`
-    // (≤ 500) para backends que ainda não leem `facts`.
-    const factList = (facts || []).map(f => String(f).slice(0, 300)).filter(Boolean).slice(0, 40);
-    const parts = [];
-    if(focus && String(focus).trim()) parts.push("Foco pedido pelo usuario: " + String(focus).trim().slice(0, 200) + ".");
+    // Os KPIs vão como fatos (o prompt manda usar só os números dos fatos);
+    // `question` leva só o foco escrito pela pessoa. Tudo passa pela máscara de
+    // dado pessoal: o motor JS (fallback) não detecta colunas com e-mail/CPF.
     const kpiVal = (v)=> typeof v === "number" ? v.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : String(v);
-    if(metrics && metrics.length) parts.push("KPIs: " + metrics.map(m => m.label + " = " + kpiVal(m.value)).join("; ") + ".");
-    if(factList.length) parts.push("Fatos: " + factList.join(" "));
-    const question = parts.length ? parts.join(" ").slice(0, 500) : undefined; // null era rejeitado (400) pelo zod
+    const kpiFacts = (metrics || []).map(m => "KPI " + m.label + ": " + kpiVal(m.value) + ".");
+    const factList = kpiFacts.concat(facts || [])
+      .map(f => dashRedactPII(String(f)).replace(/\s+/g, " ").slice(0, 300)).filter(Boolean).slice(0, 40);
+    const focusText = focus && String(focus).trim() ? dashRedactPII(String(focus).trim()).slice(0, 500) : "";
+    const question = focusText || undefined; // null era rejeitado (400) pelo zod
     // Sem datasetName: o nome do arquivo pode identificar a pessoa ou o cliente.
     const payload = { columns: columns, sampleRows: [], facts: factList };
     if(question) payload.question = question;
@@ -1054,7 +1061,7 @@ function AINarrative({ tweaks, live, limits, anon }){
           </div>
           <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5, marginTop:3}}>
             Um resumo executivo escrito a partir dos insights calculados acima{focus ? <> com foco em <b>“{focus}”</b></> : null}. Opcional: os insights não dependem dele.
-            {" "}<span style={{color:"var(--muted)"}}>Envia à Anthropic (Claude) só os nomes das colunas, os indicadores e esses fatos — nenhuma linha do arquivo.</span>
+            {" "}<span style={{color:"var(--muted)"}}>Envia à Anthropic (Claude) só os nomes das colunas, os indicadores e esses fatos (que podem citar, por exemplo, o produto ou cliente que lidera) — nenhuma linha do arquivo. E-mail, CPF e telefone são mascarados.</span>
           </div>
         </div>
         <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar resumo</button>
@@ -1138,7 +1145,7 @@ function AINarrative({ tweaks, live, limits, anon }){
   );
 }
 
-function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: summaryProp, source, quality }){
+function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: summaryProp, source, quality, addLocked }){
   const [tab, setTab] = React.useState("insights");
 
   const highlights = [
@@ -1336,7 +1343,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
                       borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer",
                       display:"inline-flex", alignItems:"center", gap:5
                     }}>
-                      <Icon.Plus size={11}/> Adicionar ao dashboard
+                      {addLocked ? <Icon.Lock size={11}/> : <Icon.Plus size={11}/>} Adicionar ao dashboard
                     </button>
                   )}
                 </div>
@@ -2016,6 +2023,8 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   };
 
   const addChartFromInsight = (it)=> {
+    // Mesmo gate do FAB "Adicionar": no Free, abre o paywall (CLAUDE.md §5).
+    if(requirePro("add")) return;
     const id = "b-"+Date.now();
     // Insight calculado (pandas/descoberta) traz o gráfico pronto com dados reais.
     if(it.chart && Array.isArray(it.chart.data) && it.chart.data.length){
@@ -2136,7 +2145,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       // o resumo em texto pela IA — opcional, por clique, a partir desses fatos.
       const inner = isUpload
         ? <>
-            {localInsights.length > 0 && <Insights tweaks={tweaks} onAddChart={addChartFromInsight} generated={localInsights}
+            {localInsights.length > 0 && <Insights tweaks={tweaks} onAddChart={addChartFromInsight} addLocked={isFree} generated={localInsights}
               highlights={engineMeta && engineMeta.highlights} summary={engineMeta && engineMeta.summary}
               source={engineMeta ? "pandas" : "local"} quality={engineMeta && engineMeta.quality}/>}
             <AINarrative tweaks={tweaks} anon={!currentUser} limits={currentUser && currentUser.limits} live={{ data: narrative, loading: narrativeLoading, error: narrativeError, quota: narrativeQuota, focus: fileInfo && fileInfo.aiFocus, onReload: ()=>loadNarrative(true) }}/>

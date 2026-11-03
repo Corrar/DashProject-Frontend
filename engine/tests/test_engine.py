@@ -393,3 +393,143 @@ def test_variant_canonical_prefers_careful_spelling():
     vals = ["feijão"] * 6 + ["Feijão"] * 2 + ["sao paulo"] * 3 + ["São Paulo"]
     out = run_matrix("produto,v\n" + "\n".join(f"{v},1" for v in vals), ",")
     assert set(out["columns"]["produto"]) == {"Feijão", "São Paulo"}
+
+
+# ── correções da revisão independente ──────────────────────────────────
+
+def run_rows(rows):
+    out = json.loads(E.run(json.dumps({"kind": "matrix", "matrix": rows})))
+    assert out["ok"], out
+    return out
+
+
+def test_total_label_in_date_column_with_footer():
+    rows = [[f"{d:02d}/03/2024", "AB"[d % 2], f"{100 + d},00"] for d in range(1, 21)]
+    tot = sum(100 + d for d in range(1, 21))
+    out = run_rows([["Data", "Produto", "Valor"]] + rows + [["TOTAL", None, f"{tot},00"], ["Emitido por: Sistema XYZ", None, None]])
+    assert out["rows"] == 20
+    assert out["quality"]["totalRowsRemoved"] == 1 and out["quality"]["footerRowsRemoved"] == 1
+    assert prof(out, "Data")["pattern"] == "datetime"
+    assert abs(prof(out, "Valor")["stats"]["sum"] - tot) < 0.01
+
+
+def test_product_named_total_is_kept():
+    out = run_rows([["Produto", "Valor"], ["Total Flex", "100"], ["Mouse", "50"], ["Teclado", "70"], ["Total Flex", "90"]])
+    assert out["rows"] == 4 and out["quality"]["totalRowsRemoved"] == 0
+
+
+def test_subtotals_removed_before_typing():
+    rows = []
+    for w in range(4):
+        rows += [[f"{w * 7 + d:02d}/03/2024", "AB"[d % 2], f"{100 + d},00"] for d in range(1, 6)]
+        rows.append([f"Subtotal semana {w + 1}", None, "515,00"])
+    out = run_rows([["Data", "Produto", "Valor"]] + rows)
+    assert out["rows"] == 20 and out["quality"]["totalRowsRemoved"] == 4
+    assert prof(out, "Data")["pattern"] == "datetime"
+    assert prof(out, "Produto")["stats"]["nullCount"] == 0
+    assert not any(it["t"].startswith(("Dados faltando", "Valores ilegíveis")) for it in out["insights"])
+
+
+def test_coordinates_do_not_flip_thousands():
+    rows = [[f"Loja {i}", "SP", f"-23.{3471 + i}", f"-46.{7468 + i}", f"{85 - i}.000"] for i in range(10)]
+    out = run_rows([["Loja", "Cidade", "Latitude", "Longitude", "Faturamento"]] + rows)
+    assert out["columns"]["Faturamento"][0] == 85000.0
+
+
+def test_partial_last_month_is_not_a_drop():
+    import datetime as dt
+    start = dt.date(2024, 1, 1)
+    rows = [[(start + dt.timedelta(days=i)).strftime("%d/%m/%Y"), "100,00"] for i in range(96)]   # até 05/04
+    out = run_rows([["Data", "Valor"]] + rows)
+    trend = next(it for it in out["insights"] if it["tag"] == "Tendência")
+    assert "estabilidade" in trend["t"]
+    assert not any(it.get("risk") and it["tag"] == "Tendência" for it in out["insights"])
+
+
+@pytest.mark.parametrize("name", ["Quantidade", "Unidades", "Capacidade", "Valor da Nota", "Preço Total"])
+def test_quantity_and_invoice_names_are_additive(name):
+    rows = [[f"{1 + i % 28:02d}/01/2024", "AB"[i % 2], str(30 + i * 7)] for i in range(40)]
+    out = run_rows([["Data", "Produto", name]] + rows)
+    assert prof(out, name)["additive"] is True
+
+
+def test_age_and_unit_price_stay_non_additive():
+    rows = [[str(20 + i % 40), f"{10 + i % 9},50", "AB"[i % 2]] for i in range(40)]
+    out = run_rows([["Idade", "Preço Unitário", "Grupo"]] + rows)
+    assert prof(out, "Idade")["additive"] is False and prof(out, "Preço Unitário")["additive"] is False
+
+
+def test_repeating_ids_are_identifiers_and_metrics_are_not():
+    rows = [[f"{1 + i % 28:02d}/01/2024", str(100 + i % 7), str(5000 + i % 5), f"{100 + i},00"] for i in range(60)]
+    out = run_rows([["Data", "ID Cliente", "Código do Produto", "Valor"]] + rows)
+    assert prof(out, "ID Cliente")["pattern"] == "identifier"
+    assert prof(out, "Código do Produto")["pattern"] == "identifier"
+    rows = [[f"{i:02d}/2024", str(120000 + i * 1371), f"{13 + i}.{700 + i}"] for i in range(1, 10)]
+    out = run_rows([["Mês", "Impressões", "Total"]] + rows)
+    assert prof(out, "Impressões")["pattern"] == "continuous"
+    assert out["roles"]["value"] == "Total"
+
+
+def test_json_big_ids_keep_precision():
+    data = [{"codigo": 123456789012345678 + i, "cliente": {"id": 7 + i}, "valor": 10.5 * i} for i in range(4)]
+    data[2]["codigo"] = None
+    out = json.loads(E.run(json.dumps({"kind": "json", "text": json.dumps(data)})))
+    assert out["columns"]["codigo"][0] == "123456789012345678"
+    assert prof(out, "cliente.id")["pattern"] == "identifier"
+
+
+def test_negative_ledger_has_no_negative_share():
+    import random
+    rnd = random.Random(3)
+    rows = []
+    for m in range(1, 7):
+        rows.append([f"10/{m:02d}/2024", "Vendas", f"{rnd.randint(900, 1100)},00"])
+        for cat in ("Aluguel", "Salários", "Energia"):
+            rows.append([f"15/{m:02d}/2024", cat, f"-{rnd.randint(200, 400)},00"])
+    out = run_rows([["Data", "Categoria", "Valor"]] + rows)
+    assert not any("Responde por -" in it["d"] for it in out["insights"])
+    assert not any(it["t"].startswith("Aproveitar o crescimento") and "Sal" in it["t"] for it in out["insights"])
+    assert not any(h["l"] == "Concentração" and h["v"].startswith("-") for h in out["highlights"])
+
+
+def test_unit_price_not_total_when_qty_is_one():
+    rows = [[f"{1 + i % 28:02d}/01/2024", str(2 if i % 12 == 0 else 1), f"{20 + i % 9},00",
+             f"{(2 if i % 12 == 0 else 1) * (20 + i % 9)},00"] for i in range(50)]
+    out = run_rows([["Data", "Qtd", "Preço Unitário", "Valor Total"]] + rows)
+    assert prof(out, "Preço Unitário")["additive"] is False
+    assert out["quality"]["relations"] == [{"total": "Valor Total", "a": "Qtd", "b": "Preço Unitário"}]
+
+
+def test_pii_by_name_even_with_low_cardinality():
+    rows = [[f"{1 + i % 28:02d}/01/2024", "CONSUMIDOR FINAL" if i % 5 < 3 else ["123.456.789-09", "111.222.333-44"][i % 2],
+             f"{100 + i},00"] for i in range(60)]
+    out = run_rows([["Data", "CPF/CNPJ Destinatário", "Valor Total"]] + rows)
+    assert "CPF/CNPJ Destinatário" in out["quality"]["piiColumns"]
+    assert not any("123.456" in f for f in out["facts"])
+
+
+def test_mixed_email_column_is_pii_and_facts_are_redacted():
+    names = ["Loja Alfa", "Mercado Beta", "ana.silva@gmail.com", "joao@empresa.com.br", "Atacado Gama"]
+    rows = [[f"{1 + i % 28:02d}/01/2024", names[i % 5], f"{100 + i * 3},00"] for i in range(80)]
+    out = run_rows([["Data", "cliente", "valor"]] + rows)
+    assert "cliente" in out["quality"]["piiColumns"]
+    assert E._redact("Líder: ana@x.com.br e 123.456.789-09") == "Líder: [dado pessoal] e [dado pessoal]"
+    assert not any("@" in f for f in out["facts"])
+
+
+def test_month_words_inside_names_are_not_dates():
+    out = run_rows([["Setor", "Valor"]] + [[f"Setor {1 + i % 8:02d}", f"{100 + i},00"] for i in range(30)])
+    assert prof(out, "Setor")["pattern"] == "category_low"
+
+
+def test_low_outliers_described_as_below():
+    rows = [[f"{1 + i % 28:02d}/01/2024", f"{-900 if i in (5, 17) else 100 + i % 40},00"] for i in range(40)]
+    out = run_rows([["Data", "Valor"]] + rows)
+    o = next(it for it in out["insights"] if it["tag"] == "Outlier")
+    assert "abaixo de" in o["d"] and "acima de" not in o["d"]
+
+
+def test_absurd_numbers_are_unreadable_not_infinite():
+    rows = [[f"{d:02d}/01/2024", "1e308" if d in (2, 3) else f"{d * 10},00"] for d in range(1, 25)]
+    out = run_rows([["Data", "Valor"]] + rows)
+    assert "inf" not in out["summary"] and prof(out, "Valor")["coerced"] == 2
