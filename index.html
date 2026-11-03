@@ -479,6 +479,33 @@
     .home-nav .home-nav-desc, .home-nav .home-nav-group{ display: none !important; }
     .home-side-card{ display: none !important; }
   }
+  /* Grid do dashboard (dashboard.jsx): o tamanho escolhido (span de 12) vale
+     no desktop; em telas menores os blocos se reorganizam. !important porque o
+     span vem inline no .block-wrap (data-span diz qual era). */
+  @media (max-width: 900px){
+    /* Tablet e celular: KPI 2 por linha, o resto na largura toda. */
+    .dash-grid > .block-wrap{ grid-column: span 12 !important; }
+    .dash-grid > .block-wrap[data-kind="kpi"]{ grid-column: span 6 !important; }
+    .dash-grid > .block-wrap[data-kind="kpi"][data-solo="1"]{ grid-column: span 12 !important; }
+    .ins-summary{ grid-template-columns: minmax(0, 1fr) !important; }
+  }
+  @media (max-width: 640px){
+    .dash-grid{ gap: 10px !important; }
+    .ins-cards{ grid-template-columns: minmax(0, 1fr) !important; }
+    /* KPI de 2 por linha: número menor e o mini gráfico embaixo do texto
+       (em cima dele ficava ilegível). */
+    .kpi-card{ padding: 14px !important; gap: 6px !important; }
+    .kpi-card .kpi-value{ font-size: 21px !important; }
+    .kpi-card .kpi-sub{ font-size: 11px !important; line-height: 1.35; }
+    .kpi-card .spark{ position: static !important; margin: 2px -14px -14px; opacity: .8; }
+    .kpi-card .spark svg{ width: 100% !important; height: 36px !important; display: block; }
+    .chart-card{ padding: 16px !important; }
+    /* Ranking: # · Item · Valor (participação embaixo do valor), sem rolar de lado. */
+    .rk-inner{ min-width: 0 !important; }
+    .rk-row{ grid-template-columns: 26px minmax(0, 1fr) auto !important; gap: 10px !important; }
+    .rk-row .rk-cat, .rk-row .rk-bar{ display: none !important; }
+    .rk-share-m{ display: block !important; text-align: right; }
+  }
   @media (max-width: 640px){
     .cc-meta{ display: none !important; }
     .fab-label{ display: none; }

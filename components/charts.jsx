@@ -316,7 +316,7 @@ function Sparkline({ data, color="#2f6bff", width=120, height=36, fill=true }){
   const path = smoothPath(pts);
   const area = `${path} L ${width} ${height} L 0 ${height} Z`;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity=".35"/>
@@ -324,7 +324,9 @@ function Sparkline({ data, color="#2f6bff", width=120, height=36, fill=true }){
         </linearGradient>
       </defs>
       {fill && <path d={area} fill={`url(#${id})`}/>}
-      <path d={path} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"/>
+      {/* Sparkline não tem texto, então pode esticar até a largura do card (KPI no
+          celular); non-scaling-stroke mantém a espessura do traço. */}
+      <path d={path} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
     </svg>
   );
 }

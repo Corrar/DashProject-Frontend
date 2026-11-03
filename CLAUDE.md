@@ -244,7 +244,14 @@ Este é um **dashboard hi-fi para desktop primeiro**, mas tem que **não quebrar
 - Cards de hero/landing usam `clamp()` em tamanhos de fonte.
 - O preview do export tem aspect-ratio fixo, mas o modal vira coluna única < 720px.
 - **Nunca** quebre o overflow horizontal — `body { overflow-x: hidden }` já está em `Dash.html`.
-- Para mobile real (< 640px): a landing está aceitável; o dashboard precisa de tratamento futuro (não é foco do MVP).
+- **Grid do dashboard** (`.dash-grid`, regras em `index.html`):
+  - **Até 900px**: KPIs 2 por linha. Com quantidade ímpar, o último ocupa a linha toda (`data-solo`). Os demais blocos ocupam a largura toda.
+  - **Como funciona**: o `span` escolhido pelo usuário continua salvo e vale no desktop. O CSS sobrescreve pelo `data-kind`/`data-span` do `.block-wrap`.
+  - **Até 640px**:
+    - o KPI fica compacto e o sparkline passa para baixo do texto (`.kpi-value`, `.kpi-sub`, `.spark`);
+    - os insights ficam numa coluna (`.ins-cards`) e o resumo + destaques empilham (`.ins-summary`, já em 900px);
+    - o ranking vira `# · Item · Valor`, com a participação embaixo do valor (`.rk-*`), sem rolar para o lado.
+  - **Bloco novo com grid interno**: usar `minmax(0, 1fr)` e dar uma classe para colapsar no mobile.
 
 Antes de fazer merge de qualquer mudança grande, validar visualmente em:
 - 1440×900 (desktop primary)
