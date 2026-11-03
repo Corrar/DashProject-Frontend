@@ -597,12 +597,14 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
           <div style={{display:"flex", gap:3}}>
             <button onClick={()=>onMove && onMove(-1)} title="Mover" style={{padding:"3px 5px", background:"rgba(255,255,255,.12)", color:"white", border:0, borderRadius:5, cursor:"pointer"}}><Icon.Caret size={9} style={{transform:"rotate(180deg)"}}/></button>
             <button onClick={()=>onMove && onMove(1)} title="Mover" style={{padding:"3px 5px", background:"rgba(255,255,255,.12)", color:"white", border:0, borderRadius:5, cursor:"pointer"}}><Icon.Caret size={9}/></button>
+            <span className="edit-sizes" style={{display:"contents"}}>
             {[{k:3,n:"¼"},{k:4,n:"⅓"},{k:6,n:"½"}].map(o=>(
               <button key={o.k} onClick={()=>onResize && onResize(o.k)} style={{
                 padding:"3px 7px", background: kpi.span===o.k?"white":"rgba(255,255,255,.12)",
                 color: kpi.span===o.k?"var(--ink)":"white", border:0, borderRadius:5, cursor:"pointer", fontSize:10, fontWeight:600
               }}>{o.n}</button>
             ))}
+            </span>
             <button onClick={onDelete} title="Remover" style={{padding:"3px 5px", background:"rgba(255,93,128,.18)", color:"#ff8aa0", border:0, borderRadius:5, cursor:"pointer"}}><Icon.X size={9}/></button>
           </div>
         </div>
@@ -626,7 +628,7 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
           <input value={typeof value === "number" ? String(Math.round(value*100)/100) : value} onChange={e=>set({value:e.target.value})} style={{
             padding:"2px 6px", border:"1px dashed var(--line)", borderRadius:6,
             fontSize:24, fontWeight:800, letterSpacing:"-.02em", outline:"none", background:"transparent",
-            fontFamily:"inherit", width:"min(140px, 100%)"
+            fontFamily:"inherit", width:"min(140px, 100%)", minWidth:0, boxSizing:"border-box"
           }}/>
         ) : (
           <span className="ticker kpi-value" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
@@ -686,7 +688,7 @@ function ChartTypeMenu({ value, onChange }){
 
 function ColorSwatches({ value, onChange, options }){
   return (
-    <div style={{display:"inline-flex", gap:6}}>
+    <div style={{display:"inline-flex", gap:6, flexWrap:"wrap", maxWidth:"100%"}}>
       {options.map(c=>(
         <button key={c} onClick={()=>onChange(c)} title={c} style={{
           width:22, height:22, borderRadius:7, border: value===c ? "2px solid var(--ink)" : "1px solid var(--line)",
@@ -755,11 +757,12 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
         }}>
           <div style={{display:"flex", alignItems:"center", gap:6, fontSize:11, fontWeight:600}}>
             <span style={{cursor:"grab", display:"inline-flex"}} title="Arrastar"><Icon.More size={12}/></span>
-            Editando · <span className="mono" style={{opacity:.7}}>id:{chart.id}</span>
+            Editando<span className="mono edit-id" style={{opacity:.7}}> · id:{chart.id}</span>
           </div>
           <div style={{display:"flex", gap:4}}>
             <button onClick={()=>onMove && onMove(-1)} title="Mover para cima" style={{padding:"4px 6px", background:"rgba(255,255,255,.1)", color:"white", border:0, borderRadius:6, cursor:"pointer"}}><Icon.Caret size={11} style={{transform:"rotate(180deg)"}}/></button>
             <button onClick={()=>onMove && onMove(1)} title="Mover para baixo" style={{padding:"4px 6px", background:"rgba(255,255,255,.1)", color:"white", border:0, borderRadius:6, cursor:"pointer"}}><Icon.Caret size={11}/></button>
+            <span className="edit-sizes" style={{display:"contents"}}>
             <div style={{width:1, background:"rgba(255,255,255,.15)", margin:"0 4px"}}/>
             {[
               {k:4, n:"⅓"},{k:6, n:"½"},{k:8, n:"⅔"},{k:12, n:"full"}
@@ -770,6 +773,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
                 fontSize:11, fontWeight:600
               }}>{o.n}</button>
             ))}
+            </span>
             <div style={{width:1, background:"rgba(255,255,255,.15)", margin:"0 4px"}}/>
             <button onClick={onDelete} title="Remover" style={{padding:"4px 6px", background:"rgba(255,93,128,.18)", color:"#ff8aa0", border:0, borderRadius:6, cursor:"pointer"}}><Icon.X size={11}/></button>
           </div>
@@ -1278,7 +1282,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex", gap:0, borderBottom:"1px solid var(--line)", marginBottom:14, overflowX:"auto"}}>
+      <div className="tabs-scroll" style={{display:"flex", gap:0, borderBottom:"1px solid var(--line)", marginBottom:14, overflowX:"auto"}}>
         {[
           {k:"insights", n:"Insights", c: tabsData.insights.length},
           {k:"risks", n:"Riscos & Atenção", c: tabsData.risks.length},
@@ -1289,7 +1293,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
             borderBottom: tab===t.k ? "2px solid var(--brand)" : "2px solid transparent",
             color: tab===t.k ? "var(--ink)" : "var(--muted)",
             fontWeight: tab===t.k ? 700 : 500, fontSize:13, marginBottom:-1,
-            display:"inline-flex", alignItems:"center", gap:8
+            display:"inline-flex", alignItems:"center", gap:8, whiteSpace:"nowrap", flexShrink:0
           }}>
             {t.n}
             <span className="chip mono" style={{padding:"0 6px", fontSize:10, background: tab===t.k ? "var(--brand-soft)" : "var(--line-2)", color: tab===t.k ? "var(--brand-2)" : "var(--muted)"}}>{t.c}</span>
@@ -2543,6 +2547,7 @@ function BlockShell({ editing, kind, onMove, onResize, onDelete, span, resizeOpt
           <div style={{display:"flex", gap:4}}>
             <button onClick={()=>onMove && onMove(-1)} title="Mover" style={{padding:"3px 6px", background:"rgba(255,255,255,.12)", color:"white", border:0, borderRadius:5, cursor:"pointer"}}><Icon.Caret size={11} style={{transform:"rotate(180deg)"}}/></button>
             <button onClick={()=>onMove && onMove(1)} title="Mover" style={{padding:"3px 6px", background:"rgba(255,255,255,.12)", color:"white", border:0, borderRadius:5, cursor:"pointer"}}><Icon.Caret size={11}/></button>
+            <span className="edit-sizes" style={{display:"contents"}}>
             <div style={{width:1, background:"rgba(255,255,255,.15)", margin:"0 4px"}}/>
             {resizeOptions.map(k=>(
               <button key={k} onClick={()=>onResize && onResize(k)} style={{
@@ -2551,6 +2556,7 @@ function BlockShell({ editing, kind, onMove, onResize, onDelete, span, resizeOpt
                 fontSize:11, fontWeight:600
               }}>{sizeMap[k]||k}</button>
             ))}
+            </span>
             <div style={{width:1, background:"rgba(255,255,255,.15)", margin:"0 4px"}}/>
             <button onClick={onDelete} title="Remover" style={{padding:"3px 6px", background:"rgba(255,93,128,.18)", color:"#ff8aa0", border:0, borderRadius:5, cursor:"pointer"}}><Icon.X size={11}/></button>
           </div>

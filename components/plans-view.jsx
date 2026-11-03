@@ -178,7 +178,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
         )}
 
         {/* Plan cards */}
-        <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
+        <div className="rv resp-collapse plans-grid" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, marginBottom: 48, maxWidth: 1080, marginLeft:"auto", marginRight:"auto"}}>
           {planList.map(p=>{
             // Plano atual = mesmo tier E mesmo ciclo (Pro mensal → "Pro anual" é uma troca).
             const isCurrent = p.k === tweaks.plan && (p.k === "free" || (cycle === currentCycle && !cancelled));
@@ -321,7 +321,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
         </div>
 
         {/* Logos / trust */}
-        <div className="rv resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:16, marginBottom: 48}}>
+        <div className="rv resp-collapse plans-feats" style={{display:"grid", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:16, marginBottom: 48}}>
           {[
             {i:<Icon.Lock size={16}/>, t:"Processamento local", d:"Seus arquivos são lidos no navegador. Só a análise da IA, quando você pede, envia uma amostra."},
             {i:<Icon.Check size={16} stroke={3}/>, t:"Pagamento seguro", d:"Cartão e Pix processados pelo Asaas. Não guardamos dados de cartão."},

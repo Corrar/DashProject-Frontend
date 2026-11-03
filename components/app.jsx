@@ -329,6 +329,14 @@ function App(){
         section={accountSection} onSection={setAccountSection}
         onClose={closeSecondary}/>}
 
+      {currentUser && ["home","upload","prompt","dashboard","account","plans"].includes(view) && (
+        <MobileTabBar view={view} homeSection={homeSection} onNav={(k)=>{
+          if(k === "new"){ setView("upload"); return; }
+          if(k === "account"){ openAccount("account"); return; }
+          setHomeSection(k); setView("home");
+        }}/>
+      )}
+
       <AuthModal open={authModal.open} initialTab={authModal.tab}
         onClose={()=> setAuthModal({ open: false, tab: authModal.tab })}
         tweaks={effectiveTweaks}/>
