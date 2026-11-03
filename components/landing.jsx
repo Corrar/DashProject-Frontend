@@ -195,12 +195,19 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
           <a href="#como" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Como funciona</a>
           <a href="#planos" style={{fontSize:14, color:"var(--ink-2)", fontWeight:500}}>Planos</a>
         </nav>
-        <div style={{display:"flex", alignItems:"center", gap:10}}>
-          <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-          <button className="btn btn-primary nav-cta" onClick={()=> window.__dashEnterApp?.()}>
-            {currentUser ? <>Abrir app <Icon.Arrow size={14}/></> : <>Começar grátis <Icon.Arrow size={14}/></>}
-          </button>
-        </div>
+        {/* A página inicial tem só duas ações para quem não entrou: criar conta
+            e entrar. Ficam aqui, no topo fixo, visíveis em qualquer ponto da rolagem. */}
+        {currentUser ? (
+          <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
+            <button className="btn btn-primary nav-cta" onClick={()=> window.__dashEnterApp?.()}>Abrir app <Icon.Arrow size={14}/></button>
+          </div>
+        ) : (
+          <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <button className="btn btn-ghost" onClick={onSignIn}>Entrar</button>
+            <button className="btn btn-primary" onClick={onSignUp}>Criar conta</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -319,10 +326,6 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
           <p className="rv lede" style={{margin:"0 0 28px", maxWidth: 520}}>
             Suba um CSV, JSON ou Excel. O {tweaks.brandName} monta KPIs, gráficos e um ranking, e a IA escreve a análise quando você pede. Sem código.
           </p>
-          <div className="rv" style={{display:"flex", gap:12, marginBottom:24, flexWrap:"wrap"}}>
-            <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>Começar grátis <Icon.Arrow size={14}/></button>
-            <button className="btn btn-ghost" onClick={onLoadDemo}><Icon.Sparkle size={12}/> Ver demonstração com dados de exemplo</button>
-          </div>
           <div className="rv" style={{display:"flex", gap:18, flexWrap:"wrap"}}>
             {["Sem cartão", "CSV · JSON · Excel", "Processamento local", "LGPD"].map(t=>(
               <span key={t} style={{display:"inline-flex", gap:6, alignItems:"center", color:"var(--muted)", fontSize:13}}>
@@ -696,25 +699,22 @@ function CycleToggle({ cycle, onChange }){
 // Espelha os 3 tiers do backend (src/plans.ts) e a PlansView — manter os três
 // em sincronia ao mudar preço/limite.
 function Pricing({ onOpenApp }){
-  const [cycle, setCycle] = React.useState("monthly");
-  const yearly = cycle === "yearly";
-  const price = (k)=> {
-    const v = DASH_PRICES[k][cycle];
-    return yearly ? String(v) : v.toFixed(2).replace(".", ",");
-  };
-  const perMonth = (k)=> dashFmtBRL(DASH_PRICES[k].yearly / 12);
+  // Sem seletor Mensal/Anual: a página inicial só tem os botões de entrar e de
+  // criar conta. O preço mensal fica em destaque e o anual vem escrito embaixo.
+  const price = (k)=> DASH_PRICES[k].monthly.toFixed(2).replace(".", ",");
+  const yearlyNote = (k)=> "ou R$ " + DASH_PRICES[k].yearly + "/ano (" + dashFmtBRL(DASH_PRICES[k].yearly / 12) + "/mês)";
   const plans = [
     { k:"free", name:"Free", tagline:"Para experimentar.", price:"0", per:"/sempre",
       features:["Upload CSV, Excel e JSON","Dashboard montado automaticamente","1 análise da IA por mês","Até 5 mil linhas por base"],
-      cta:"Começar grátis", onClick:()=> window.__dashEnterApp?.() },
-    { k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.", price:price("essencial"), per: yearly ? "/ano" : "/mês",
-      note: yearly ? "equivale a " + perMonth("essencial") + "/mês" : null,
+},
+    { k:"essencial", name:"Essencial", tagline:"Para uso individual recorrente.", price:price("essencial"), per:"/mês",
+      note: yearlyNote("essencial"),
       features:["Tudo do Free, e mais:","50 análises da IA por mês","Editar e adicionar blocos","Até 100 mil linhas por base","Exportar PDF/PNG"],
-      cta:"Assinar o Essencial", onClick:()=> window.__dashUpgrade?.(cycle) },
-    { k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", price:price("pro"), per: yearly ? "/ano" : "/mês", highlight:true,
-      note: yearly ? "equivale a " + perMonth("pro") + "/mês" : null,
+},
+    { k:"pro", name:"Pro", tagline:"Para profissionais e equipes pequenas.", price:price("pro"), per:"/mês", highlight:true,
+      note: yearlyNote("pro"),
       features:["Tudo do Essencial, e mais:","300 análises da IA por mês","Até 1 milhão de linhas por base","Compartilhamento por link","Sem a marca Dash"],
-      cta:"Assinar o Pro", onClick:()=> window.__dashUpgrade?.(cycle) },
+},
   ];
   return (
     <section id="planos" className="pad">
@@ -723,7 +723,6 @@ function Pricing({ onOpenApp }){
           <span className="rv eyebrow"><span className="dot"/> Planos</span>
           <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Assine quando precisar de mais.</h2>
           <p className="rv lede" style={{margin:"0 auto 24px", maxWidth:520}}>O Free não pede cartão e já inclui 1 análise da IA por mês. Nos planos pagos, sem fidelidade — cartão ou Pix.</p>
-          <div className="rv" style={{display:"flex", justifyContent:"center"}}><CycleToggle cycle={cycle} onChange={setCycle}/></div>
         </div>
         <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, maxWidth: 1080, margin:"0 auto"}}>
           {plans.map(p=>(
@@ -739,43 +738,15 @@ function Pricing({ onOpenApp }){
                 <span style={{color:"var(--muted)"}}>{p.per}</span>
                 {p.note && <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>{p.note}</div>}
               </div>
-              <ul style={{listStyle:"none", padding:0, margin:"0 0 24px", display:"flex", flexDirection:"column", gap:10, flex:1}}>
+              <ul style={{listStyle:"none", padding:0, margin:0, display:"flex", flexDirection:"column", gap:10, flex:1}}>
                 {p.features.map((t,i)=>(
                   <li key={t} style={{display:"flex", gap:10, alignItems:"center", fontSize:14, fontWeight: (p.k !== "free" && i===0) ? 700 : 500}}>
                     <Icon.Check size={16} stroke={2.4} color="var(--brand)"/> {t}
                   </li>
                 ))}
               </ul>
-              <button className={"btn " + (p.highlight ? "btn-primary" : "btn-ghost")} style={{width:"100%", justifyContent:"center"}} onClick={p.onClick}>
-                {p.k !== "free" && <Icon.Crown size={14}/>} {p.cta}
-              </button>
             </div>
           ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function CTA({ onOpenApp }){
-  return (
-    <section className="pad" style={{paddingTop: 0}}>
-      <div className="wrap rv">
-        <div className="cta-banner">
-          <span className="chip" style={{background:"rgba(255,255,255,.18)", color:"white"}}><Icon.Sparkle size={12}/> Grátis para começar</span>
-          <h2 className="h-section" style={{margin:"14px 0 10px", color:"white"}}>Pronto para ver seus dados<br/>de outro jeito?</h2>
-          <p style={{maxWidth:520, color:"rgba(255,255,255,.85)", margin:0}}>Suba sua primeira planilha agora. Em segundos, um dashboard interativo.</p>
-          <div style={{display:"flex", gap:10, marginTop:24, flexWrap:"wrap", position:"relative", zIndex:1}}>
-            <button className="btn" style={{background:"white", color:"var(--ink)"}} onClick={()=> window.__dashEnterApp?.()}>Abrir o app <Icon.Arrow size={14}/></button>
-            <button className="btn" style={{background:"rgba(255,255,255,.12)", color:"white", border:"1px solid rgba(255,255,255,.3)"}}
-              onClick={()=> document.getElementById("exemplos")?.scrollIntoView({ behavior:"smooth" })}>Ver exemplos</button>
-          </div>
-          <svg style={{position:"absolute", right:-40, bottom:-40, opacity:.15}} width="320" height="320" viewBox="0 0 200 200">
-            <circle cx="100" cy="100" r="90" fill="none" stroke="white" strokeWidth=".5"/>
-            <circle cx="100" cy="100" r="70" fill="none" stroke="white" strokeWidth=".5"/>
-            <circle cx="100" cy="100" r="50" fill="none" stroke="white" strokeWidth=".5"/>
-            <circle cx="100" cy="100" r="30" fill="none" stroke="white" strokeWidth=".5"/>
-          </svg>
         </div>
       </div>
     </section>
@@ -817,7 +788,6 @@ function Landing({ onOpenApp, onLoadDemo, tweaks, currentUser, onSignIn, onSignU
       <PinnedSteps tweaks={tweaks}/>
       <Features tweaks={tweaks}/>
       <Pricing onOpenApp={onOpenApp}/>
-      <CTA onOpenApp={onOpenApp}/>
       <Footer tweaks={tweaks}/>
     </div>
   );
