@@ -629,7 +629,7 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
             fontFamily:"inherit", width:"min(140px, 100%)"
           }}/>
         ) : (
-          <span className="ticker" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
+          <span className="ticker kpi-value" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
         )}
         {/* Sem variação calculada ("—") o chip "▲ —" só fazia ruído. */}
         {(editing || (delta && delta !== "—")) && (
@@ -641,7 +641,7 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
           </span>
         )}
       </div>
-      <div style={{fontSize:12, color:"var(--muted)"}}>{sub}</div>
+      <div className="kpi-sub" style={{fontSize:12, color:"var(--muted)"}}>{sub}</div>
       {editing && (
         <div style={{display:"flex", gap:4, marginTop:4}}>
           <ColorSwatches value={color} onChange={c=>set({color:c})} options={palette}/>
@@ -1095,7 +1095,7 @@ function AINarrative({ tweaks, live, limits, anon }){
             <span style={{fontWeight:700, fontSize:14}}>Insights</span>
             <span className="chip mono" style={{padding:"0 6px", fontSize:10, background:"var(--brand-soft)", color:"var(--brand-2)"}}>{insights.length}</span>
           </div>
-          <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:10}}>
+          <div className="ins-cards" style={{display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:10}}>
             {insights.map((it,i)=>(
               <div key={i} style={{padding:"14px 16px", borderRadius:12, border:"1px solid var(--line)", background:"white", display:"flex", gap:12, alignItems:"flex-start"}}>
                 <div style={{width:28, height:28, borderRadius:8, flexShrink:0, background:`color-mix(in oklch, ${accent} 14%, white)`, color:accent, display:"flex", alignItems:"center", justifyContent:"center"}}>
@@ -1248,7 +1248,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
       </div>
 
       {/* Executive summary + highlight strip */}
-      <div style={{display:"grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 14}}>
+      <div className="ins-summary" style={{display:"grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16, marginBottom: 14}}>
         <div style={{padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO EXECUTIVO</div>
           {isGen ? (
@@ -1266,7 +1266,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
             </p>
           )}
         </div>
-        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+        <div style={{display:"grid", gridTemplateColumns:"minmax(0, 1fr) minmax(0, 1fr)", gap:8}}>
           {hlUse.map(h=>(
             <div key={h.l} style={{padding:"10px 12px", border:"1px solid var(--line)", borderRadius:10, background:"white"}}>
               <div style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".05em", textTransform:"uppercase"}}>{h.l}</div>
@@ -1303,7 +1303,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
           Nenhum item nesta categoria para os dados atuais.
         </div>
       )}
-      <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:10}}>
+      <div className="ins-cards" style={{display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:10}}>
         {cur.map((it,i)=>{
           const m = catMeta[it.cat] || catMeta.comparison;
           return (
@@ -1931,6 +1931,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
 
   const [blocks, setBlocks] = React.useState(()=>
     (savedViewOk && Array.isArray(savedLayout.blocks) && savedLayout.blocks.length) ? savedLayout.blocks : initialBlocks);
+  // Em telas estreitas os KPIs ficam 2 por linha; com quantidade ímpar, o
+  // último ocupa a linha inteira em vez de ficar sozinho pela metade.
+  const soloKpiId = (()=>{ const ks = blocks.filter(x=>x.kind==="kpi"); return ks.length % 2 ? ks[ks.length-1].id : null; })();
 
   // Salva layout + narrativa (debounce). A última mudança pendente é gravada
   // mesmo se a pessoa sair do dashboard antes do timer.
@@ -2294,13 +2297,13 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         )}
 
         {/* Grid */}
-        <div style={{display:"grid", gridTemplateColumns:"repeat(12, 1fr)", gap:14}}>
+        <div className="dash-grid" style={{display:"grid", gridTemplateColumns:"repeat(12, minmax(0, 1fr))", gap:14}}>
           {blocks.map((b, idx)=>{
             const isDragging = dragId === b.id;
             const showBefore = dragOver?.id === b.id && dragOver.position === "before" && dragId !== b.id;
             const showAfter  = dragOver?.id === b.id && dragOver.position === "after"  && dragId !== b.id;
             return (
-              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id} data-kind={b.kind}
+              <div key={b.kind === "kpi" ? `${b.id}::${period}` + (editing ? "" : "::" + String(b.props && b.props.value)) : b.id} data-block-id={b.id} data-kind={b.kind} data-span={b.span} data-solo={b.id === soloKpiId ? "1" : undefined}
                 className={"block-wrap rv"}
                 style={{
                   gridColumn: `span ${b.span}`,
@@ -2688,14 +2691,16 @@ function RankingTable({ items, accent, title, sub, measure }){
         {measure && <span className="chip mono" style={{background:"var(--line-2)"}}>soma · {measure}</span>}
       </div>
       <div style={{overflowX:"auto"}}>
-        <div style={{minWidth:520}}>
-          <div style={{display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center", marginTop:10, padding:"0 0 8px"}}>
+        {/* No celular (index.html, .rk-*) a tabela vira # · Item · Valor, com a
+            participação embaixo do valor, em vez de rolar para o lado. */}
+        <div className="rk-inner" style={{minWidth:520}}>
+          <div className="rk-row" style={{display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center", marginTop:10, padding:"0 0 8px"}}>
             {["#","Item"].concat(hasCat ? ["Categoria"] : [], [hasShare ? "Participação" : "Comparativo", "Valor"]).map((h,i,arr)=>(
-              <div key={h} className="mono" style={{fontSize:10.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i===arr.length-1 ? "right":"left"}}>{h}</div>
+              <div key={h} className={"mono" + ((hasCat && i === 2) ? " rk-cat" : i === arr.length-2 ? " rk-bar" : "")} style={{fontSize:10.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", textAlign: i===arr.length-1 ? "right":"left"}}>{h}</div>
             ))}
           </div>
           {items.map((p, i)=>(
-            <div key={p.n + i} style={{
+            <div key={p.n + i} className="rk-row" style={{
               display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"center",
               padding:"11px 0", borderTop:"1px solid var(--line-2)",
               opacity: vis?1:0, transform: vis?"none":"translateX(10px)",
@@ -2706,8 +2711,8 @@ function RankingTable({ items, accent, title, sub, measure }){
                 <div style={{width:30, height:30, borderRadius:8, flexShrink:0, background:`color-mix(in oklch, ${accent} ${i === 0 ? 100 : 14}%, white)`, color: i === 0 ? "white" : accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11.5, fontWeight:700}}>{initials(p.n)}</div>
                 <div style={{fontWeight:600, fontSize:13.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}} title={p.n}>{p.n}</div>
               </div>
-              {hasCat && <div style={{fontSize:13, color:"var(--ink-2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.c}</div>}
-              <div style={{display:"flex", alignItems:"center", gap:10}}>
+              {hasCat && <div className="rk-cat" style={{fontSize:13, color:"var(--ink-2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.c}</div>}
+              <div className="rk-bar" style={{display:"flex", alignItems:"center", gap:10}}>
                 <div style={{flex:1, height:7, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
                   <div style={{
                     width: vis ? p.pct+"%" : "0%", height:"100%", borderRadius:99,
@@ -2717,7 +2722,10 @@ function RankingTable({ items, accent, title, sub, measure }){
                 </div>
                 {p.s != null && <span className="mono" style={{fontSize:11.5, color:"var(--muted)", minWidth:42, textAlign:"right"}}>{p.s.toLocaleString("pt-BR", {maximumFractionDigits:1})}%</span>}
               </div>
-              <div className="ticker" style={{textAlign:"right", fontWeight:700, fontSize:13.5}}>{money(p.v)}</div>
+              <div className="ticker" style={{textAlign:"right", fontWeight:700, fontSize:13.5}}>
+                {money(p.v)}
+                {p.s != null && <span className="rk-share-m mono" style={{display:"none", fontSize:11, fontWeight:500, color:"var(--muted)"}}>{p.s.toLocaleString("pt-BR", {maximumFractionDigits:1})}%</span>}
+              </div>
             </div>
           ))}
         </div>
