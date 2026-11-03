@@ -127,7 +127,7 @@ function HomeView({ tweaks, currentUser, section, onSection, onNew, onOpenSaved,
             <span>Painel</span><Icon.Caret size={12}/><span style={{color:"var(--ink-2)", fontWeight:600}}>{cur.n}</span>
           </div>
           <div style={{display:"flex", alignItems:"center", gap:10}}>
-            <button className="btn btn-primary" onClick={onNew} style={{padding:"9px 14px"}}>
+            <button className="btn btn-primary home-new-top" onClick={onNew} style={{padding:"9px 14px"}}>
               <Icon.Plus size={14}/> <span className="tb-label">Novo dashboard</span>
             </button>
             <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
@@ -293,6 +293,22 @@ function HomeOverview({ tweaks, firstName, plan, limits, items, keep, links, ins
             <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5}}>Nenhum dashboard salvo neste navegador ainda. O próximo que você criar aparece aqui.</div>
           )}
         </div>
+      </div>
+
+      {/* Só no celular (a barra inferior substitui o menu lateral): atalhos para
+          as seções que não estão nas abas de baixo. */}
+      <div className="home-shortcuts" style={{display:"none", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8, marginBottom:14}}>
+        {[
+          { n:"Links", i:<Icon.Share size={18}/>, on:()=> go("links") },
+          { n:"Instalar", i:<Icon.Download size={18}/>, on:()=> go("app") },
+          { n:"Faturas", i:<Icon.Doc size={18}/>, on:()=> window.__dashOpenAccount?.("billing") },
+          { n:"Histórico IA", i:<Icon.Refresh size={18}/>, on:()=> window.__dashOpenAccount?.("history") },
+        ].map(a => (
+          <button key={a.n} onClick={a.on} className="card" style={{padding:"12px 4px", display:"flex", flexDirection:"column", alignItems:"center", gap:6, cursor:"pointer", border:"1px solid var(--line)", fontFamily:"inherit", minWidth:0}}>
+            <span style={{width:40, height:40, borderRadius:12, background:"var(--brand-soft)", color:"var(--brand)", display:"inline-flex", alignItems:"center", justifyContent:"center"}}>{a.i}</span>
+            <span style={{fontSize:11.5, fontWeight:600, color:"var(--ink-2)", whiteSpace:"nowrap"}}>{a.n}</span>
+          </button>
+        ))}
       </div>
 
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(190px, 1fr))", gap:14, marginBottom:28}}>

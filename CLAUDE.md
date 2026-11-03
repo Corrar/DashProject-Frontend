@@ -70,6 +70,7 @@ components/
   py-engine.js             # window.DashPy: ponte com o motor pandas (JS puro, carregado como api.js). Ver §24
   py-worker.js             # Web Worker que carrega o Pyodide e roda engine/dash_engine.py
   home-view.jsx            # HomeView (rota home): Painel do usuário logado — dashboards, links, uso, instalar app. Ver §25
+  mobile-nav.jsx           # MobileTabBar: barra inferior do celular (Início · Dashboards · [Novo] · Plano · Conta). Ver §7
   pwa.js                   # window.DashPWA: registra o sw.js e guarda o pedido de instalação (JS puro, como api.js)
 sw.js                      # service worker do app instalável (cache da casca; nunca API nem URLs com token)
 manifest.webmanifest       # manifesto PWA (nome, ícones, atalhos "Novo dashboard"/"Meus dashboards")
@@ -252,6 +253,13 @@ Este é um **dashboard hi-fi para desktop primeiro**, mas tem que **não quebrar
     - os insights ficam numa coluna (`.ins-cards`) e o resumo + destaques empilham (`.ins-summary`, já em 900px);
     - o ranking vira `# · Item · Valor`, com a participação embaixo do valor (`.rk-*`), sem rolar para o lado.
   - **Bloco novo com grid interno**: usar `minmax(0, 1fr)` e dar uma classe para colapsar no mobile.
+  - **Barras de edição** (KPI, gráfico, `BlockShell`): até 900px os botões de tamanho (`.edit-sizes`) e o id somem, porque ali quem decide a largura é o grid.
+- **Barra inferior no celular** (`mobile-nav.jsx`, até 760px):
+  - **Abas**: Início · Dashboards · **Novo** (botão central em destaque, abre o envio) · Plano · Conta.
+  - **Onde aparece**: só para quem está logado, nas telas do app (`home`, `upload`, `prompt`, `dashboard`, `account`, `plans`). A Landing segue com os dois botões dela.
+  - **Espaço embaixo**: com a barra, o `body` ganha `.has-tabbar`, que reserva o espaço embaixo. O FAB do dashboard e a barra "Gerar dashboard" (`.flow-actionbar`) sobem para ficar acima dela.
+  - **Painel no celular**: o "+ Novo dashboard" do topo e o menu de seções (`.home-nav`) saem. No Início aparecem atalhos (`.home-shortcuts`) para Links, Instalar, Faturas e Histórico da IA.
+  - **Abas roláveis**: abas que não cabem (insights, fonte dos dados no envio) usam `.tabs-scroll`, ficam numa linha e rolam para o lado sem barra visível.
 
 Antes de fazer merge de qualquer mudança grande, validar visualmente em:
 - 1440×900 (desktop primary)

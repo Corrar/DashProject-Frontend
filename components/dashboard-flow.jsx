@@ -267,10 +267,10 @@ function UploadView({ onUploaded, maxRows, children }){
         {/* Esquerda: fonte dos dados */}
         <div className="rv card soft-shadow" style={{padding: 0, overflow:"hidden"}}>
           <div style={{padding:"14px 16px", borderBottom:"1px solid var(--line-2)", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap"}}>
-            <div className="seg" role="tablist" aria-label="Fonte dos dados" style={{padding:4, borderRadius:11}}>
+            <div className="seg tabs-scroll" role="tablist" aria-label="Fonte dos dados" style={{padding:4, borderRadius:11, maxWidth:"100%", overflowX:"auto"}}>
               {tabs.map(t=>(
                 <button key={t.k} role="tab" aria-selected={tab===t.k} className={tab===t.k?"on":""} disabled={!!step}
-                  onClick={()=>setTab(t.k)} style={{padding:"7px 12px", display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:600}}>
+                  onClick={()=>setTab(t.k)} style={{padding:"7px 12px", display:"inline-flex", alignItems:"center", gap:6, fontSize:13, fontWeight:600, whiteSpace:"nowrap", flexShrink:0}}>
                   {t.i} {t.n}
                 </button>
               ))}

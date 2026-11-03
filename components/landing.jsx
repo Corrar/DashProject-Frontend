@@ -256,7 +256,7 @@ function HeroPreview({ tweaks }){
           </div>
         </div>
         <div style={{padding:18, display:"grid", gap:14}}>
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end"}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:8}}>
             <div>
               <div style={{fontSize:12, color:"var(--muted)", fontWeight:600, letterSpacing:".06em", textTransform:"uppercase"}}>Receita · Q3</div>
               <div style={{fontSize:36, fontWeight:800, letterSpacing:"-.02em"}}>R$ <span className="ticker">1,284M</span></div>
@@ -269,22 +269,22 @@ function HeroPreview({ tweaks }){
           <div style={{height:180}}>
             <LineChart data={line} height={180} color={tweaks.accent} animate animDelay={.3}/>
           </div>
-          <div style={{display:"grid", gridTemplateColumns:"1.2fr 1fr 1fr", gap:10}}>
-            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+          <div className="hp-kpis" style={{display:"grid", gridTemplateColumns:"minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)", gap:10}}>
+            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>NPS</div>
               <div style={{fontSize:20, fontWeight:700}}>74</div>
               <div style={{height:18}}>
                 <Sparkline data={[58,62,64,66,68,70,72,74]} color={tweaks.accent} height={18} width={140}/>
               </div>
             </div>
-            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>Conversão</div>
               <div style={{fontSize:20, fontWeight:700}}>4,8%</div>
               <div style={{display:"flex", gap:3, alignItems:"flex-end", height:18}}>
                 {[3,5,4,6,7,8,7,9].map((h,i)=><span key={i} style={{width:6, height:h*2, background:tweaks.accent, opacity:.6+i*0.05, borderRadius:2}}/>)}
               </div>
             </div>
-            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+            <div className="hp-kpi-3" style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>Ticket médio</div>
               <div style={{fontSize:20, fontWeight:700}}>R$ 219</div>
               <div className="mono" style={{fontSize:11, color:"#0a8a4a"}}>+12%</div>
@@ -729,7 +729,7 @@ function Pricing({ onOpenApp }){
           <h2 className="rv h-section" style={{margin:"16px 0 8px"}}>Comece grátis.<br/>Assine quando precisar de mais.</h2>
           <p className="rv lede" style={{margin:"0 auto 24px", maxWidth:520}}>O Free não pede cartão e já inclui 1 análise da IA por mês. Nos planos pagos, sem fidelidade — cartão ou Pix.</p>
         </div>
-        <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, maxWidth: 1080, margin:"0 auto"}}>
+        <div className="resp-collapse plans-grid" style={{display:"grid", gridTemplateColumns:"repeat(3, minmax(0, 1fr))", gap:18, maxWidth: 1080, margin:"0 auto"}}>
           {plans.map(p=>(
             <div key={p.k} className={"rv card" + (p.highlight ? " soft-shadow" : "")} style={{
               padding:28, position:"relative", display:"flex", flexDirection:"column",
