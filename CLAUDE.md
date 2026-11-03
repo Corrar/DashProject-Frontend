@@ -256,7 +256,7 @@ Promessa do produto: *"seus dados nunca saem do navegador"*. Manter isso real:
 - **Processar arquivos via FileReader / Blob no client.** Nunca subir para servidor sem consentimento explícito.
 - **IA só onde não dá para calcular** (decisão [DECISION 2026-11-03], substitui a de 2026-06-03 que mandava 20 linhas cruas):
   - **Insights, destaques, resumo executivo e qualidade dos dados são calculados no navegador** (motor pandas, §24; ou motor JS no fallback), para todos os planos, sem custo e sem enviar nada.
-  - **O Gemini só escreve o resumo em texto**, a partir dos fatos calculados (`facts`), nomes de colunas e KPIs. **Nenhuma linha do arquivo é enviada** (`sampleRows: []`) e o nome do arquivo também não.
+  - **O Claude (Anthropic, via `/tools/analyze` do backend) só escreve o resumo em texto**, a partir dos fatos calculados (`facts`), nomes de colunas e KPIs. **Nenhuma linha do arquivo é enviada** (`sampleRows: []`) e o nome do arquivo também não.
   - Colunas com cara de dado pessoal (e-mail, CPF, CNPJ, telefone) são marcadas `pii` pelo motor e nunca entram em insights nem fatos.
   - **Cota por conta**: Free 1 análise/mês, Essencial 50, Pro 300 (backend responde 429 ao estourar). **Anônimo não envia nada** — o bloco vira convite de cadastro; a IA exige conta.
   - **Opt-in por clique**: o resumo só roda quando o usuário clica em "Gerar resumo", com aviso do que é enviado e do consumo de cota. Nunca disparar automaticamente (mount, troca de período, remontagem). O resultado fica em `_dashNarrativeCache` (sessão, por base) e no dashboard salvo (IndexedDB), então reabrir não gasta cota.

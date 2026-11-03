@@ -847,7 +847,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
   );
 }
 
-/* Live AI narrative card — renders the real Gemini analysis returned by the
+/* Live AI narrative card — renders the real AI (Claude) summary returned by the
  * gemini-narrative Edge Function. `live` is { data, loading, error, onReload }
  * driven by the Dashboard. Mirrors the visual language of <Insights> (the card
  * it replaces for Pro users with a real upload) so the section stays familiar:
@@ -861,7 +861,7 @@ const _dashNarrativeCache = new Map();
 // anon: visitante sem conta — a análise grátis (1/mês) exige conta, então o
 // bloco vira convite de cadastro em vez de chamar a API.
 /* Markdown mínimo (parágrafos, listas "- ", **negrito**, "# título") renderizado
- * como elementos React — a resposta do Gemini vinha crua num <p> com "**" à mostra.
+ * como elementos React — a resposta da IA vinha crua num <p> com "**" à mostra.
  * Nada de dangerouslySetInnerHTML: o texto da IA nunca vira HTML. */
 function DashMiniMarkdown({ text }){
   const inline = (line, key)=> String(line).split(/(\*\*[^*]+\*\*)/g).map((part, i)=>
@@ -923,7 +923,7 @@ function AINarrative({ tweaks, live, limits, anon }){
         <div>
           <div style={{display:"flex", alignItems:"center", gap:8}}>
             <span style={{fontWeight:700, fontSize:16}}>Resumo em texto pela IA</span>
-            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
+            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Claude</span>
           </div>
           <div style={{fontSize:12, color:"var(--muted)", marginTop:2, display:"inline-flex", alignItems:"center", gap:5}}>
             <Icon.Sparkle size={10}/> Escrito pela IA a partir dos insights calculados
@@ -1045,7 +1045,7 @@ function AINarrative({ tweaks, live, limits, anon }){
         <div style={{flex:"1 1 360px", minWidth:0}}>
           <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
             <span style={{fontWeight:700, fontSize:15}}>Resumo em texto pela IA</span>
-            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini</span>
+            <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Claude</span>
             {cap != null && <span style={{fontSize:12, color:"var(--muted)"}}>
               {isFreePlan
                 ? "1 análise grátis por mês" + (used != null ? ` · ${used} de ${cap} usada${cap === 1 ? "" : "s"}` : "")
@@ -1054,7 +1054,7 @@ function AINarrative({ tweaks, live, limits, anon }){
           </div>
           <div style={{fontSize:13, color:"var(--ink-2)", lineHeight:1.5, marginTop:3}}>
             Um resumo executivo escrito a partir dos insights calculados acima{focus ? <> com foco em <b>“{focus}”</b></> : null}. Opcional: os insights não dependem dele.
-            {" "}<span style={{color:"var(--muted)"}}>Envia ao Google Gemini só os nomes das colunas, os indicadores e esses fatos — nenhuma linha do arquivo.</span>
+            {" "}<span style={{color:"var(--muted)"}}>Envia à Anthropic (Claude) só os nomes das colunas, os indicadores e esses fatos — nenhuma linha do arquivo.</span>
           </div>
         </div>
         <button className="btn btn-primary" onClick={reload} style={{flexShrink:0}}><Icon.Sparkle size={13}/> Gerar resumo</button>
@@ -1218,7 +1218,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
               {isGen
                 ? <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>{source === "pandas" ? "Calculado com pandas no navegador" : "Calculado no navegador"}</span>
                 : <>
-                    <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Gemini 2.5</span>
+                    <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Claude</span>
                     <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>confiança 89%</span>
                   </>}
             </div>
@@ -1458,7 +1458,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   const dataDrivenMode = (useGenerated && !salesShape) ||
     (isUpload && !hasRealData && !!(generated && (generated.kpis.length || generated.charts.length)));
 
-  // ── AI narrative (Gemini Edge Function) ─────────────────────────────────
+  // ── AI narrative (/tools/analyze → Claude) ─────────────────────────────────
   // The real narrative replaces the mock "Análises da IA" for any signed-in
   // user with a real upload (Free = 1/month, enforced by the backend quota).
   // Anonymous visitors get a signup prompt and nothing is sent. Cached by the profile
@@ -2130,7 +2130,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           </div>
         );
       }
-      // Real Gemini narrative when there's an upload to analyze; otherwise
+      // Real AI narrative when there's an upload to analyze; otherwise
       // (Tweaks-only entry, no data) keep the data-driven/demo Insights card.
       // Com upload: insights calculados no navegador (sempre, sem custo) e, abaixo,
       // o resumo em texto pela IA — opcional, por clique, a partir desses fatos.

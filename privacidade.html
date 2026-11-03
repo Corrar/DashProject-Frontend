@@ -45,7 +45,7 @@
 </table>
 
 <h2>3. Análise por IA</h2>
-<p>Quando você clica em “Gerar análise”, enviamos ao <b>Google (Gemini)</b> os nomes das colunas, os indicadores calculados e uma amostra de até 20 linhas do seu arquivo, sem anonimização. O Google atua como operador para gerar o texto. Não use a análise por IA em arquivos com dados pessoais sensíveis ou de terceiros sem base legal para isso. Nada é enviado sem o clique: quem não gera a análise não envia nenhum dado para a IA.</p>
+<p>Os insights do dashboard são calculados no seu navegador e não são enviados a ninguém. Quando você clica em “Gerar resumo”, enviamos à <b>Anthropic (Claude)</b> os nomes das colunas, os indicadores e os fatos já calculados (por exemplo, “Região Sul responde por 42% do total”) — nenhuma linha do arquivo e nem o nome dele. Colunas que parecem dado pessoal (e-mail, CPF, CNPJ, telefone) ficam de fora. A Anthropic atua como operadora para gerar o texto. Não use a análise por IA em arquivos com dados pessoais sensíveis ou de terceiros sem base legal para isso. Nada é enviado sem o clique: quem não gera a análise não envia nenhum dado para a IA.</p>
 
 <h2>4. Links públicos</h2>
 <p>Ao criar um link público (plano Pro), guardamos um retrato do dashboard com os valores já agregados, sem as linhas do arquivo. Qualquer pessoa com o link pode ver esse retrato. Você pode desativar o link a qualquer momento. Ele também deixa de abrir se a assinatura Pro terminar.</p>
@@ -53,7 +53,8 @@
 <h2>5. Com quem compartilhamos</h2>
 <ul>
   <li><b>Asaas Gestão Financeira</b>: processamento de pagamentos (cartão e Pix) e emissão de cobranças.</li>
-  <li><b>Google</b>: geração da análise por IA (Gemini) e entrega das fontes do site (Google Fonts, que recebe o seu IP ao carregar a página).</li>
+  <li><b>Anthropic</b>: geração do resumo em texto por IA (Claude).</li>
+  <li><b>Google</b>: entrega das fontes do site (Google Fonts, que recebe o seu IP ao carregar a página).</li>
   <li><b>Render</b> (hospedagem da API), <b>Neon</b> (banco de dados) e <b>Vercel</b> (hospedagem do site e estatísticas de uso pelo Vercel Web Analytics, que não usa cookies e não identifica você): infraestrutura.</li>
   <li><b>Resend</b>: envio de e-mails transacionais (confirmação, recuperação de senha, cobranças).</li>
   <li>Autoridades públicas, quando houver obrigação legal ou ordem judicial.</li>

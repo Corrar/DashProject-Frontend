@@ -697,7 +697,7 @@ function PromptView({ onGenerate, onBack, fileInfo }){
                 <div style={{fontWeight:700, fontSize:15}}>Foco da análise por IA <span style={{fontWeight:500, color:"var(--muted)", fontSize:13}}>(opcional)</span></div>
                 <div style={{fontSize:12, color:"var(--muted)", marginTop:3}}>Diga o que a IA deve destacar quando você gerar a análise no dashboard.</div>
               </div>
-              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Gemini</span>
+              <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> Claude</span>
             </div>
             <textarea
               aria-label="Foco da análise por IA"
