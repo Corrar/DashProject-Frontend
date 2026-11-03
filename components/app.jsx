@@ -2,7 +2,7 @@
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "brandName": "Dash",
-  "accent": "#2f6bff",
+  "accent": "#0071e3",
   "view": "landing",
   "plan": "free"
 }/*EDITMODE-END*/;
@@ -361,7 +361,7 @@ function App(){
         <TweakSection label="Marca">
           <TweakText label="Nome" value={tweaks.brandName} onChange={v=>setTweak("brandName", v)}/>
           <TweakColor label="Cor de destaque" value={tweaks.accent} onChange={v=>setTweak("accent", v)}
-            options={["#2f6bff","#0a8a4a","#7a5cff","#ff5e93","#ff7849","#0b1020"]}/>
+            options={["#0071e3","#248a3d","#5e5ce6","#ff375f","#ff9500","#1d1d1f"]}/>
         </TweakSection>
         <TweakSection label="Plano (override de testes — só efeito sem auth)">
           <TweakRadio label="Tier" value={tweaks.plan} onChange={v=>setTweak("plan", v)}
@@ -464,15 +464,15 @@ function ProfileModal({ open, currentUser, onClose, onSignOut, tweaks }){
   const accent = (tweaks && tweaks.accent) || "var(--brand)";
   const isPaid = currentUser.plan === "pro" || currentUser.plan === "essencial";
   return (
-    <div onClick={onClose} style={{
+    <div className="sheet-backdrop" onClick={onClose} style={{
       position:"fixed", inset:0, zIndex:125,
-      background:"rgba(11,16,32,.55)", backdropFilter:"blur(8px)",
+      background:"rgba(0,0,0,.55)", backdropFilter:"blur(8px)",
       display:"flex", alignItems:"center", justifyContent:"center", padding:24,
     }}>
-      <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+      <div className="sheet" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
         style={{
           width:"min(420px, 100%)", background:"white", borderRadius:18,
-          boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)", overflow:"hidden",
+          boxShadow:"0 40px 80px -20px rgba(0,0,0,.5)", overflow:"hidden",
         }}>
         <div style={{padding:"22px 24px 18px", borderBottom:"1px solid var(--line-2)", position:"relative"}}>
           <button onClick={onClose} aria-label="Fechar" style={{

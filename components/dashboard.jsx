@@ -627,17 +627,17 @@ function KPI({ kpi, editing, onChange, onMove, onResize, onDelete, palette }){
         {editing ? (
           <input value={typeof value === "number" ? String(Math.round(value*100)/100) : value} onChange={e=>set({value:e.target.value})} style={{
             padding:"2px 6px", border:"1px dashed var(--line)", borderRadius:6,
-            fontSize:24, fontWeight:800, letterSpacing:"-.02em", outline:"none", background:"transparent",
+            fontSize:24, fontWeight:700, letterSpacing:"-.02em", outline:"none", background:"transparent",
             fontFamily:"inherit", width:"min(140px, 100%)", minWidth:0, boxSizing:"border-box"
           }}/>
         ) : (
-          <span className="ticker kpi-value" style={{fontSize:28, fontWeight:800, letterSpacing:"-.02em"}}>{display}</span>
+          <span className="ticker kpi-value" style={{fontSize:28, fontWeight:700, letterSpacing:"-.02em"}}>{display}</span>
         )}
         {/* Sem variação calculada ("—") o chip "▲ —" só fazia ruído. */}
         {(editing || (delta && delta !== "—")) && (
           <span className="chip mono" style={{
             background: deltaDir==="up" ? "#e7f7ef" : "#fde7ee",
-            color: deltaDir==="up" ? "#0a8a4a" : "#c9234a", fontSize:11, cursor: editing?"pointer":"default"
+            color: deltaDir==="up" ? "#248a3d" : "#d70015", fontSize:11, cursor: editing?"pointer":"default"
           }} onClick={()=> editing && set({deltaDir: deltaDir==="up"?"down":"up"})}>
             {deltaDir==="up" ? "▲" : "▼"} {delta}
           </span>
@@ -672,7 +672,7 @@ function ChartTypeMenu({ value, onChange }){
         <div style={{
           position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:10,
           background:"white", border:"1px solid var(--line)", borderRadius:10, padding:6, minWidth:140,
-          boxShadow:"0 20px 40px -20px rgba(15,23,42,.25)"
+          boxShadow:"0 20px 40px -20px rgba(0,0,0,.25)"
         }}>
           {types.map(t=>(
             <button key={t.k} onClick={()=>{onChange(t.k); setOpen(false);}} style={{
@@ -716,7 +716,7 @@ function MiniSelect({ value, options, onChange, width=120 }){
         <div style={{
           position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:20,
           background:"white", border:"1px solid var(--line)", borderRadius:10, padding:4, minWidth: width+20,
-          boxShadow:"0 20px 40px -20px rgba(15,23,42,.25)"
+          boxShadow:"0 20px 40px -20px rgba(0,0,0,.25)"
         }}>
           {options.map(o=>(
             <button key={o.k} onClick={()=>{onChange(o.k); setOpen(false);}} style={{
@@ -829,7 +829,7 @@ function ChartCard({ chart, color, editing, onChange, onMove, onDelete, onResize
       {editing && (
         <div style={{
           display:"flex", flexWrap:"wrap", gap:10, padding:"10px 12px",
-          background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:10, marginTop:4
+          background:"#fbfbfd", border:"1px solid var(--line-2)", borderRadius:10, marginTop:4
         }}>
           <div style={{display:"flex", alignItems:"center", gap:6}}>
             <span className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)"}}>DIM</span>
@@ -953,9 +953,9 @@ function AINarrative({ tweaks, live, limits, anon }){
   // Visitante: a análise grátis precisa de conta (a cota é por usuário).
   if(anon && !data){
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+      <div className="card soft-shadow ai-card" style={{padding:24, marginBottom:20}}>
         {Header}
-        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
+        <div style={{padding:"18px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fbfbfd", display:"flex", gap:16, alignItems:"center", flexWrap:"wrap"}}>
           <div style={{flex:"1 1 320px", fontSize:13, color:"var(--ink-2)", lineHeight:1.55}}>
             <div style={{fontWeight:700, marginBottom:4}}>Crie uma conta grátis e gere 1 resumo por mês com IA</div>
             Os insights acima já foram calculados no seu navegador, sem conta. A IA só escreve o resumo em texto a partir deles. Sem cartão de crédito.
@@ -973,7 +973,7 @@ function AINarrative({ tweaks, live, limits, anon }){
   // existing data keeps the previous content visible (button shows "Gerando…").
   if(loading && !data){
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+      <div className="card soft-shadow ai-card thinking" style={{padding:24, marginBottom:20}}>
         {Header}
         <div style={{display:"flex", alignItems:"center", gap:10, color:"var(--muted)", fontSize:13, marginBottom:14}}>
           <span style={{width:16, height:16, borderRadius:"50%", border:"2px solid var(--line)", borderTopColor:accent, display:"inline-block", animation:"narrSpin 1s linear infinite"}}/>
@@ -998,7 +998,7 @@ function AINarrative({ tweaks, live, limits, anon }){
   // offers an upgrade CTA instead of "try again". Rendered BEFORE error/idle.
   if(quota && !data){
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+      <div className="card soft-shadow ai-card" style={{padding:24, marginBottom:20}}>
         {Header}
         <div style={{padding:"18px 20px", borderRadius:12, background:"var(--brand-soft)", border:"1px solid var(--line)", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
           <div style={{width:36, height:36, borderRadius:9, background:"#fff", color:"var(--brand-2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
@@ -1025,14 +1025,14 @@ function AINarrative({ tweaks, live, limits, anon }){
   // Error state — friendly message + retry, never a blank card.
   if(error && !data){
     return (
-      <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+      <div className="card soft-shadow ai-card" style={{padding:24, marginBottom:20}}>
         {Header}
         <div style={{padding:"18px 20px", borderRadius:12, background:"#fff7f9", border:"1px solid #ffd2dd", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
-          <div style={{width:36, height:36, borderRadius:9, background:"#ffe3ea", color:"#c9234a", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
+          <div style={{width:36, height:36, borderRadius:9, background:"#ffe3ea", color:"#d70015", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>
             <Icon.Bolt size={16}/>
           </div>
           <div style={{flex:1, minWidth:200}}>
-            <div style={{fontWeight:700, fontSize:14, color:"#c9234a"}}>Não foi possível gerar a análise agora</div>
+            <div style={{fontWeight:700, fontSize:14, color:"#d70015"}}>Não foi possível gerar a análise agora</div>
             <div style={{fontSize:13, color:"var(--ink-2)", marginTop:2}}>Verifique sua conexão e tente novamente em instantes.</div>
           </div>
           <button className="btn btn-primary" style={{padding:"8px 14px"}} onClick={reload}>
@@ -1048,7 +1048,7 @@ function AINarrative({ tweaks, live, limits, anon }){
   if(!data){
     const focus = live && live.focus;
     return (
-      <div className="card soft-shadow ai-idle" style={{padding:"18px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap",
+      <div className="card soft-shadow ai-card ai-idle" style={{padding:"18px 20px", marginBottom:20, display:"flex", alignItems:"center", gap:16, flexWrap:"wrap",
         background:`linear-gradient(90deg, color-mix(in oklch, ${accent} 6%, white), white 55%)`}}>
         <div style={{width:44, height:44, borderRadius:12, flexShrink:0, background:`linear-gradient(135deg, ${accent}, var(--violet))`, display:"flex", alignItems:"center", justifyContent:"center", color:"white"}}>
           <Icon.Sparkle size={20}/>
@@ -1075,7 +1075,7 @@ function AINarrative({ tweaks, live, limits, anon }){
 
   // Success.
   return (
-    <div className="card soft-shadow" style={{padding:24, marginBottom:20}}>
+    <div className={"card soft-shadow ai-card" + (loading ? " thinking" : "")} style={{padding:24, marginBottom:20}}>
       {Header}
 
       {live && live.quota && (
@@ -1086,7 +1086,7 @@ function AINarrative({ tweaks, live, limits, anon }){
       )}
 
       {summary && (
-        <div style={{padding:"16px 18px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
+        <div style={{padding:"16px 18px", background:"#fbfbfd", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:14}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO</div>
           <DashMiniMarkdown text={summary}/>
         </div>
@@ -1118,13 +1118,13 @@ function AINarrative({ tweaks, live, limits, anon }){
       {recs.length > 0 && (
         <div>
           <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
-            <Icon.Check size={14} stroke={2.6} color="#0a8a4a"/>
+            <Icon.Check size={14} stroke={2.6} color="#248a3d"/>
             <span style={{fontWeight:700, fontSize:14}}>Recomendações</span>
-            <span className="chip mono" style={{padding:"0 6px", fontSize:10, background:"#e7f7ef", color:"#0a8a4a"}}>{recs.length}</span>
+            <span className="chip mono" style={{padding:"0 6px", fontSize:10, background:"#e7f7ef", color:"#248a3d"}}>{recs.length}</span>
           </div>
           <ol style={{listStyle:"none", padding:0, margin:0, display:"flex", flexDirection:"column", gap:8}}>
             {recs.map((it,i)=>(
-              <li key={i} style={{display:"flex", gap:12, alignItems:"flex-start", padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+              <li key={i} style={{display:"flex", gap:12, alignItems:"flex-start", padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fbfbfd"}}>
                 <span style={{width:24, height:24, borderRadius:7, flexShrink:0, background:"var(--ink)", color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700}}>{i+1}</span>
                 <div style={{flex:1, minWidth:0}}>
                   {it.title && <div style={{fontWeight:700, fontSize:14, marginBottom:2}}>{it.title}</div>}
@@ -1153,10 +1153,10 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
   const [tab, setTab] = React.useState("insights");
 
   const highlights = [
-    { l:"Maior alta", v:"+R$ 142k", s:"Marketplace · CO", c:"#0a8a4a", d:"up" },
-    { l:"Maior queda", v:"−23%", s:"Ticket médio", c:"#c9234a", d:"down" },
+    { l:"Maior alta", v:"+R$ 142k", s:"Marketplace · CO", c:"#248a3d", d:"up" },
+    { l:"Maior queda", v:"−23%", s:"Ticket médio", c:"#d70015", d:"down" },
     { l:"Concentração", v:"42%", s:"Top 2 produtos", c:"var(--brand)", d:"flat" },
-    { l:"Cobertura", v:"86%", s:"Linhas analisadas", c:"#7a5cff", d:"flat" },
+    { l:"Cobertura", v:"86%", s:"Linhas analisadas", c:"#5e5ce6", d:"flat" },
   ];
 
   const tabs = {
@@ -1180,17 +1180,17 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
 
   const catMeta = {
     comparison: { i:<Icon.Bars size={13}/>, c:"var(--brand)", n:"Comparação" },
-    trend:      { i:<Icon.Line size={13}/>, c:"#0a8a4a", n:"Tendência" },
+    trend:      { i:<Icon.Line size={13}/>, c:"#248a3d", n:"Tendência" },
     outlier:    { i:<Icon.Bolt size={13}/>, c:"#ff7849", n:"Outlier" },
-    risk:       { i:<Icon.Bolt size={13}/>, c:"#c9234a", n:"Risco" },
-    action:     { i:<Icon.Sparkle size={13}/>, c:"#7a5cff", n:"Ação" },
+    risk:       { i:<Icon.Bolt size={13}/>, c:"#d70015", n:"Risco" },
+    action:     { i:<Icon.Sparkle size={13}/>, c:"#5e5ce6", n:"Ação" },
   };
 
   // Data-driven mode: when the dashboard passes `generated` (the insight items
   // from dashGenerateBlocks), build the strip + tabs + summary from real data
   // instead of the hardcoded sales demo. Falls back to the demo otherwise.
   const isGen = Array.isArray(generated) && generated.length > 0;
-  const catColor = (c)=> ({ comparison:"var(--brand)", trend:"#0a8a4a", outlier:"#ff7849", risk:"#c9234a", action:"#7a5cff" }[c] || "var(--brand)");
+  const catColor = (c)=> ({ comparison:"var(--brand)", trend:"#248a3d", outlier:"#ff7849", risk:"#d70015", action:"#5e5ce6" }[c] || "var(--brand)");
   const genTabs = isGen ? {
     insights: generated.filter(it => it.cat === "comparison" || it.cat === "trend" || it.cat === "outlier"),
     risks:    generated.filter(it => it.cat === "risk" || it.risk),
@@ -1227,10 +1227,10 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
             <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
               <span style={{fontWeight:700, fontSize:16}}>{isGen ? "Insights dos seus dados" : "Análises da IA"}</span>
               {isGen
-                ? <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>{source === "pandas" ? "Calculado com pandas no navegador" : "Calculado no navegador"}</span>
+                ? <span className="chip" style={{background:"#e7f7ef", color:"#248a3d", fontSize:11}}>{source === "pandas" ? "Calculado com pandas no navegador" : "Calculado no navegador"}</span>
                 : <>
                     <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", fontSize:11}}>Claude</span>
-                    <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a", fontSize:11}}>confiança 89%</span>
+                    <span className="chip" style={{background:"#e7f7ef", color:"#248a3d", fontSize:11}}>confiança 89%</span>
                   </>}
             </div>
             <div style={{fontSize:12, color:"var(--muted)", marginTop:2}}>
@@ -1253,14 +1253,14 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
 
       {/* Executive summary + highlight strip */}
       <div className="ins-summary" style={{display:"grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 16, marginBottom: 14}}>
-        <div style={{padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12}}>
+        <div style={{padding:"14px 16px", background:"#fbfbfd", border:"1px solid var(--line-2)", borderRadius:12}}>
           <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:6}}>RESUMO EXECUTIVO</div>
           {isGen ? (
             <>
               <p style={{margin:0, color:"var(--ink-2)", fontSize:14, lineHeight:1.55}}>{genSummary}</p>
               {qualityNotes.length > 0 && (
                 <div style={{marginTop:8, fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
-                  <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Tratamento automático: {qualityNotes.join(" · ")}.
+                  <Icon.Check size={11} stroke={3} color="#248a3d"/> Tratamento automático: {qualityNotes.join(" · ")}.
                 </div>
               )}
             </>
@@ -1274,7 +1274,7 @@ function Insights({ tweaks, onAddChart, generated, highlights: hlProp, summary: 
           {hlUse.map(h=>(
             <div key={h.l} style={{padding:"10px 12px", border:"1px solid var(--line)", borderRadius:10, background:"white"}}>
               <div style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".05em", textTransform:"uppercase"}}>{h.l}</div>
-              <div style={{fontVariantNumeric:"tabular-nums", fontSize:18, fontWeight:800, color:h.c, marginTop:2}}>{h.v}</div>
+              <div style={{fontVariantNumeric:"tabular-nums", fontSize:18, fontWeight:700, color:h.c, marginTop:2}}>{h.v}</div>
               <div style={{fontSize:11, color:"var(--muted)"}}>{h.s}</div>
             </div>
           ))}
@@ -1549,7 +1549,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     {k:"regiao", n:"regiao"}, {k:"vendedor", n:"vendedor"}, {k:"canal", n:"canal"},
   ];
   const aggs = [{k:"sum", n:"Soma"}, {k:"avg", n:"Média"}, {k:"count", n:"Contagem"}, {k:"max", n:"Máx"}, {k:"min", n:"Mín"}];
-  const palette = ["#2f6bff","#0a8a4a","#7a5cff","#ff7849","#ff5e93","#0b1020"];
+  const palette = ["#0071e3","#248a3d","#5e5ce6","#ff9500","#ff375f","#1d1d1f"];
 
   // ── Aggregations ───────────────────────────────────────────────────────
   // realAgg is null when there's no upload. Mock arrays below act as fallback.
@@ -1690,11 +1690,11 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     ? { label:"Valor total", value: realAgg.totalAll, format:"brl", delta: fmtDelta(realAgg.totalDelta), deltaDir: realAgg.totalDelta >= 0 ? "up" : "down", sub:"vs metade anterior do período", data: realAgg.sparkSeries, color: tweaks.accent }
     : isUpload ? null : { label:"Valor total", value:"R$ 791,7", delta:"14,2%", deltaDir:"up", sub:"vs período anterior", data:[420,460,440,490,520,560,590,640,700,720,760,791], color: tweaks.accent };
   const k2Props = realAgg
-    ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#7a5cff" }
-    : isUpload ? null : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#7a5cff" };
+    ? { label:"Ticket médio", value: realAgg.ticketMedio, format:"brl", delta: fmtDelta(realAgg.ticketDelta), deltaDir: realAgg.ticketDelta >= 0 ? "up" : "down", sub:"média por pedido", data: realAgg.sparkSeries, color:"#5e5ce6" }
+    : isUpload ? null : { label:"Ticket médio", value:"R$ 6,6", delta:"3,1%", deltaDir:"down", sub:"média por transação", data:[7.0,6.9,6.8,6.5,6.4,6.6,6.5,6.7,6.6,6.6,6.4,6.6], color:"#5e5ce6" };
   const k3Props = realAgg
-    ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + (dataCols.order ? " pedidos no período" : " registros no período"), data: realAgg.sparkSeries, color:"#0a8a4a" }
-    : isUpload ? null : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#0a8a4a" };
+    ? { label:"Pedidos", value: realAgg.pedidos, format:"int", delta: fmtDelta(realAgg.countDelta), deltaDir: realAgg.countDelta >= 0 ? "up" : "down", sub: realAgg.pedidos + (dataCols.order ? " pedidos no período" : " registros no período"), data: realAgg.sparkSeries, color:"#248a3d" }
+    : isUpload ? null : { label:"Pedidos", value:1284, format:"int", delta:"9,8%", deltaDir:"up", sub:"120 únicos no período", data:[820,860,920,1020,1100,1160,1200,1250,1284], color:"#248a3d" };
   const k4Props = (realAgg && realAgg.convAvg != null)
     ? { label:"Conversão", value: realAgg.convAvg, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"média no período", data: realAgg.sparkSeries, color:"#ff7849" }
     : isUpload ? null : { label:"Conversão", value:4.8, format:"pct", suffix:"%", delta:"0,6pp", deltaDir:"up", sub:"visitantes → pedido", data:[3.8,4.0,3.9,4.2,4.3,4.5,4.6,4.7,4.8], color:"#ff7849" };
@@ -1740,7 +1740,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
   // ── Per-view KPI props ─────────────────────────────────────────────────
   // Each preset (region / product / channel) gets four data-driven KPIs.
   // Mock fallbacks preserved for the Tweaks-only entry path.
-  const regionPalette = [tweaks.accent, "#7a5cff", "#0a8a4a", "#ff7849"];
+  const regionPalette = [tweaks.accent, "#5e5ce6", "#248a3d", "#ff7849"];
   const regionKpis = !realAgg && isUpload ? [] : realAgg ? [
     ...[0,1,2].map(i => {
       const r = realAgg.regiao[i];
@@ -1752,8 +1752,8 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     { label:"Regiões ativas", value: realAgg.regiao.length, format:"int", delta:"—", deltaDir:"up", sub:"distintas no período", data: realAgg.sparkSeries, color: regionPalette[3] },
   ] : [
     { label:"Centro-Oeste", value:"R$ 212", delta:"22%", deltaDir:"up", sub:"líder absoluto", data:[120,140,150,170,190,200,205,212], color:tweaks.accent },
-    { label:"Nordeste", value:"R$ 192", delta:"14%", deltaDir:"up", sub:"crescimento sustentado", data:[110,120,135,150,165,178,185,192], color:"#7a5cff" },
-    { label:"Sudeste", value:"R$ 154", delta:"4%", deltaDir:"down", sub:"queda no canal site", data:[180,175,170,168,165,160,158,154], color:"#0a8a4a" },
+    { label:"Nordeste", value:"R$ 192", delta:"14%", deltaDir:"up", sub:"crescimento sustentado", data:[110,120,135,150,165,178,185,192], color:"#5e5ce6" },
+    { label:"Sudeste", value:"R$ 154", delta:"4%", deltaDir:"down", sub:"queda no canal site", data:[180,175,170,168,165,160,158,154], color:"#248a3d" },
     { label:"Cobertura geográfica", value:96, suffix:"%", delta:"2pp", deltaDir:"up", sub:"5 regiões ativas", data:[80,82,86,88,90,92,94,96], color:"#ff7849" },
   ];
 
@@ -1767,18 +1767,18 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     const top1Label = top ? (String(top.l).length > 22 ? String(top.l).slice(0,21)+"…" : String(top.l)) : "—";
     return [
       { label:"SKUs ativos", value: prods.length, format:"int", delta:"—", deltaDir:"up", sub:"produtos distintos no período", data: realAgg.sparkSeries, color: tweaks.accent },
-      { label:"Top 1: "+top1Label, value: top?.v || 0, format:"brl", delta:"—", deltaDir:"up", sub:"campeão de receita", data: realAgg.sparkSeries, color:"#7a5cff" },
+      { label:"Top 1: "+top1Label, value: top?.v || 0, format:"brl", delta:"—", deltaDir:"up", sub:"campeão de receita", data: realAgg.sparkSeries, color:"#5e5ce6" },
       { label:"Concentração top 2", value: (top2Sum/total)*100, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"risco de dependência", data: realAgg.sparkSeries, color:"#ff7849" },
-      { label:"Long tail", value: (longTailSum/total)*100, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"itens fora do top 5", data: realAgg.sparkSeries, color:"#0a8a4a" },
+      { label:"Long tail", value: (longTailSum/total)*100, format:"pct", suffix:"%", delta:"—", deltaDir:"up", sub:"itens fora do top 5", data: realAgg.sparkSeries, color:"#248a3d" },
     ];
   })() : [
     { label:"SKUs ativos", value:18, delta:"+2", deltaDir:"up", sub:"vs trimestre anterior", data:[14,15,15,16,16,17,17,18], color:tweaks.accent },
-    { label:"Top 1: Mesa Ajustável", value:"R$ 96,4", delta:"18%", deltaDir:"up", sub:"R$ 96,4k em vendas", data:[60,68,72,78,82,88,92,96], color:"#7a5cff" },
+    { label:"Top 1: Mesa Ajustável", value:"R$ 96,4", delta:"18%", deltaDir:"up", sub:"R$ 96,4k em vendas", data:[60,68,72,78,82,88,92,96], color:"#5e5ce6" },
     { label:"Concentração top 2", value:42, suffix:"%", delta:"3pp", deltaDir:"up", sub:"risco de dependência", data:[36,37,38,39,40,41,42,42], color:"#ff7849" },
-    { label:"Long tail", value:32, suffix:"%", delta:"1pp", deltaDir:"down", sub:"itens fora do top 5", data:[40,38,37,36,35,34,33,32], color:"#0a8a4a" },
+    { label:"Long tail", value:32, suffix:"%", delta:"1pp", deltaDir:"down", sub:"itens fora do top 5", data:[40,38,37,36,35,34,33,32], color:"#248a3d" },
   ];
 
-  const channelPalette = [tweaks.accent, "#0a8a4a", "#7a5cff", "#c9234a"];
+  const channelPalette = [tweaks.accent, "#248a3d", "#5e5ce6", "#d70015"];
   const channelKpis = !realAgg && isUpload ? [] : realAgg ? [0,1,2,3].map(i => {
     const c = realAgg.canalRaw[i];
     return c
@@ -1786,9 +1786,9 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
       : { label:"—", value:0, format:"brl", delta:"—", deltaDir:"up", sub:"sem dados", data: realAgg.sparkSeries, color: channelPalette[i] };
   }) : [
     { label:"Marketplace", value:"R$ 301", delta:"18%", deltaDir:"up", sub:"canal líder", data:[200,220,240,260,275,285,295,301], color:tweaks.accent },
-    { label:"Loja Física", value:"R$ 230", delta:"6%", deltaDir:"up", sub:"recuperando", data:[180,190,200,210,215,220,225,230], color:"#0a8a4a" },
-    { label:"Site", value:"R$ 190", delta:"3%", deltaDir:"down", sub:"queda em jun-jul", data:[210,205,200,198,196,193,191,190], color:"#7a5cff" },
-    { label:"Parceiros", value:"R$ 70", delta:"18%", deltaDir:"down", sub:"em atenção", data:[100,95,90,85,82,78,74,70], color:"#c9234a" },
+    { label:"Loja Física", value:"R$ 230", delta:"6%", deltaDir:"up", sub:"recuperando", data:[180,190,200,210,215,220,225,230], color:"#248a3d" },
+    { label:"Site", value:"R$ 190", delta:"3%", deltaDir:"down", sub:"queda em jun-jul", data:[210,205,200,198,196,193,191,190], color:"#5e5ce6" },
+    { label:"Parceiros", value:"R$ 70", delta:"18%", deltaDir:"down", sub:"em atenção", data:[100,95,90,85,82,78,74,70], color:"#d70015" },
   ];
 
   // View presets (Dashboards avançados)
@@ -1857,7 +1857,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         const charts = [
           { id:"v4-c2", kind:"chart", props:{ title:"Vendas por dia da semana", sub:"Detecção de sazonalidade", type:"bar", dim:"data", agg:"sum", color: "#ff7849", height: 260, data: dowVolume }},
           { id:"v4-c3", kind:"chart", props:{ title:"Top vendedores", sub:"Soma por vendedor", type:"bar", dim:"vendedor", agg:"sum", color: tweaks.accent, height: 260, data: vendedores }},
-          { id:"v4-c4", kind:"chart", props:{ title:"Mix por categoria", sub:"Participação no valor total", type:"donut", dim:"categoria", agg:"sum", color: "#7a5cff", height: 260, data: categoriaReal }},
+          { id:"v4-c4", kind:"chart", props:{ title:"Mix por categoria", sub:"Participação no valor total", type:"donut", dim:"categoria", agg:"sum", color: "#5e5ce6", height: 260, data: categoriaReal }},
         ].filter(c => c.props.data.length);
         const span = charts.length === 1 ? 12 : charts.length === 2 ? 6 : 4;
         return [
@@ -1867,13 +1867,13 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
         ];
       })() : [
         { id:"v4-k1", kind:"kpi", span:3, props:{ label:"Retenção média", value:62, suffix:"%", delta:"4pp", deltaDir:"up", sub:"cohort 8 semanas", data:[100,92,84,78,72,68,65,62], color:tweaks.accent }},
-        { id:"v4-k2", kind:"kpi", span:3, props:{ label:"Anomalias detectadas", value:7, delta:"2", deltaDir:"up", sub:"pedidos > p99", data:[1,2,2,3,4,5,6,7], color:"#c9234a" }},
-        { id:"v4-k3", kind:"kpi", span:3, props:{ label:"Correlação desconto×ticket", value:-0.48, delta:"0,1", deltaDir:"down", sub:"associação inversa", data:[-0.2,-0.3,-0.35,-0.4,-0.42,-0.45,-0.47,-0.48], color:"#7a5cff" }},
+        { id:"v4-k2", kind:"kpi", span:3, props:{ label:"Anomalias detectadas", value:7, delta:"2", deltaDir:"up", sub:"pedidos > p99", data:[1,2,2,3,4,5,6,7], color:"#d70015" }},
+        { id:"v4-k3", kind:"kpi", span:3, props:{ label:"Correlação desconto×ticket", value:-0.48, delta:"0,1", deltaDir:"down", sub:"associação inversa", data:[-0.2,-0.3,-0.35,-0.4,-0.42,-0.45,-0.47,-0.48], color:"#5e5ce6" }},
         { id:"v4-k4", kind:"kpi", span:3, props:{ label:"Pico semanal", value:"Terça", delta:"31%", deltaDir:"up", sub:"acima da média", data:[80,134,92,108,118,72,46], color:"#ff7849" }},
         { id:"v4-c1", kind:"chart", span:8, props:{ title:"Cohort: retenção semanal", sub:"% que voltou a comprar nas semanas seguintes", type:"line", dim:"data", agg:"avg", color: tweaks.accent, height: 280, data: cohort }},
         { id:"v4-c2", kind:"chart", span:4, props:{ title:"Vendas por dia da semana", sub:"Detecção de sazonalidade", type:"bar", dim:"data", agg:"sum", color: "#ff7849", height: 280, data: dowVolume }},
         { id:"v4-c3", kind:"chart", span:7, props:{ title:"Top vendedores", sub:"Soma por vendedor", type:"bar", dim:"vendedor", agg:"sum", color: tweaks.accent, height: 260, data: vendedores }},
-        { id:"v4-c4", kind:"chart", span:5, props:{ title:"Mix por categoria", sub:"Donut", type:"donut", dim:"categoria", agg:"sum", color: "#7a5cff", height: 260, data: [{l:"Móveis",v:54},{l:"Eletrônicos",v:32},{l:"Acessórios",v:14}] }},
+        { id:"v4-c4", kind:"chart", span:5, props:{ title:"Mix por categoria", sub:"Donut", type:"donut", dim:"categoria", agg:"sum", color: "#5e5ce6", height: 260, data: [{l:"Móveis",v:54},{l:"Eletrônicos",v:32},{l:"Acessórios",v:14}] }},
         { id:"v4-insights", kind:"insights", span:12 },
       ],
     },
@@ -2122,7 +2122,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                 <div style={{width:48, height:48, margin:"0 auto 12px", borderRadius:12, background:`linear-gradient(135deg, ${tweaks.accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center"}}>
                   <Icon.Sparkle size={22}/>
                 </div>
-                <div style={{fontWeight:800, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
+                <div style={{fontWeight:700, fontSize:18, letterSpacing:"-.01em", marginBottom:6}}>Desbloqueie a análise por IA</div>
                 <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:16}}>
                   Envie uma planilha para gerar um resumo executivo, insights e recomendações com a IA. O Free inclui 1 análise por mês; no Essencial são 50 e no Pro, 300.
                 </div>
@@ -2132,13 +2132,13 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
                 </div>
                 <div style={{display:"flex", justifyContent:"center", gap:14, marginTop:14, paddingTop:14, borderTop:"1px dashed var(--line-2)"}}>
                   <span style={{display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--muted)"}}>
-                    <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Resumo executivo
+                    <Icon.Check size={11} stroke={3} color="#248a3d"/> Resumo executivo
                   </span>
                   <span style={{display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--muted)"}}>
-                    <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Insights & recomendações
+                    <Icon.Check size={11} stroke={3} color="#248a3d"/> Insights & recomendações
                   </span>
                   <span style={{display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--muted)"}}>
-                    <Icon.Check size={11} stroke={3} color="#0a8a4a"/> Reanálise sob demanda
+                    <Icon.Check size={11} stroke={3} color="#248a3d"/> Reanálise sob demanda
                   </span>
                 </div>
               </div>
@@ -2172,7 +2172,7 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
     if(b.kind === "cta"){
       if(tweaks.plan === "pro") return null;
       return <BlockShell editing={editing} kind="Banner / CTA" onMove={(d)=>moveBlock(b.id,d)} onResize={(s)=>resizeBlock(b.id,s)} onDelete={()=>deleteBlock(b.id)} span={b.span} resizeOptions={[6,8,12]}>
-        <div style={{padding:"18px 22px", borderRadius:16, background:"linear-gradient(90deg, #f5f8ff, white)", border:"1px solid var(--line)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:24, flexWrap:"wrap"}}>
+        <div style={{padding:"18px 22px", borderRadius:16, background:"linear-gradient(90deg, #f2f7fe, white)", border:"1px solid var(--line)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:24, flexWrap:"wrap"}}>
           <div style={{display:"flex", alignItems:"center", gap:14}}>
             <div style={{width:40, height:40, borderRadius:10, background:"var(--ink)", color:"white", display:"flex", alignItems:"center", justifyContent:"center"}}>
               <Icon.Crown size={18}/>
@@ -2204,10 +2204,10 @@ function Dashboard({ onClose, tweaks, fileInfo, currentUser, onSignIn, onSignUp,
           <div>
             <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
               <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)"}}><Icon.Sparkle size={11}/> {fileInfo && fileInfo.engine ? "Gerado dos seus dados · pandas" : "Gerado automaticamente"}</span>
-              <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}><span style={{width:6, height:6, borderRadius:"50%", background:"#0a8a4a"}}/> Atualizado</span>
+              <span className="chip" style={{background:"#e7f7ef", color:"#248a3d"}}><span style={{width:6, height:6, borderRadius:"50%", background:"#248a3d"}}/> Atualizado</span>
               {editing && <span className="chip" style={{background:"var(--ink)", color:"white"}}><Icon.Bolt size={11}/> Modo edição</span>}
             </div>
-            <h1 style={{margin:"0 0 4px", fontSize:34, fontWeight:800, letterSpacing:"-.02em"}}>{dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas"}</h1>
+            <h1 style={{margin:"0 0 4px", fontSize:34, fontWeight:700, letterSpacing:"-.02em"}}>{dataDrivenMode ? "Painel de descoberta" : "Visão geral de vendas"}</h1>
             <div style={{fontSize:13, color:"var(--muted)"}}>
               {fileInfo?.name || "vendas_exemplo.csv"} · {periodMeta.label} · {rowsForPeriod.toLocaleString("pt-BR")} de {totalRows.toLocaleString("pt-BR")} linhas
               {fileInfo?.isDemo && <span style={{marginLeft:6, fontWeight:600, color:"var(--warn)"}}>· Dados de demonstração · não são reais</span>}
@@ -2448,15 +2448,15 @@ function PaywallModal({ reason, onClose, tweaks }){
   ];
 
   return (
-    <div onClick={onClose} style={{
-      position:"fixed", inset:0, zIndex:120, background:"rgba(11,16,32,.55)",
+    <div className="sheet-backdrop" onClick={onClose} style={{
+      position:"fixed", inset:0, zIndex:120, background:"rgba(0,0,0,.55)",
       backdropFilter:"blur(8px)", display:"flex", alignItems:"center", justifyContent:"center",
       padding:24, animation:"fade .2s ease"
     }}>
-      <div onClick={e=>e.stopPropagation()} style={{
+      <div className="sheet" role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()} style={{
         width:"min(560px, 100%)", maxHeight:"90vh", overflow:"auto",
         background:"white", borderRadius:18,
-        boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)",
+        boxShadow:"0 40px 80px -20px rgba(0,0,0,.5)",
         animation:"pop .3s cubic-bezier(.2,.7,.2,1)"
       }}>
         <div style={{
@@ -2472,7 +2472,7 @@ function PaywallModal({ reason, onClose, tweaks }){
           <div style={{display:"inline-flex", alignItems:"center", gap:8, padding:"4px 10px", borderRadius:999, background:"rgba(255,255,255,.18)", marginBottom:14, fontSize:11, fontWeight:600}}>
             <Icon.Crown size={11}/> {proOnly ? "Plano Pro" : "Planos pagos"}
           </div>
-          <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>{meta.t}</h2>
+          <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:700, letterSpacing:"-.02em"}}>{meta.t}</h2>
           <p style={{margin:0, fontSize:14, opacity:.9, lineHeight:1.5, maxWidth:420}}>{meta.d}</p>
         </div>
         <div style={{padding:28}}>
@@ -2491,11 +2491,11 @@ function PaywallModal({ reason, onClose, tweaks }){
               </div>
             ))}
           </div>
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", padding:"14px 16px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:18}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", padding:"14px 16px", background:"#fbfbfd", border:"1px solid var(--line-2)", borderRadius:12, marginBottom:18}}>
             <div>
               <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600}}>{proOnly ? "Pro" : "A partir do Essencial"}</div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginTop:2}}>
-                <span style={{fontSize:28, fontWeight:800, color:"var(--brand)", letterSpacing:"-.02em"}}>{proOnly ? "R$ 49,90" : "R$ 29,90"}</span>
+                <span style={{fontSize:28, fontWeight:700, color:"var(--brand)", letterSpacing:"-.02em"}}>{proOnly ? "R$ 49,90" : "R$ 29,90"}</span>
                 <span style={{fontSize:13, color:"var(--muted)"}}>/mês</span>
               </div>
             </div>
@@ -2613,13 +2613,13 @@ function AddPicker({ onPick, onClose, accent, placement="top-right" }){
     return ()=> document.removeEventListener("click", onDoc);
   }, []);
   const items = [
-    { k:"kpi", n:"KPI", d:"Métrica única com sparkline e delta", c:"#0a8a4a", i:<Icon.Spark size={16}/> },
+    { k:"kpi", n:"KPI", d:"Métrica única com sparkline e delta", c:"#248a3d", i:<Icon.Spark size={16}/> },
     { k:"bar", n:"Gráfico de barras", d:"Comparar categorias", c:accent, i:<Icon.Bars size={16}/> },
-    { k:"line", n:"Gráfico de linha", d:"Tendência ao longo do tempo", c:"#7a5cff", i:<Icon.Line size={16}/> },
+    { k:"line", n:"Gráfico de linha", d:"Tendência ao longo do tempo", c:"#5e5ce6", i:<Icon.Line size={16}/> },
     { k:"area", n:"Gráfico de área", d:"Volume e tendência", c:"#ff7849", i:<Icon.Chart size={16}/> },
-    { k:"donut", n:"Donut", d:"Participação / distribuição", c:"#ff5e93", i:<Icon.Pie size={16}/> },
-    { k:"ranking", n:"Ranking", d:"Tabela com barra de distribuição", c:"#1b2240", i:<Icon.Rows size={16}/> },
-    { k:"insights", n:"Bloco de Insights da IA", d:"Resumo, tendências, riscos, ações", c:"#7a5cff", i:<Icon.Sparkle size={16}/> },
+    { k:"donut", n:"Donut", d:"Participação / distribuição", c:"#ff375f", i:<Icon.Pie size={16}/> },
+    { k:"ranking", n:"Ranking", d:"Tabela com barra de distribuição", c:"#2c2c2e", i:<Icon.Rows size={16}/> },
+    { k:"insights", n:"Bloco de Insights da IA", d:"Resumo, tendências, riscos, ações", c:"#5e5ce6", i:<Icon.Sparkle size={16}/> },
   ];
   const posStyle = placement === "above-center" ? {
     position:"absolute", bottom:"calc(100% + 12px)", left:"50%", transform:"translateX(-50%)"
@@ -2630,7 +2630,7 @@ function AddPicker({ onPick, onClose, accent, placement="top-right" }){
     <div ref={ref} style={{
       ...posStyle, zIndex:50,
       background:"white", border:"1px solid var(--line)", borderRadius:14, padding:10, width: 360,
-      boxShadow:"0 30px 60px -20px rgba(15,23,42,.3)",
+      boxShadow:"0 30px 60px -20px rgba(0,0,0,.3)",
       animation:"pickerIn .2s ease"
     }}>
       <style>{`@keyframes pickerIn{ from{ opacity:0; transform: ${placement==="above-center"?"translateX(-50%) translateY(8px)":"translateY(-8px)"}; } }`}</style>

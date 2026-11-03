@@ -30,7 +30,7 @@ Stack **deliberadamente leve**, sem bundler, roda direto no navegador:
 | Lógica              | JavaScript ES6+ vanilla                                                    |
 | UI                  | **React 18.3.1** + **JSX**, transpilado com **Babel Standalone 7.29.0**    |
 | Gráficos            | **SVG inline** desenhado por funções próprias — **sem libs de chart**      |
-| Fontes              | **Geist** e **Geist Mono** via Google Fonts (com `preconnect`)             |
+| Fontes              | Fonte do sistema (SF Pro nos aparelhos Apple) com **Geist**/**Geist Mono** do Google Fonts como reserva nos demais (`--font`, `--font-mono`) |
 | APIs                | `IntersectionObserver`, `MutationObserver`, HTML5 Drag & Drop, `requestAnimationFrame` |
 | Dados               | **pandas 2.2.3 + numpy 2.0.2** no **Pyodide 0.27.7** (Python 3.12 em WebAssembly), num Web Worker. Motor JS como fallback. Ver §24 |
 
@@ -93,40 +93,58 @@ Convenções:
 
 ## 4. Design system
 
+### Linguagem visual (inspirada nos sistemas da Apple)
+
+Decisão de 2026-11-03: o visual segue a linguagem do iOS/macOS, **sem** usar marca, logo ou ícones da Apple (os ícones são desenhados aqui).
+
+- **Fonte do sistema**: `-apple-system`/`BlinkMacSystemFont` primeiro, Geist como reserva.
+- **Cores**: cinza `#f5f5f7` no fundo, cards brancos, texto `#1d1d1f`, azul `#0071e3`.
+- **Vidro** (`.glass`, `--glass`, `--glass-blur`): barras de topo, barra de abas, FAB, menus de contexto e cards de paywall.
+- **Botões em pílula** (`.btn`): primário preenchido; secundário em cinza translúcido (`--fill`), sem borda.
+- **Controle segmentado** (`.seg`): trilho cinza e "polegar" branco elevado.
+- **Chaves liga/desliga**: `<input type="checkbox" role="switch" className="switch">`. Usar para opções que ligam/desligam; termos de uso seguem como checkbox.
+- **Barra lateral no estilo Ajustes** (Painel e Conta): `IconTile` (ladrilho colorido com o símbolo em branco, em `icons.jsx`) e a linha selecionada na cor da marca (`.side-item`).
+- **Listas agrupadas**: `.group-list`/`.group-row`/`.group-label` para listas de configurações com chevron (`Icon.Chevron`).
+- **Modais = sheets**: o fundo leva `className="sheet-backdrop"` e a caixa `className="sheet"`. No desktop a caixa abre com leve escala; até 640px sobe de baixo com alça. Modal novo usa as duas classes.
+- **Bloco de resumo pela IA** (`.ai-card`): borda com degradê de cores; com `.thinking` ela gira enquanto a IA escreve. Some na exportação.
+- **Movimento**: curva `--ease-ios`. Toque encolhe levemente (`scale(.97)`) e menus entram com escala.
+
 ### Cores (variáveis CSS em `:root`)
 
 | Token            | Uso                                       |
 | ---------------- | ----------------------------------------- |
-| `--bg`           | fundo geral (off-white quente)            |
+| `--bg`           | fundo geral (cinza claro `#f5f5f7`)        |
 | `--bg-2`         | superfície de cards                       |
 | `--ink`          | texto primário                            |
 | `--ink-2`        | texto secundário                          |
 | `--muted`        | texto/ícones desfocados                   |
 | `--line`         | bordas / divisórias                       |
 | `--line-2`       | divisórias leves / linhas tracejadas      |
-| `--brand`        | acento principal (azul `#2f6bff`)          |
+| `--brand`        | acento principal (azul `#0071e3`)          |
 | `--brand-2`      | hover do brand                            |
 | `--brand-soft`   | fundo suave da marca                      |
 | `--accent`       | verde (positivos)                         |
 | `--warn`         | laranja                                   |
 | `--pink`, `--violet` | acentos secundários                   |
+| `--fill`, `--fill-2` | fundos cinza translúcidos (botão secundário, trilhos, hover) |
+| `--hairline`     | borda fina de cards e barras              |
 
-Cores temáticas (positivo/negativo/risco): verdes `#0a8a4a`, vermelhos `#c9234a`, violetas `#7a5cff`.
+Cores temáticas (positivo/negativo/risco): verdes `#248a3d`, vermelhos `#d70015`, violetas `#5e5ce6`.
 
 **Regras:**
 
 - Brand color é **tweakable** via `--brand` (Tweaks panel) — **nunca** hardcodar o azul; sempre `var(--brand)` ou `tweaks.accent` em JS.
 - Para mesclar cores dinamicamente use `color-mix(in oklch, X 14%, white)`.
-- Não usar saturações > 0.02 em "brancos" — manter tom quente.
-- Nunca gerar paletas novas sem motivo. Reutilize `palette = ["#2f6bff", "#0a8a4a", "#7a5cff", "#ff7849", "#ff5e93", "#0b1020"]`.
+- Fundos neutros (`#f5f5f7`, `#fbfbfd`), sem tom azulado.
+- Nunca gerar paletas novas sem motivo. Reutilize `palette = ["#0071e3", "#248a3d", "#5e5ce6", "#ff9500", "#ff375f", "#1d1d1f"]`.
 
 ### Tipografia
 
-- **Geist** sans para tudo; **Geist Mono** para números, código, chips de coluna, valores monetários crus, debug.
+- `var(--font)` (fonte do sistema) para tudo; `.mono` (`var(--font-mono)`) para código, chips de coluna e debug. Números usam a fonte normal com `tabular-nums`.
 - Escalas semânticas:
-  - `.h-display` ≈ clamp(40, 6.4vw, 76) — landing hero only
-  - `.h-section` ≈ clamp(32, 4.2vw, 56) — section heads
-  - títulos de seção `fontSize: 34`, weight 800, letter-spacing `-.02em`
+  - `.h-display` ≈ clamp(40, 6.6vw, 80), weight 700, letter-spacing `-.04em` — landing hero only
+  - `.h-section` ≈ clamp(32, 4.4vw, 56) — section heads
+  - títulos de seção `fontSize: 30-34`, weight 700 (nada de 800), letter-spacing `-.022em`
   - títulos de bloco `fontSize: 15-16`, weight 700
   - body `fontSize: 13-14`, line-height 1.5
   - meta/microcopy `fontSize: 11-12`, color `var(--muted)`
@@ -135,10 +153,10 @@ Cores temáticas (positivo/negativo/risco): verdes `#0a8a4a`, vermelhos `#c9234a
 
 ### Espaço e radius
 
-- Raios: cards grandes 18, cards médios 14, chips 999, botões 12, pequenos 6-10.
+- Raios: cards 20-22, blocos da landing 28, cards médios 14, chips e botões 999 (pílula), ícones-botão redondos, pequenos 6-10.
 - Gap padrão do grid: 14px (16px em listas grandes).
 - Padding de card: 18-24px.
-- Sombras: usar `.soft-shadow` (já definida) ou estilo equivalente `0 20px 40px -28px rgba(15,23,42,.18)`.
+- Sombras: `.soft-shadow` (`--shadow-card`) em cards; `--shadow-pop` em menus, sheets e popovers. Sombras neutras (preto), não azuladas.
 
 ### Componentes-base reutilizáveis
 
@@ -255,7 +273,7 @@ Este é um **dashboard hi-fi para desktop primeiro**, mas tem que **não quebrar
   - **Bloco novo com grid interno**: usar `minmax(0, 1fr)` e dar uma classe para colapsar no mobile.
   - **Barras de edição** (KPI, gráfico, `BlockShell`): até 900px os botões de tamanho (`.edit-sizes`) e o id somem, porque ali quem decide a largura é o grid.
 - **Barra inferior no celular** (`mobile-nav.jsx`, até 760px):
-  - **Abas**: Início · Dashboards · **Novo** (botão central em destaque, abre o envio) · Plano · Conta.
+  - **Abas**: Início · Dashboards · **Novo** (botão central em destaque, abre o envio) · Plano · Conta. A aba ativa mostra o ícone preenchido (`…Fill`), como no iPhone.
   - **Onde aparece**: só para quem está logado, nas telas do app (`home`, `upload`, `prompt`, `dashboard`, `account`, `plans`). A Landing segue com os dois botões dela.
   - **Espaço embaixo**: com a barra, o `body` ganha `.has-tabbar`, que reserva o espaço embaixo. O FAB do dashboard e a barra "Gerar dashboard" (`.flow-actionbar`) sobem para ficar acima dela.
   - **Painel no celular**: o "+ Novo dashboard" do topo e o menu de seções (`.home-nav`) saem. No Início aparecem atalhos (`.home-shortcuts`) para Links, Instalar, Faturas e Histórico da IA.
@@ -543,8 +561,8 @@ Lição do bug `9887c25` → `2a1078a`: a `AccountView` inteira foi pra tela bra
 
 **Antes de referenciar `Icon.X` em qualquer arquivo:**
 
-1. Confira que `X` existe em `components/icons.jsx`. Lista canônica atual: `Logo, Sparkle, Wand, Upload, Chart, Bars, Line, Pie, Lock, Check, Arrow, Play, Filter, Plus, Download, Refresh, Grid, Cols, Rows, More, Spark, Idea, Eye, X, Crown, Caret, Doc, Bolt, Share, User`.
-2. Se faltar, adicione o SVG inline em `icons.jsx` **antes** de usar. Mantenha a linguagem geométrica (linhas, sem fills — exceções: `Logo`, `Play`).
+1. Confira que `X` existe em `components/icons.jsx`. Lista canônica atual: `Logo, Sparkle, Wand, Upload, Chart, ChartFill, Bars, Line, Pie, Lock, Check, Arrow, Chevron, Play, Filter, Plus, Download, Refresh, Clock, Grid, GridFill, Home, HomeFill, Cols, Rows, More, Spark, Idea, Eye, X, Crown, CrownFill, Caret, Doc, Bolt, Share, User, UserFill, Gear, Search`. Também há `IconTile` (ladrilho colorido) exportado em `icons.jsx`.
+2. Se faltar, adicione o SVG inline em `icons.jsx` **antes** de usar. Mantenha a linguagem dos símbolos de sistema: traço 1,6, pontas e junções arredondadas, sem preenchimento. Exceções: `Logo`, `Play` e as versões `…Fill`, que são as preenchidas da aba ativa da barra inferior. Desenhe o ícone aqui; não copie símbolos de terceiros.
 3. **Nunca** referencie um ícone como "TODO adiciono depois" — o crash é total, não graceful.
 
 **Error Boundary por feature de tela:** views que compõem múltiplas seções (`AccountView` com 5 abas, futuro `DashboardView` com presets) devem envolver o conteúdo dinâmico num `class XErrorBoundary extends React.Component` local — com `getDerivedStateFromError` + reset por `resetKey` quando a aba/preset muda. Referência: `AccountErrorBoundary` em `account-view.jsx`. Boundary global no `App` não basta: ele bloqueia *toda* a app quando um sub-componente quebra, em vez de só a seção afetada.

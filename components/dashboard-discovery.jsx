@@ -371,7 +371,7 @@ function _kpiSub(kind){
  * drag-and-drop, resize, paywall and export keep working untouched. */
 function dashGenerateBlocks(profiles, metrics, rows){
   rows = rows || [];
-  const PAL = ["#2f6bff","#0a8a4a","#7a5cff","#ff7849","#ff5e93","#0b1020"];
+  const PAL = ["#0071e3","#248a3d","#5e5ce6","#ff9500","#ff375f","#1d1d1f"];
   const dt = (profiles || []).find(p => p.pattern === "datetime");
   const kpis = [], charts = [], usedCols = {};
   let nKpi = 0, nChart = 0;

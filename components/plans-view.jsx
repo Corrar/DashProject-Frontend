@@ -99,7 +99,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
   ];
 
   const Cell = ({ v })=> {
-    if(v === true) return <span style={{color:"#0a8a4a", display:"inline-flex"}}><Icon.Check size={16} stroke={3}/></span>;
+    if(v === true) return <span style={{color:"#248a3d", display:"inline-flex"}}><Icon.Check size={16} stroke={3}/></span>;
     if(v === false) return <span style={{color:"var(--muted)", opacity:.45}}>—</span>;
     return <span style={{fontSize:13, color:"var(--ink-2)"}}>{v}</span>;
   };
@@ -108,8 +108,8 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
       {/* Mini topbar */}
       <div style={{
-        position:"sticky", top:0, zIndex:30, backdropFilter:"blur(10px)",
-        background:"rgba(246,247,251,.85)", borderBottom:"1px solid var(--line)"
+        position:"sticky", top:0, zIndex:30, backdropFilter:"saturate(180%) blur(20px)", WebkitBackdropFilter:"saturate(180%) blur(20px)",
+        background:"rgba(245,245,247,.72)", borderBottom:"1px solid var(--line)"
       }}>
         <div style={{padding:"14px 24px", maxWidth: 1280, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
           <button onClick={onClose} style={{display:"flex", alignItems:"center", gap:10, background:"transparent", border:0, cursor:"pointer"}}>
@@ -138,7 +138,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
           <div className="eyebrow" style={{marginBottom:18}}>
             <span className="dot"/> Planos
           </div>
-          <h1 style={{margin:"0 0 12px", fontSize:48, fontWeight:800, letterSpacing:"-.03em", lineHeight:1.05}}>
+          <h1 style={{margin:"0 0 12px", fontSize:48, fontWeight:700, letterSpacing:"-.03em", lineHeight:1.05}}>
             Escolha o plano ideal<br/>para você.
           </h1>
           <p style={{margin:"0 auto 24px", fontSize:16, color:"var(--muted)", maxWidth:520, lineHeight:1.55}}>
@@ -191,13 +191,13 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
             return (
               <div key={p.k} className={hl?"lift":""} style={{
                 padding: 28, borderRadius: 18,
-                background: hl ? "linear-gradient(180deg, #f5f8ff, white)" : "white",
+                background: hl ? "linear-gradient(180deg, #f2f7fe, white)" : "white",
                 border: hl ? "1.5px solid var(--brand)" : "1px solid var(--line)",
                 boxShadow: hl ? "0 30px 60px -28px rgba(47,107,255,.35)" : "none",
                 position:"relative", display:"flex", flexDirection:"column"
               }}>
                 {isCurrent ? (
-                  <span className="chip" style={{position:"absolute", top:20, right:20, background: hl?"var(--ink)":"#e7f7ef", color: hl?"white":"#0a8a4a"}}>{hl?"Seu plano":"Atual"}</span>
+                  <span className="chip" style={{position:"absolute", top:20, right:20, background: hl?"var(--ink)":"#e7f7ef", color: hl?"white":"#248a3d"}}>{hl?"Seu plano":"Atual"}</span>
                 ) : hl ? (
                   <span className="chip" style={{position:"absolute", top:20, right:20, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>
                 ) : null}
@@ -207,11 +207,11 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
 
                 <div style={{marginBottom:18, minHeight: 68}}>
                   <div style={{display:"flex", alignItems:"baseline", gap:4}}>
-                    <span className="ticker" style={{fontSize:44, fontWeight:800, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {fmtPrice(price)}</span>
+                    <span className="ticker" style={{fontSize:44, fontWeight:700, letterSpacing:"-.03em", color: hl ? "var(--brand)" : "var(--ink)"}}>R$ {fmtPrice(price)}</span>
                     <span style={{fontSize:14, color:"var(--muted)"}}>{p.k === "free" ? "/sempre" : cycle === "yearly" ? "/ano" : "/mês"}</span>
                   </div>
                   {p.k !== "free" && cycle === "yearly" && (
-                    <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>
+                    <div style={{fontSize:12.5, color:"#248a3d", fontWeight:600, marginTop:2}}>
                       equivale a {dashFmtBRL(price / 12)}/mês · 2 meses grátis
                     </div>
                   )}
@@ -285,7 +285,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
         }}>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom: 18}}>
             <div>
-              <h2 style={{margin:"0 0 4px", fontSize:22, fontWeight:800, letterSpacing:"-.02em"}}>Comparativo completo</h2>
+              <h2 style={{margin:"0 0 4px", fontSize:22, fontWeight:700, letterSpacing:"-.02em"}}>Comparativo completo</h2>
               <div style={{fontSize:13, color:"var(--muted)"}}>Veja tudo o que muda entre os planos.</div>
             </div>
             <span className="chip" style={{background:"var(--line-2)"}}>{compare.length} recursos</span>
@@ -342,7 +342,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
         {/* FAQ */}
         <div className="rv" style={{maxWidth: 760, margin:"0 auto"}}>
           <div style={{textAlign:"center", marginBottom: 24}}>
-            <h2 style={{margin:"0 0 6px", fontSize:26, fontWeight:800, letterSpacing:"-.02em"}}>Perguntas frequentes</h2>
+            <h2 style={{margin:"0 0 6px", fontSize:26, fontWeight:700, letterSpacing:"-.02em"}}>Perguntas frequentes</h2>
             {window.__CONTACT_EMAIL && (
               <div style={{fontSize:13, color:"var(--muted)"}}>Não achou sua dúvida? <a href={"mailto:" + window.__CONTACT_EMAIL} style={{color:"var(--brand)", fontWeight:600}}>Fale com a gente</a></div>
             )}
@@ -362,7 +362,7 @@ function PlansView({ tweaks, currentUser, onSelectPlan, onChangePlan, onClose, i
         }}>
           <div>
             <span className="chip" style={{background:"rgba(255,255,255,.18)", color:"white", marginBottom:10}}><Icon.Sparkle size={12}/> Comece agora</span>
-            <h3 style={{margin:"10px 0 4px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>
+            <h3 style={{margin:"10px 0 4px", fontSize:24, fontWeight:700, letterSpacing:"-.02em"}}>
               {tweaks.plan === "pro" ? "Você já está no Pro." : "Pronto para ver tudo que o Pro libera?"}
             </h3>
             <p style={{margin:0, fontSize:14, color:"rgba(255,255,255,.85)"}}>
@@ -391,7 +391,7 @@ function FaqRow({ q, a }){
     <div style={{
       border:"1px solid var(--line)", borderRadius:12, background:"white",
       overflow:"hidden", transition:"box-shadow .2s ease",
-      boxShadow: open ? "0 16px 32px -20px rgba(15,23,42,.15)" : "none"
+      boxShadow: open ? "0 16px 32px -20px rgba(0,0,0,.15)" : "none"
     }}>
       <button onClick={()=>setOpen(!open)} style={{
         width:"100%", padding:"16px 18px", display:"flex", alignItems:"center", justifyContent:"space-between",

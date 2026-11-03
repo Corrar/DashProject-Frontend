@@ -22,12 +22,13 @@ function MobileTabBar({ view, homeSection, onNav }){
     : view === "home" ? (homeSection === "dashboards" ? "dashboards" : homeSection === "usage" ? "usage" : homeSection === "overview" ? "overview" : null)
     : null;
 
+  // Aba ativa mostra o ícone preenchido, como na barra de abas do iPhone.
   const tabs = [
-    { k:"overview",   n:"Início",     i:<Icon.Grid size={20}/> },
-    { k:"dashboards", n:"Dashboards", i:<Icon.Chart size={20}/> },
-    { k:"new",        n:"Novo",       i:<Icon.Plus size={24} stroke={2.4}/>, center:true },
-    { k:"usage",      n:"Plano",      i:<Icon.Crown size={20}/> },
-    { k:"account",    n:"Conta",      i:<Icon.User size={20}/> },
+    { k:"overview",   n:"Início",     i:Icon.Home,  f:Icon.HomeFill },
+    { k:"dashboards", n:"Dashboards", i:Icon.Chart, f:Icon.ChartFill },
+    { k:"new",        n:"Novo",       i:Icon.Plus,  center:true },
+    { k:"usage",      n:"Plano",      i:Icon.Crown, f:Icon.CrownFill },
+    { k:"account",    n:"Conta",      i:Icon.User,  f:Icon.UserFill },
   ];
 
   return (
@@ -38,7 +39,7 @@ function MobileTabBar({ view, homeSection, onNav }){
           return (
             <button key={t.k} className={"tabbar-center" + (on ? " on" : "")} onClick={()=> onNav(t.k)}
               aria-label="Novo dashboard" aria-current={on ? "page" : undefined}>
-              <span className="tabbar-fab">{t.i}</span>
+              <span className="tabbar-fab"><Icon.Plus size={24} stroke={2.4}/></span>
               <span className="tabbar-label">{t.n}</span>
             </button>
           );
@@ -46,7 +47,7 @@ function MobileTabBar({ view, homeSection, onNav }){
         return (
           <button key={t.k} className={"tabbar-item" + (on ? " on" : "")} onClick={()=> onNav(t.k)}
             aria-current={on ? "page" : undefined}>
-            <span className="tabbar-icon">{t.i}</span>
+            <span className="tabbar-icon">{on ? <t.f size={25}/> : <t.i size={25}/>}</span>
             <span className="tabbar-label">{t.n}</span>
           </button>
         );

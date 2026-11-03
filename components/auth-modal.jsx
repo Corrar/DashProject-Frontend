@@ -143,19 +143,19 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
   };
 
   return (
-    <div onClick={onClose} style={{
+    <div className="sheet-backdrop" onClick={onClose} style={{
       position:"fixed", inset:0, zIndex:130,
-      background:"rgba(11,16,32,.55)", backdropFilter:"blur(8px)",
+      background:"rgba(0,0,0,.55)", backdropFilter:"blur(8px)",
       display:"flex", alignItems:"center", justifyContent:"center", padding:24,
       animation:"fade .2s ease",
     }}>
       <style>{`@keyframes fade{ from{ opacity:0 } } @keyframes pop{ from{ opacity:0; transform: translateY(8px) scale(.98); } }`}</style>
-      <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
+      <div className="sheet" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true"
         aria-labelledby="auth-modal-title"
         style={{
           width:"min(460px, 100%)", maxHeight:"90vh", overflow:"auto",
           background:"white", borderRadius:18,
-          boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)",
+          boxShadow:"0 40px 80px -20px rgba(0,0,0,.5)",
           animation:"pop .3s cubic-bezier(.2,.7,.2,1)",
         }}>
         <div style={{padding:"24px 28px 0", position:"relative"}}>
@@ -164,7 +164,7 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
             background:"transparent", color:"var(--muted)", border:0, cursor:"pointer",
             display:"flex", alignItems:"center", justifyContent:"center"
           }}><Icon.X size={16}/></button>
-          <h2 id="auth-modal-title" style={{margin:"0 0 6px", fontSize:22, fontWeight:800, letterSpacing:"-.02em"}}>
+          <h2 id="auth-modal-title" style={{margin:"0 0 6px", fontSize:22, fontWeight:700, letterSpacing:"-.02em"}}>
             {tab === "signin" ? "Entrar no Dash" : "Criar conta"}
           </h2>
           <p style={{margin:0, fontSize:13, color:"var(--muted)"}}>
@@ -190,7 +190,7 @@ function AuthModal({ open, initialTab = "signin", onClose, tweaks }){
           {error && (
             <div role="alert" style={{
               padding:"10px 14px", borderRadius:10, background:"#fff7f9",
-              border:"1px solid #ffd2dd", color:"#c9234a",
+              border:"1px solid #ffd2dd", color:"#d70015",
               fontSize:13, marginBottom:14, display:"flex", alignItems:"flex-start", gap:8
             }}>
               <Icon.Bolt size={14}/> <span>{error}</span>

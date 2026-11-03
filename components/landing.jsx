@@ -131,7 +131,7 @@ function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, acc
           position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:60,
           minWidth:220, padding:6, background:"white",
           border:"1px solid var(--line)", borderRadius:12,
-          boxShadow:"0 20px 40px -16px rgba(15,23,42,.25)",
+          boxShadow:"0 20px 40px -16px rgba(0,0,0,.25)",
         }}>
           <div style={{padding:"8px 10px 10px", borderBottom:"1px solid var(--line-2)", marginBottom:4}}>
             <div style={{fontSize:11, color:"var(--muted)"}}>Conta</div>
@@ -182,7 +182,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
     <div style={{
       position: "sticky", top: 0, zIndex: 50,
       backdropFilter: "blur(12px)",
-      background: scrolled ? "rgba(246,247,251,.82)" : "transparent",
+      background: scrolled ? "rgba(245,245,247,.72)" : "transparent",
       borderBottom: scrolled ? "1px solid var(--line)" : "1px solid transparent",
       transition: "background .25s ease, border-color .25s ease"
     }}>
@@ -259,10 +259,10 @@ function HeroPreview({ tweaks }){
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:8}}>
             <div>
               <div style={{fontSize:12, color:"var(--muted)", fontWeight:600, letterSpacing:".06em", textTransform:"uppercase"}}>Receita · Q3</div>
-              <div style={{fontSize:36, fontWeight:800, letterSpacing:"-.02em"}}>R$ <span className="ticker">1,284M</span></div>
+              <div style={{fontSize:36, fontWeight:700, letterSpacing:"-.02em"}}>R$ <span className="ticker">1,284M</span></div>
             </div>
             <div style={{display:"flex", gap:8, alignItems:"center"}}>
-              <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}>▲ 18,4%</span>
+              <span className="chip" style={{background:"#e7f7ef", color:"#248a3d"}}>▲ 18,4%</span>
               <span className="chip">vs Q2</span>
             </div>
           </div>
@@ -270,24 +270,24 @@ function HeroPreview({ tweaks }){
             <LineChart data={line} height={180} color={tweaks.accent} animate animDelay={.3}/>
           </div>
           <div className="hp-kpis" style={{display:"grid", gridTemplateColumns:"minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)", gap:10}}>
-            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
+            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fbfbfd", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>NPS</div>
               <div style={{fontSize:20, fontWeight:700}}>74</div>
               <div style={{height:18}}>
                 <Sparkline data={[58,62,64,66,68,70,72,74]} color={tweaks.accent} height={18} width={140}/>
               </div>
             </div>
-            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
+            <div style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fbfbfd", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>Conversão</div>
               <div style={{fontSize:20, fontWeight:700}}>4,8%</div>
               <div style={{display:"flex", gap:3, alignItems:"flex-end", height:18}}>
                 {[3,5,4,6,7,8,7,9].map((h,i)=><span key={i} style={{width:6, height:h*2, background:tweaks.accent, opacity:.6+i*0.05, borderRadius:2}}/>)}
               </div>
             </div>
-            <div className="hp-kpi-3" style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe", overflow:"hidden"}}>
+            <div className="hp-kpi-3" style={{padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"#fbfbfd", overflow:"hidden"}}>
               <div style={{fontSize:11, color:"var(--muted)"}}>Ticket médio</div>
               <div style={{fontSize:20, fontWeight:700}}>R$ 219</div>
-              <div className="mono" style={{fontSize:11, color:"#0a8a4a"}}>+12%</div>
+              <div className="mono" style={{fontSize:11, color:"#248a3d"}}>+12%</div>
             </div>
           </div>
         </div>
@@ -314,7 +314,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
       <div className="hero-bg">
         <div className="grid-bg"/>
         <div className="hero-blob" style={{width:520, height:520, background: tweaks.accent, top: -120, right: -80, transform: `translateY(${y*0.15}px)`}}/>
-        <div className="hero-blob" style={{width:380, height:380, background: "var(--violet)", top: 220, left: -120, opacity:.35, transform: `translateY(${y*0.08}px)`}}/>
+        <div className="hero-blob" style={{width:380, height:380, background: "var(--violet)", top: 220, left: -120, opacity:.16, transform: `translateY(${y*0.08}px)`}}/>
       </div>
       <div className="wrap resp-collapse" style={{position:"relative", display:"grid", gridTemplateColumns:"1.05fr 1fr", gap:60, alignItems:"center"}}>
         <div>
@@ -324,7 +324,7 @@ function Hero({ onOpenApp, onLoadDemo, tweaks }){
           <h1 className="rv rv-up h-display" style={{margin:"0 0 18px"}}>
             Da planilha ao<br/>
             <span style={{
-              background: `linear-gradient(120deg, ${tweaks.accent} 0%, var(--violet) 100%)`,
+              background: `linear-gradient(100deg, ${tweaks.accent} 0%, var(--violet) 60%, var(--pink) 100%)`,
               WebkitBackgroundClip:"text", color:"transparent",
             }}>dashboard</span> em segundos.
           </h1>
@@ -372,7 +372,7 @@ function StatStrip(){
             { k: Math.round(d), s:"análise por IA grátis por mês, sem cartão" },
           ].map((it,i)=>(
             <div key={i} style={{textAlign:"left"}}>
-              <div className="ticker" style={{fontSize:30, fontWeight:800, letterSpacing:"-.02em"}}>{it.k}</div>
+              <div className="ticker" style={{fontSize:30, fontWeight:700, letterSpacing:"-.02em"}}>{it.k}</div>
               <div style={{color:"var(--muted)", fontSize:13, marginTop:4}}>{it.s}</div>
             </div>
           ))}
@@ -528,7 +528,7 @@ function PinStageCanvas({ stage, subP, tweaks }){
           <div style={{gridColumn:"1 / -1", display:"flex", justifyContent:"space-between", alignItems:"flex-end"}}>
             <div>
               <div className="mono" style={{fontSize:11, color:"var(--muted)"}}>VISÃO GERAL</div>
-              <div style={{fontWeight:800, fontSize:22}}>Vendas Q3 · 2026</div>
+              <div style={{fontWeight:700, fontSize:22}}>Vendas Q3 · 2026</div>
             </div>
             <div style={{display:"flex", gap:6}}>
               <span className="icon-btn"><Icon.Filter size={14}/></span>
@@ -538,7 +538,7 @@ function PinStageCanvas({ stage, subP, tweaks }){
           </div>
           <div style={{padding:14, border:"1px solid var(--line)", borderRadius:12}}>
             <div style={{fontSize:12, color:"var(--muted)"}}>Receita</div>
-            <div style={{fontSize:22, fontWeight:800}}>R$ 1,28M</div>
+            <div style={{fontSize:22, fontWeight:700}}>R$ 1,28M</div>
             <div style={{height:100, marginTop:6}}>
               <LineChart key={"l"+stage} data={line} height={100} color={tweaks.accent} animate animDelay={0}/>
             </div>
@@ -571,10 +571,10 @@ function ChartGallery({ tweaks }){
                 <div style={{fontWeight:700, fontSize:15}}>Receita por região</div>
                 <div style={{fontSize:12, color:"var(--muted)"}}>Comparativo trimestral · BR</div>
               </div>
-              <span className="chip" style={{background:"#e7f7ef", color:"#0a8a4a"}}>+22%</span>
+              <span className="chip" style={{background:"#e7f7ef", color:"#248a3d"}}>+22%</span>
             </div>
             <div style={{height:200}}>
-              <BarChart data={[{l:"SUL",v:72,color:"#94b7ff"},{l:"SE",v:96,color:tweaks.accent},{l:"NE",v:58,color:"#94b7ff"},{l:"N",v:34,color:"#94b7ff"},{l:"CO",v:46,color:"#94b7ff"}]} height={200}/>
+              <BarChart data={[{l:"SUL",v:72,color:"#7ab5ff"},{l:"SE",v:96,color:tweaks.accent},{l:"NE",v:58,color:"#7ab5ff"},{l:"N",v:34,color:"#7ab5ff"},{l:"CO",v:46,color:"#7ab5ff"}]} height={200}/>
             </div>
           </div>
           <div className="rv card soft-shadow lift" style={{padding:22}}>
@@ -600,11 +600,11 @@ function ChartGallery({ tweaks }){
               <Donut data={[
                 {v:54, color: tweaks.accent},
                 {v:26, color:"var(--violet)"},
-                {v:12, color:"#0a8a4a"},
-                {v:8, color:"#1b2240"},
+                {v:12, color:"#248a3d"},
+                {v:8, color:"#2c2c2e"},
               ]} size={160}/>
               <div style={{display:"flex", flexDirection:"column", gap:6, fontSize:12}}>
-                {[{n:"Free", c:tweaks.accent, v:"54%"},{n:"Pro", c:"var(--violet)", v:"26%"},{n:"Team", c:"#0a8a4a", v:"12%"},{n:"Enterprise", c:"#1b2240", v:"8%"}].map(x=>(
+                {[{n:"Free", c:tweaks.accent, v:"54%"},{n:"Pro", c:"var(--violet)", v:"26%"},{n:"Team", c:"#248a3d", v:"12%"},{n:"Enterprise", c:"#2c2c2e", v:"8%"}].map(x=>(
                   <div key={x.n} style={{display:"flex", gap:8, alignItems:"center"}}>
                     <span style={{width:8, height:8, borderRadius:"50%", background:x.c}}/>
                     <span style={{fontWeight:600}}>{x.n}</span>
@@ -624,10 +624,10 @@ function Features({ tweaks }){
   const feats = [
     { i: <Icon.Wand size={20}/>, t:"Monta sozinho", d:"Detecta as colunas e sugere KPIs, tendências e rankings. Você escolhe o que entra.", c: tweaks.accent },
     { i: <Icon.Sparkle size={20}/>, t:"Análises automáticas", d:"Resumo executivo + insights destacando tendências e outliers.", c: "var(--violet)"},
-    { i: <Icon.Chart size={20}/>, t:"Edição visual", d:"Troque tipo de gráfico, cores, ordem e título sem código.", c: "#0a8a4a"},
+    { i: <Icon.Chart size={20}/>, t:"Edição visual", d:"Troque tipo de gráfico, cores, ordem e título sem código.", c: "#248a3d"},
     { i: <Icon.Lock size={20}/>, t:"Processamento local", d:"Seus arquivos são lidos no navegador. Só a análise da IA, quando você pede, envia uma amostra.", c: "#ff7849"},
-    { i: <Icon.Bars size={20}/>, t:"KPIs, gráficos e ranking", d:"Barras, linha, área e donut com legenda, no mesmo tema visual.", c: "#ff5e93"},
-    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Exporte em PDF ou PNG, ou crie um link público de leitura (Pro).", c: "#1b2240" },
+    { i: <Icon.Bars size={20}/>, t:"KPIs, gráficos e ranking", d:"Barras, linha, área e donut com legenda, no mesmo tema visual.", c: "#ff375f"},
+    { i: <Icon.Eye size={20}/>, t:"Compartilhamento", d:"Exporte em PDF ou PNG, ou crie um link público de leitura (Pro).", c: "#2c2c2e" },
   ];
   return (
     <section id="recursos" className="pad" style={{paddingTop: 80}}>
@@ -695,7 +695,7 @@ function CycleToggle({ cycle, onChange }){
     <div className="seg" role="group" aria-label="Ciclo de cobrança" style={{padding:4, borderRadius:12}}>
       <button className={cycle === "monthly" ? "on" : ""} aria-pressed={cycle === "monthly"} onClick={()=> onChange("monthly")} style={{padding:"8px 16px", fontSize:13, fontWeight:600}}>Mensal</button>
       <button className={cycle === "yearly" ? "on" : ""} aria-pressed={cycle === "yearly"} onClick={()=> onChange("yearly")} style={{padding:"8px 14px", fontSize:13, fontWeight:600}}>
-        Anual <span className="chip" style={{marginLeft:6, padding:"1px 7px", fontSize:10.5, background:"#e7f7ef", color:"#0a8a4a"}}>2 meses grátis</span>
+        Anual <span className="chip" style={{marginLeft:6, padding:"1px 7px", fontSize:10.5, background:"#e7f7ef", color:"#248a3d"}}>2 meses grátis</span>
       </button>
     </div>
   );
@@ -733,15 +733,15 @@ function Pricing({ onOpenApp }){
           {plans.map(p=>(
             <div key={p.k} className={"rv card" + (p.highlight ? " soft-shadow" : "")} style={{
               padding:28, position:"relative", display:"flex", flexDirection:"column",
-              ...(p.highlight ? { border:"1.5px solid var(--brand)", background:"linear-gradient(180deg, #f5f8ff, white)" } : {})
+              ...(p.highlight ? { border:"1.5px solid var(--brand)", background:"linear-gradient(180deg, #f2f7fe, white)" } : {})
             }}>
               {p.highlight && <span className="chip" style={{position:"absolute", top:22, right:22, background:"var(--ink)", color:"white"}}><Icon.Crown size={11}/> Mais popular</span>}
               <div style={{fontWeight:700, fontSize:18}}>{p.name}</div>
               <div style={{color:"var(--muted)", fontSize:14, marginTop:4}}>{p.tagline}</div>
               <div style={{margin:"22px 0 18px", minHeight:66}}>
-                <span className="ticker" style={{fontSize:40, fontWeight:800, letterSpacing:"-.03em", color: p.highlight ? "var(--brand)" : "var(--ink)"}}>R$ {p.price}</span>
+                <span className="ticker" style={{fontSize:40, fontWeight:700, letterSpacing:"-.03em", color: p.highlight ? "var(--brand)" : "var(--ink)"}}>R$ {p.price}</span>
                 <span style={{color:"var(--muted)"}}>{p.per}</span>
-                {p.note && <div style={{fontSize:12.5, color:"#0a8a4a", fontWeight:600, marginTop:2}}>{p.note}</div>}
+                {p.note && <div style={{fontSize:12.5, color:"#248a3d", fontWeight:600, marginTop:2}}>{p.note}</div>}
               </div>
               <ul style={{listStyle:"none", padding:0, margin:0, display:"flex", flexDirection:"column", gap:10, flex:1}}>
                 {p.features.map((t,i)=>(

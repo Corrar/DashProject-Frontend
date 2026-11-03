@@ -16,7 +16,7 @@ class HomeErrorBoundary extends React.Component {
     if(this.state.err){
       return (
         <div style={{padding:"32px 28px", border:"1px dashed var(--line)", borderRadius:14, background:"#fff7f9", textAlign:"center"}}>
-          <div style={{fontWeight:700, fontSize:15, marginBottom:6, color:"#c9234a"}}>Não foi possível carregar esta seção</div>
+          <div style={{fontWeight:700, fontSize:15, marginBottom:6, color:"#d70015"}}>Não foi possível carregar esta seção</div>
           <div style={{fontSize:13, color:"var(--muted)", margin:"0 auto 14px", maxWidth:380, lineHeight:1.55}}>Tente outra aba ou recarregue a página.</div>
           <button onClick={()=> this.setState({ err: null })} className="btn btn-ghost" style={{padding:"8px 14px", fontSize:13}}>Tentar de novo</button>
         </div>
@@ -98,23 +98,23 @@ function HomeView({ tweaks, currentUser, section, onSection, onNew, onOpenSaved,
   const firstName = String(currentUser.fullName || "").trim().split(/\s+/)[0] || "";
 
   const sections = [
-    { k:"overview",   n:"Início",           d:"Resumo e atalhos",        i:<Icon.Grid size={14}/> },
-    { k:"dashboards", n:"Meus dashboards",  d: items ? homeFmtInt(items.length) + " salvos" : "Neste navegador", i:<Icon.Chart size={14}/> },
-    { k:"links",      n:"Links públicos",   d: limits.shareLinks ? (links ? homeFmtInt(links.length) + " ativos" : "Compartilhados") : "Plano Pro", i:<Icon.Share size={14}/>, lock: !limits.shareLinks },
-    { k:"usage",      n:"Plano e uso",      d:"Limites do mês",          i:<Icon.Bolt size={14}/> },
-    { k:"app",        n:"Instalar o app",   d: install === "installed" ? "Instalado" : "Celular e computador", i:<Icon.Download size={14}/> },
+    { k:"overview",   n:"Início",           d:"Resumo e atalhos",        c:"#0071e3", i:<Icon.Home size={16} stroke={1.9}/> },
+    { k:"dashboards", n:"Meus dashboards",  d: items ? homeFmtInt(items.length) + " salvos" : "Neste navegador", c:"#5e5ce6", i:<Icon.Chart size={16} stroke={1.9}/> },
+    { k:"links",      n:"Links públicos",   d: limits.shareLinks ? (links ? homeFmtInt(links.length) + " ativos" : "Compartilhados") : "Plano Pro", c:"#30b0c7", i:<Icon.Share size={16} stroke={1.9}/>, lock: !limits.shareLinks },
+    { k:"usage",      n:"Plano e uso",      d:"Limites do mês",          c:"#ff9500", i:<Icon.Bolt size={16} stroke={1.9}/> },
+    { k:"app",        n:"Instalar o app",   d: install === "installed" ? "Instalado" : "Celular e computador", c:"#34c759", i:<Icon.Download size={16} stroke={1.9}/> },
   ];
   const shortcuts = [
-    { n:"Conta e segurança", s:"account", i:<Icon.User size={14}/> },
-    { n:"Faturamento",       s:"billing", i:<Icon.Doc size={14}/> },
-    { n:"Histórico da IA",   s:"history", i:<Icon.Refresh size={14}/> },
+    { n:"Conta e segurança", s:"account", c:"#8e8e93", i:<Icon.User size={16} stroke={1.9}/> },
+    { n:"Faturamento",       s:"billing", c:"#34c759", i:<Icon.Doc size={16} stroke={1.9}/> },
+    { n:"Histórico da IA",   s:"history", c:"#ff375f", i:<Icon.Clock size={16} stroke={1.9}/> },
   ];
   const cur = sections.find(s => s.k === section) || sections[0];
   const go = (k)=>{ onSection(k); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-      <div className="topbar" style={{position:"sticky", top:0, zIndex:30, backdropFilter:"blur(10px)", background:"rgba(246,247,251,.85)", borderBottom:"1px solid var(--line)"}}>
+      <div className="topbar" style={{position:"sticky", top:0, zIndex:30, backdropFilter:"saturate(180%) blur(20px)", WebkitBackdropFilter:"saturate(180%) blur(20px)", background:"rgba(245,245,247,.72)", borderBottom:"1px solid var(--line)"}}>
         <div className="tb-row" style={{padding:"14px 24px", maxWidth:1280, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12}}>
           <button onClick={onClose} title="Página inicial do site" style={{display:"flex", alignItems:"center", gap:10, background:"transparent", border:0, cursor:"pointer", padding:0}}>
             <Icon.Logo size={28}/>
@@ -139,9 +139,9 @@ function HomeView({ tweaks, currentUser, section, onSection, onNew, onOpenSaved,
         <aside className="acct-aside" style={{position:"sticky", top:80, alignSelf:"flex-start", display:"flex", flexDirection:"column", gap:14, minWidth:0}}>
           <nav className="home-nav" aria-label="Seções do Painel" style={{display:"flex", flexDirection:"column", gap:2}}>
             {sections.map(s => <HomeNavItem key={s.k} item={s} on={cur.k === s.k} onClick={()=> go(s.k)}/>)}
-            <div className="home-nav-group" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", margin:"14px 12px 4px"}}>CONFIGURAÇÕES</div>
+            <div className="home-nav-group" style={{fontSize:11, fontWeight:600, color:"var(--muted-2)", margin:"16px 10px 4px"}}>Configurações</div>
             {shortcuts.map(s => (
-              <HomeNavItem key={s.s} item={{ n:s.n, i:s.i, ext:true }} on={false} onClick={()=> window.__dashOpenAccount?.(s.s)}/>
+              <HomeNavItem key={s.s} item={{ n:s.n, i:s.i, c:s.c, ext:true }} on={false} onClick={()=> window.__dashOpenAccount?.(s.s)}/>
             ))}
           </nav>
           <div className="home-side-card" style={{padding:"14px 16px", background:"white", border:"1px solid var(--line)", borderRadius:14}}>
@@ -167,25 +167,22 @@ function HomeView({ tweaks, currentUser, section, onSection, onNew, onOpenSaved,
   );
 }
 
+// Item do menu lateral no estilo da barra lateral de Ajustes: ladrilho
+// colorido com o símbolo e, quando selecionado, a linha toda na cor da marca.
 function HomeNavItem({ item, on, onClick }){
   return (
-    <button onClick={onClick} aria-current={on ? "page" : undefined} style={{
-      display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:10,
-      background: on ? "white" : "transparent", cursor:"pointer", textAlign:"left",
-      boxShadow: on ? "0 2px 8px -4px rgba(15,23,42,.12)" : "none",
-      border: on ? "1px solid var(--line)" : "1px solid transparent", transition:"all .15s",
+    <button onClick={onClick} aria-current={on ? "page" : undefined} className="side-item" style={{
+      display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:10, border:0,
+      background: on ? "var(--brand)" : "transparent", cursor:"pointer", textAlign:"left", fontFamily:"inherit",
+      transition:"background .15s",
     }}>
-      <span style={{
-        width:30, height:30, borderRadius:8, flexShrink:0,
-        background: on ? "var(--brand-soft)" : "var(--line-2)", color: on ? "var(--brand)" : "var(--muted)",
-        display:"inline-flex", alignItems:"center", justifyContent:"center",
-      }}>{item.i}</span>
+      <IconTile color={item.c || "var(--brand)"} size={28}>{item.i}</IconTile>
       <div style={{flex:1, minWidth:0}}>
-        <div style={{fontWeight: on ? 700 : 500, fontSize:13, color: on ? "var(--ink)" : "var(--ink-2)", whiteSpace:"nowrap"}}>{item.n}</div>
-        {item.d && <div className="home-nav-desc" style={{fontSize:11, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{item.d}</div>}
+        <div style={{fontWeight:500, fontSize:13.5, color: on ? "white" : "var(--ink)", whiteSpace:"nowrap"}}>{item.n}</div>
+        {item.d && <div className="home-nav-desc" style={{fontSize:11, color: on ? "rgba(255,255,255,.78)" : "var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{item.d}</div>}
       </div>
-      {item.lock && <Icon.Lock size={12} color="var(--muted)"/>}
-      {item.ext && <Icon.Arrow size={12} color="var(--muted)"/>}
+      {item.lock && <Icon.Lock size={12} color={on ? "white" : "var(--muted-2)"}/>}
+      {item.ext && <Icon.Chevron size={13} stroke={2} color="#c7c7cc"/>}
     </button>
   );
 }
@@ -194,7 +191,7 @@ function HomeHeader({ title, sub, action }){
   return (
     <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", gap:16, flexWrap:"wrap", marginBottom:22}}>
       <div>
-        <h1 style={{margin:"0 0 6px", fontSize:30, fontWeight:800, letterSpacing:"-.02em"}}>{title}</h1>
+        <h1 style={{margin:"0 0 6px", fontSize:30, fontWeight:700, letterSpacing:"-.02em"}}>{title}</h1>
         {sub && <div style={{fontSize:14, color:"var(--muted)"}}>{sub}</div>}
       </div>
       {action}
@@ -213,15 +210,15 @@ function HomeMeter({ label, value, max, hint, icon, color = "var(--brand)", onCl
       <div style={{display:"flex", alignItems:"center", gap:8, color:"var(--muted)", fontSize:12, fontWeight:600}}>
         <span style={{color}}>{icon}</span>{label}
       </div>
-      <div className="ticker" style={{fontSize:26, fontWeight:800, letterSpacing:"-.02em", margin:"8px 0 2px"}}>
+      <div className="ticker" style={{fontSize:26, fontWeight:700, letterSpacing:"-.02em", margin:"8px 0 2px"}}>
         {homeFmtInt(value)}{!unlimited && <span style={{fontSize:14, color:"var(--muted)", fontWeight:600}}> / {homeFmtInt(max)}</span>}
       </div>
       {!unlimited && (
         <div style={{height:6, borderRadius:999, background:"var(--line-2)", overflow:"hidden", margin:"8px 0 6px"}}>
-          <div style={{width: pct + "%", height:"100%", borderRadius:999, background: full ? "#c9234a" : color, transition:"width .4s"}}></div>
+          <div style={{width: pct + "%", height:"100%", borderRadius:999, background: full ? "#d70015" : color, transition:"width .4s"}}></div>
         </div>
       )}
-      <div style={{fontSize:12, color: full ? "#c9234a" : "var(--muted)"}}>{full ? "Limite atingido" : hint}</div>
+      <div style={{fontSize:12, color: full ? "#d70015" : "var(--muted)"}}>{full ? "Limite atingido" : hint}</div>
     </div>
   );
 }
@@ -277,7 +274,7 @@ function HomeOverview({ tweaks, firstName, plan, limits, items, keep, links, ins
       <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"minmax(0, 1.4fr) minmax(0, 1fr)", gap:14, marginBottom:14}}>
         <div style={{padding:"24px", borderRadius:18, color:"white", background:`linear-gradient(135deg, ${tweaks.accent}, var(--violet))`, display:"flex", flexDirection:"column", gap:10}}>
           <Icon.Upload size={20}/>
-          <div style={{fontWeight:800, fontSize:20, letterSpacing:"-.01em"}}>Criar um dashboard</div>
+          <div style={{fontWeight:700, fontSize:20, letterSpacing:"-.01em"}}>Criar um dashboard</div>
           <div style={{fontSize:13, opacity:.92, lineHeight:1.5, maxWidth:420}}>Envie um CSV, Excel ou JSON. O arquivo é tratado no seu navegador e vira KPIs, gráficos e insights.</div>
           <div><button className="btn" onClick={onNew} style={{background:"white", color:"var(--ink)", marginTop:4}}><Icon.Plus size={14}/> Novo dashboard</button></div>
         </div>
@@ -299,14 +296,14 @@ function HomeOverview({ tweaks, firstName, plan, limits, items, keep, links, ins
           as seções que não estão nas abas de baixo. */}
       <div className="home-shortcuts" style={{display:"none", gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8, marginBottom:14}}>
         {[
-          { n:"Links", i:<Icon.Share size={18}/>, on:()=> go("links") },
-          { n:"Instalar", i:<Icon.Download size={18}/>, on:()=> go("app") },
-          { n:"Faturas", i:<Icon.Doc size={18}/>, on:()=> window.__dashOpenAccount?.("billing") },
-          { n:"Histórico IA", i:<Icon.Refresh size={18}/>, on:()=> window.__dashOpenAccount?.("history") },
+          { n:"Links", c:"#30b0c7", i:<Icon.Share size={22} stroke={1.9}/>, on:()=> go("links") },
+          { n:"Instalar", c:"#34c759", i:<Icon.Download size={22} stroke={1.9}/>, on:()=> go("app") },
+          { n:"Faturas", c:"#ff9500", i:<Icon.Doc size={22} stroke={1.9}/>, on:()=> window.__dashOpenAccount?.("billing") },
+          { n:"Histórico IA", c:"#ff375f", i:<Icon.Clock size={22} stroke={1.9}/>, on:()=> window.__dashOpenAccount?.("history") },
         ].map(a => (
-          <button key={a.n} onClick={a.on} className="card" style={{padding:"12px 4px", display:"flex", flexDirection:"column", alignItems:"center", gap:6, cursor:"pointer", border:"1px solid var(--line)", fontFamily:"inherit", minWidth:0}}>
-            <span style={{width:40, height:40, borderRadius:12, background:"var(--brand-soft)", color:"var(--brand)", display:"inline-flex", alignItems:"center", justifyContent:"center"}}>{a.i}</span>
-            <span style={{fontSize:11.5, fontWeight:600, color:"var(--ink-2)", whiteSpace:"nowrap"}}>{a.n}</span>
+          <button key={a.n} onClick={a.on} style={{padding:"4px 2px", display:"flex", flexDirection:"column", alignItems:"center", gap:6, cursor:"pointer", border:0, background:"transparent", fontFamily:"inherit", minWidth:0}}>
+            <IconTile color={a.c} size={52}>{a.i}</IconTile>
+            <span style={{fontSize:11.5, fontWeight:500, color:"var(--ink)", whiteSpace:"nowrap"}}>{a.n}</span>
           </button>
         ))}
       </div>
@@ -314,10 +311,10 @@ function HomeOverview({ tweaks, firstName, plan, limits, items, keep, links, ins
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(190px, 1fr))", gap:14, marginBottom:28}}>
         <HomeMeter label="Resumos com IA no mês" icon={<Icon.Sparkle size={13}/>} value={limits.aiUsed || 0} max={limits.aiMonthly || 0}
           hint={"Renova no dia 1º"} onClick={()=> go("usage")}/>
-        <HomeMeter label="Dashboards salvos" icon={<Icon.Chart size={13}/>} value={items ? items.length : 0} max={keep} color="#0a8a4a"
+        <HomeMeter label="Dashboards salvos" icon={<Icon.Chart size={13}/>} value={items ? items.length : 0} max={keep} color="#248a3d"
           hint="Neste navegador" onClick={()=> go("dashboards")}/>
         <HomeMeter label="Links públicos ativos" icon={<Icon.Share size={13}/>} value={limits.shareLinks ? (links ? links.length : 0) : 0}
-          max={null} color="#7a5cff" hint={limits.shareLinks ? "Ver e desativar" : "Disponível no Pro"} onClick={()=> go("links")}/>
+          max={null} color="#5e5ce6" hint={limits.shareLinks ? "Ver e desativar" : "Disponível no Pro"} onClick={()=> go("links")}/>
         <HomeMeter label="Linhas por base" icon={<Icon.Rows size={13}/>} value={limits.maxRows || 5000} max={null} color="#ff7849"
           hint="Tamanho máximo de arquivo" onClick={()=> go("usage")}/>
       </div>
@@ -377,8 +374,9 @@ function HomeDashboards({ items, keep, isPaid, savingOn, onNew, onOpenSaved }){
             <button key={k} className={sort === k ? "on" : ""} aria-pressed={sort === k} onClick={()=> setSort(k)} style={{padding:"7px 12px", fontSize:12, fontWeight:600}}>{n}</button>
           ))}
         </div>
-        <label style={{display:"inline-flex", alignItems:"center", gap:8, fontSize:12, color:"var(--ink-2)", cursor:"pointer"}}>
-          <input type="checkbox" checked={savingOn} onChange={e=> DashSaved.setEnabled(e.target.checked)}/> Salvar neste navegador
+        <label style={{display:"inline-flex", alignItems:"center", gap:10, fontSize:13, color:"var(--ink-2)", cursor:"pointer"}}>
+          Salvar neste navegador
+          <input type="checkbox" role="switch" className="switch" checked={savingOn} onChange={e=> DashSaved.setEnabled(e.target.checked)}/>
         </label>
       </div>
       {!savingOn && (
@@ -433,7 +431,7 @@ function HomeLinks({ allowed, links, error, reload }){
           <div style={{display:"flex", flexDirection:"column", gap:8}}>
             {links.map(l => (
               <div key={l.slug} style={{display:"flex", alignItems:"center", gap:12, padding:"12px 14px", border:"1px solid var(--line)", borderRadius:12, background:"white", flexWrap:"wrap"}}>
-                <span style={{width:36, height:36, borderRadius:10, background:"#f1edff", color:"#7a5cff", display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0}}><Icon.Share size={15}/></span>
+                <span style={{width:36, height:36, borderRadius:10, background:"#f1edff", color:"#5e5ce6", display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0}}><Icon.Share size={15}/></span>
                 <div style={{flex:"1 1 200px", minWidth:0}}>
                   <div style={{fontWeight:600, fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{l.title}</div>
                   <div className="mono" style={{fontSize:11, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
@@ -442,7 +440,7 @@ function HomeLinks({ allowed, links, error, reload }){
                 </div>
                 <a className="btn btn-ghost" href={l.url} target="_blank" rel="noopener noreferrer" style={{padding:"7px 12px", fontSize:13}}><Icon.Eye size={13}/> Abrir</a>
                 <button className="btn btn-ghost" onClick={()=> copy(l.url)} style={{padding:"7px 12px", fontSize:13}}>{copied === l.url ? <><Icon.Check size={13}/> Copiado</> : "Copiar"}</button>
-                <button className="btn btn-ghost" onClick={()=> revoke(l.slug)} style={{padding:"7px 12px", fontSize:13, color:"#c9234a"}}>Desativar</button>
+                <button className="btn btn-ghost" onClick={()=> revoke(l.slug)} style={{padding:"7px 12px", fontSize:13, color:"#d70015"}}>Desativar</button>
               </div>
             ))}
           </div>
@@ -475,15 +473,15 @@ function HomeUsage({ currentUser, limits, items, keep, links }){
       <div className="card" style={{padding:"20px 22px", display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", marginBottom:14}}>
         <span style={{width:44, height:44, borderRadius:12, background: isPaid ? "#e7f7ef" : "var(--line-2)", color: isPaid ? "#0a5a30" : "var(--muted)", display:"inline-flex", alignItems:"center", justifyContent:"center"}}><Icon.Crown size={18}/></span>
         <div style={{flex:1, minWidth:200}}>
-          <div style={{fontWeight:800, fontSize:20}}>Plano {dashPlanLabel(plan)}</div>
+          <div style={{fontWeight:700, fontSize:20}}>Plano {dashPlanLabel(plan)}</div>
           <div style={{fontSize:13, color:"var(--muted)", marginTop:2}}>{billing}</div>
         </div>
       </div>
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:14, marginBottom:14}}>
         <HomeMeter label="Resumos com IA no mês" icon={<Icon.Sparkle size={13}/>} value={limits.aiUsed || 0} max={limits.aiMonthly || 0} hint="Renova no dia 1º"/>
-        <HomeMeter label="Dashboards salvos" icon={<Icon.Chart size={13}/>} value={items ? items.length : 0} max={keep} color="#0a8a4a" hint="Neste navegador"/>
+        <HomeMeter label="Dashboards salvos" icon={<Icon.Chart size={13}/>} value={items ? items.length : 0} max={keep} color="#248a3d" hint="Neste navegador"/>
         <HomeMeter label="Linhas por base" icon={<Icon.Rows size={13}/>} value={limits.maxRows || 5000} max={null} color="#ff7849" hint="Tamanho máximo de arquivo"/>
-        {limits.shareLinks && <HomeMeter label="Links ativos" icon={<Icon.Share size={13}/>} value={links ? links.length : 0} max={null} color="#7a5cff" hint="Compartilhados por você"/>}
+        {limits.shareLinks && <HomeMeter label="Links ativos" icon={<Icon.Share size={13}/>} value={links ? links.length : 0} max={null} color="#5e5ce6" hint="Compartilhados por você"/>}
       </div>
       <div className="card" style={{padding:"6px 22px"}}>
         {feats.map(([n, ok], i) => (

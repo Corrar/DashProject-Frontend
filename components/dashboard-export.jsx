@@ -85,7 +85,7 @@ async function dashExportPNG(opts, fileInfo){
   const hti = await dashEnsureHtmlToImage();
   const { root, cleanup } = await dashPrepareExport(opts);
   try {
-    const base = { pixelRatio: 2, backgroundColor: "#f6f7fb", cacheBust: false };
+    const base = { pixelRatio: 2, backgroundColor: "#f5f5f7", cacheBust: false };
     let url;
     try { url = await hti.toPng(root, base); }
     // Embutir a Geist exige ler a folha do Google Fonts; se o navegador
@@ -187,24 +187,24 @@ function ExportModal({ onClose, blocks, tweaks, fileInfo, meta, canExport, canRe
   ];
 
   return (
-    <div onClick={()=> !busy && onClose()} style={{
+    <div className="sheet-backdrop" onClick={()=> !busy && onClose()} style={{
       position:"fixed", inset:0, zIndex:100,
-      background:"rgba(11,16,32,.5)", backdropFilter:"blur(6px)",
+      background:"rgba(0,0,0,.5)", backdropFilter:"blur(6px)",
       display:"flex", alignItems:"center", justifyContent:"center", padding:24,
       animation:"fade .2s ease"
     }}>
       <style>{`@keyframes fade{ from{ opacity:0 } } @keyframes pop{ from{ opacity:0; transform: translateY(8px) scale(.98); } }`}</style>
-      <div className="export-modal" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Exportar dashboard" style={{
+      <div className="export-modal sheet" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Exportar dashboard" style={{
         width:"min(1240px, 100%)", maxHeight:"94vh", background:"white", borderRadius:18,
-        boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)",
+        boxShadow:"0 40px 80px -20px rgba(0,0,0,.5)",
         display:"grid", gridTemplateColumns:"320px minmax(0, 1fr)", overflow:"hidden",
         animation:"pop .3s cubic-bezier(.2,.7,.2,1)"
       }}>
         {/* Sidebar */}
-        <div style={{padding:24, borderRight:"1px solid var(--line)", background:"#fafbfe", display:"flex", flexDirection:"column", gap:20, overflowY:"auto"}}>
+        <div style={{padding:24, borderRight:"1px solid var(--line)", background:"#fbfbfd", display:"flex", flexDirection:"column", gap:20, overflowY:"auto"}}>
           <div>
             <div style={{display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-              <h2 style={{margin:0, fontSize:18, fontWeight:800, letterSpacing:"-.01em"}}>Exportar</h2>
+              <h2 style={{margin:0, fontSize:18, fontWeight:700, letterSpacing:"-.01em"}}>Exportar</h2>
               <button onClick={onClose} className="icon-btn" style={{width:28, height:28}} aria-label="Fechar"><Icon.X size={14}/></button>
             </div>
             <div style={{fontSize:12, color:"var(--muted)", marginTop:4}}>O arquivo reproduz o dashboard como está na tela.</div>
@@ -267,12 +267,12 @@ function ExportModal({ onClose, blocks, tweaks, fileInfo, meta, canExport, canRe
             <div className="mono" style={{fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8}}>INCLUIR</div>
             <div style={{display:"flex", flexDirection:"column", gap:6}}>
               {optRows.map(o=>(
-                <label key={o.k} style={{display:"flex", alignItems:"flex-start", gap:10, padding:"6px 4px", cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? .65 : 1}}>
-                  <input type="checkbox" checked={o.checked} disabled={o.disabled} onChange={()=>togOpt(o.k)} style={{accentColor:"var(--brand)", marginTop:2}}/>
+                <label key={o.k} style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"6px 4px", cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? .65 : 1}}>
                   <span style={{fontSize:13}}>
                     {o.n}
                     {o.hint && <span style={{display:"block", fontSize:11, color:"var(--muted)"}}>{o.hint}</span>}
                   </span>
+                  <input type="checkbox" role="switch" className="switch" checked={o.checked} disabled={o.disabled} onChange={()=>togOpt(o.k)}/>
                 </label>
               ))}
             </div>
@@ -298,7 +298,7 @@ function ExportModal({ onClose, blocks, tweaks, fileInfo, meta, canExport, canRe
         </div>
 
         {/* Preview */}
-        <div style={{padding:28, overflowY:"auto", background:"#eef0f7", display:"flex", flexDirection:"column", alignItems:"center", gap:14}}>
+        <div style={{padding:28, overflowY:"auto", background:"#f0f0f3", display:"flex", flexDirection:"column", alignItems:"center", gap:14}}>
           <div style={{display:"flex", justifyContent:"space-between", width:"100%", alignItems:"center", maxWidth: previewW}}>
             <div style={{display:"flex", alignItems:"center", gap:10}}>
               <span className="chip" style={{background:"white", border:"1px solid var(--line)"}}><Icon.Eye size={11}/> Prévia do layout</span>
@@ -306,7 +306,7 @@ function ExportModal({ onClose, blocks, tweaks, fileInfo, meta, canExport, canRe
             </div>
           </div>
           <div style={{
-            background:"white", boxShadow:"0 30px 60px -30px rgba(11,16,32,.4)",
+            background:"white", boxShadow:"0 30px 60px -30px rgba(0,0,0,.4)",
             width: previewW, maxWidth:"100%", height: previewH, padding: pad, overflow:"hidden",
             display:"flex", flexDirection:"column", gap: 8,
           }}>
@@ -314,7 +314,7 @@ function ExportModal({ onClose, blocks, tweaks, fileInfo, meta, canExport, canRe
             <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", paddingBottom:8, borderBottom:"1px solid var(--line-2)"}}>
               <div style={{minWidth:0}}>
                 <div style={{fontSize:8, color:"var(--muted)", letterSpacing:".08em", fontWeight:600, textTransform:"uppercase"}} className="mono">{(meta && meta.title) || "Dashboard"}</div>
-                <div style={{fontWeight:800, fontSize:14, letterSpacing:"-.01em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(fileInfo && fileInfo.name) || "dashboard"}</div>
+                <div style={{fontWeight:700, fontSize:14, letterSpacing:"-.01em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(fileInfo && fileInfo.name) || "dashboard"}</div>
               </div>
               <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2, flexShrink:0}}>
                 <span className="mono" style={{fontSize:8, color:"var(--muted)"}}>{(meta && meta.period) || ""}{meta && meta.rows ? " · " + meta.rows : ""}</span>
@@ -359,8 +359,8 @@ function MiniBlock({ block, accent, contentW, aiSummary }){
           <span style={{fontSize:7, color:"var(--muted)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.label}</span>
         </div>
         <div style={{display:"flex", alignItems:"baseline", gap:3, flexWrap:"nowrap"}}>
-          <span style={{fontWeight:800, fontSize:13, color:"var(--ink)", letterSpacing:"-.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{dashKpiText(k)}</span>
-          <span style={{fontSize:7, fontWeight:700, color: k.deltaDir==="up"?"#0a8a4a":"#c9234a", flexShrink:0}}>{k.deltaDir==="up"?"▲":"▼"} {k.delta}</span>
+          <span style={{fontWeight:700, fontSize:13, color:"var(--ink)", letterSpacing:"-.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{dashKpiText(k)}</span>
+          <span style={{fontSize:7, fontWeight:700, color: k.deltaDir==="up"?"#248a3d":"#d70015", flexShrink:0}}>{k.deltaDir==="up"?"▲":"▼"} {k.delta}</span>
         </div>
         <div style={{fontSize:6.5, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{k.sub}</div>
         <div style={{marginTop:2}}>
@@ -381,7 +381,7 @@ function MiniBlock({ block, accent, contentW, aiSummary }){
         <div style={{display:"flex", alignItems:"center", gap:4}}>
           <span style={{width:5, height:5, borderRadius:"50%", background:c.color || accent, flexShrink:0}}/>
           <div style={{fontSize:8, fontWeight:700, color:"var(--ink)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1}}>{c.title}</div>
-          <span style={{fontSize:7, color:"var(--muted)", fontFamily:"'Geist Mono', monospace", flexShrink:0}}>{c.dim}</span>
+          <span style={{fontSize:7, color:"var(--muted)", fontFamily:"var(--font-mono)", flexShrink:0}}>{c.dim}</span>
         </div>
         <div style={{fontSize:7, color:"var(--muted)", marginBottom:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.sub}</div>
         <div style={{flex:1, minHeight: chartH}}>
@@ -447,11 +447,11 @@ function MiniChart({ chart, color, width, height }){
   if(type==="donut"){
     return (
       <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100%", gap:6}}>
-        <Donut data={data.map((d,i)=>({v:d.v, color: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a","#1b2240","#ff7849"][i%5]}))} size={Math.min(height-4, 48)} thickness={6}/>
+        <Donut data={data.map((d,i)=>({v:d.v, color: i===0? color : ["#7ab5ff","#5e5ce6","#248a3d","#2c2c2e","#ff7849"][i%5]}))} size={Math.min(height-4, 48)} thickness={6}/>
         <div style={{display:"flex", flexDirection:"column", gap:1, fontSize:6.5}}>
           {data.slice(0,3).map((d,i)=>(
             <div key={i} style={{display:"flex", alignItems:"center", gap:3}}>
-              <span style={{width:4, height:4, borderRadius:"50%", background: i===0? color : ["#94b7ff","#7a5cff","#0a8a4a"][i%3]}}/>
+              <span style={{width:4, height:4, borderRadius:"50%", background: i===0? color : ["#7ab5ff","#5e5ce6","#248a3d"][i%3]}}/>
               <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth: 60}}>{d.l}</span>
               <span className="mono" style={{color:"var(--muted)", marginLeft:"auto"}}>{Math.round(d.v).toLocaleString("pt-BR")}</span>
             </div>
@@ -480,7 +480,7 @@ function MiniBars({ data, color, width, height }){
         return (
           <g key={i}>
             <rect x={x} y={y} width={barW} height={h} rx="1.5" fill={color}/>
-            <text x={x+barW/2} y={height-2} fontSize="5.5" textAnchor="middle" fill="#8c93a6">{String(d.l).slice(0,5)}</text>
+            <text x={x+barW/2} y={height-2} fontSize="5.5" textAnchor="middle" fill="#86868b">{String(d.l).slice(0,5)}</text>
           </g>
         );
       })}
