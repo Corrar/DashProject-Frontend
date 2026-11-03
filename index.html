@@ -7,6 +7,13 @@
 <meta name="description" content="Suba um CSV, Excel ou JSON e o Dash monta KPIs, gráficos e análises por IA em segundos. Comece grátis." />
 <meta name="theme-color" content="#2f6bff" />
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<!-- App instalável (PWA): manifesto, ícones e service worker (components/pwa.js + sw.js). -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Dash" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <!-- Prévia ao compartilhar o site (WhatsApp, LinkedIn, X). Trocar a URL se o domínio mudar. -->
 <meta property="og:type" content="website" />
 <meta property="og:locale" content="pt_BR" />
@@ -59,6 +66,7 @@
 </script>
 <script src="components/api.js"></script>
 <script src="components/py-engine.js"></script>
+<script src="components/pwa.js"></script>
 <style>
   :root{
     --bg: #f6f7fb;
@@ -465,6 +473,11 @@
     .tb-crumb{ display: none !important; }
     .acct-grid{ grid-template-columns: minmax(0, 1fr) !important; gap: 20px !important; }
     .acct-aside{ position: static !important; }
+    /* Painel (home-view.jsx): o menu lateral vira uma faixa rolável no topo. */
+    .home-nav{ flex-direction: row !important; overflow-x: auto; padding-bottom: 4px; }
+    .home-nav > *{ flex: 0 0 auto; }
+    .home-nav .home-nav-desc, .home-nav .home-nav-group{ display: none !important; }
+    .home-side-card{ display: none !important; }
   }
   @media (max-width: 640px){
     .cc-meta{ display: none !important; }
@@ -512,6 +525,7 @@
   <script type="text/babel" src="components/plans-view.jsx"></script>
   <script type="text/babel" src="components/account-view.jsx"></script>
   <script type="text/babel" src="components/account-sections.jsx"></script>
+  <script type="text/babel" src="components/home-view.jsx"></script>
   <script type="text/babel" src="components/app.jsx"></script>
 
   <script type="text/babel">

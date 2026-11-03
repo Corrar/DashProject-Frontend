@@ -148,6 +148,11 @@ function AuthBubble({ currentUser, onSignIn, onSignUp, onSignOut, onProfile, acc
               </div>
             )}
           </div>
+          <button onClick={()=>{ setOpen(false); window.__dashOpenHome?.(); }} style={menuItemStyle}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <Icon.Grid size={14}/> Painel
+          </button>
           <button onClick={()=>{ setOpen(false); window.__dashOpenAccount?.(); }} style={menuItemStyle}
             onMouseEnter={e=>e.currentTarget.style.background="var(--line-2)"}
             onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -200,7 +205,7 @@ function Nav({ onOpenApp, tweaks, currentUser, onSignIn, onSignUp, onSignOut, on
         {currentUser ? (
           <div style={{display:"flex", alignItems:"center", gap:10}}>
             <AuthBubble currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile} accent={tweaks.accent}/>
-            <button className="btn btn-primary nav-cta" onClick={()=> window.__dashEnterApp?.()}>Abrir app <Icon.Arrow size={14}/></button>
+            <button className="btn btn-primary" onClick={()=> window.__dashEnterApp?.()}>Abrir app <Icon.Arrow size={14}/></button>
           </div>
         ) : (
           <div style={{display:"flex", alignItems:"center", gap:10}}>

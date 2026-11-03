@@ -23,6 +23,8 @@ indicadores, gráficos e análises escritas por IA, prontos para editar.
 | **Visões prontas** | Visão geral, por região, por produto, por canal, avançada (Pro) e descoberta, com filtro de 7, 30 ou 90 dias |
 | **Editor** | Arrastar e soltar, redimensionar e adicionar blocos |
 | **Resumo com IA** | Resumo em texto escrito pelo Claude (Anthropic) a partir dos insights já calculados, sob demanda e dentro da cota do plano (o Free tem 1 por mês). Nenhuma linha do arquivo é enviada |
+| **Painel do usuário** | Tela de entrada de quem está logado: novo dashboard, dashboards salvos (buscar, renomear, apagar), links públicos (copiar, desativar), uso do plano no mês e atalhos para conta e faturamento |
+| **App instalável** | PWA: instala no celular (Android e iPhone) e no computador (Chrome/Edge), com ícone e janela própria. Service worker com cache da casca do app, sem cachear API nem URLs com token |
 | **Dashboards salvos** | Cada base enviada fica salva neste navegador (IndexedDB) com layout, período e análise da IA, para reabrir depois em "Continuar de onde parou" |
 | **Conta** | Cadastro, login, verificação de e-mail e troca de senha |
 | **Assinatura** | Planos mensais ou anuais (2 meses grátis) por cartão ou Pix (Asaas); cancelamento pela conta mantém o acesso até o fim do período pago |

@@ -289,4 +289,4 @@ function SavedDashboards({ owner, isPaid, onOpen }){
   );
 }
 
-Object.assign(window, { DashSaved, SavedDashboards });
+Object.assign(window, { DashSaved, SavedDashboards, dashSavedWhen });

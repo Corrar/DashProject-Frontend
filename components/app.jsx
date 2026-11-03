@@ -13,7 +13,10 @@ function App(){
   const [shareSlug] = React.useState(()=> new URLSearchParams(window.location.search).get("s"));
   // ?reset=<token> (link do e-mail) abre direto a tela de nova senha.
   const [resetToken, setResetToken] = React.useState(()=> new URLSearchParams(window.location.search).get("reset"));
-  const [view, setView] = React.useState(shareSlug ? "shared" : resetToken ? "auth" : "landing"); // landing | upload | prompt | dashboard | auth | plans | account | shared
+  const [view, setView] = React.useState(shareSlug ? "shared" : resetToken ? "auth" : "landing"); // landing | home | upload | prompt | dashboard | auth | plans | account | shared
+  // Atalhos do app instalado (manifest.webmanifest → ?abrir=novo|dashboards).
+  const [openIntent] = React.useState(()=> new URLSearchParams(window.location.search).get("abrir"));
+  const [homeSection, setHomeSection] = React.useState(openIntent === "dashboards" ? "dashboards" : "overview");
   const [fileInfo, setFileInfo] = React.useState(null);
   // currentUser is hydrated from the backend (DashAPI.me). null while
   // anonymous; populated as { id, email, plan, fullName, emailVerified, limits }
@@ -26,6 +29,7 @@ function App(){
   // O token sai da URL na hora (não fica no histórico nem vai para o analytics).
   React.useEffect(()=>{
     if(resetToken) history.replaceState(null, "", window.location.pathname + window.location.hash);
+    else if(openIntent || new URLSearchParams(window.location.search).get("origem")) history.replaceState(null, "", window.location.pathname + window.location.hash);
   }, []);
   const [profileOpen, setProfileOpen] = React.useState(false);
   // Navigation memory for the secondary views (auth / plans / account).
@@ -146,7 +150,20 @@ function App(){
     if(fileInfo && fileInfo.savedId && DashSaved.enabled()) DashSaved.update(fileInfo.savedId, patch);
   };
 
-  const openApp = ()=> setView("upload");
+  const openApp = ()=> setView(currentUser ? "home" : "upload");
+  // Logado volta para o Painel; anônimo, para a página inicial.
+  const leaveToHome = ()=> setView(currentUser ? "home" : "landing");
+
+  // Quem abre o app instalado (ou um atalho dele) já logado cai direto no
+  // Painel, não na página de vendas. Roda uma vez, quando a sessão chega.
+  const bootRouted = React.useRef(false);
+  React.useEffect(()=>{
+    if(bootRouted.current || !currentUser || view !== "landing") return;
+    const standalone = window.DashPWA && window.DashPWA.standalone();
+    if(!standalone && !openIntent) return;
+    bootRouted.current = true;
+    setView(openIntent === "novo" ? "upload" : "home");
+  }, [currentUser, view]);
 
   // "Ver demonstração": parses the bundled CSV, hydrates fileInfo with
   // isDemo:true and jumps straight to the dashboard, bypassing upload+prompt.
@@ -217,12 +234,12 @@ function App(){
   //               users already have Pro, so we send them to upload too.
   React.useEffect(()=>{
     const enterApp = ()=>{
-      if(currentUser){ setView("upload"); }
+      if(currentUser){ setView("home"); }
       else { openAuth("signup"); }
     };
     const upgrade = (cycle)=>{
       if(!currentUser){ openAuth("signup"); }
-      else if(currentUser.plan === "pro"){ setView("upload"); }
+      else if(currentUser.plan === "pro"){ setView("home"); }
       else { openPlans(cycle); }
     };
     window.__dashOpenAuth    = (mode)=> openAuth(mode === "signup" ? "signup" : "login");
@@ -231,6 +248,11 @@ function App(){
     window.__dashEnterApp    = enterApp;
     window.__dashUpgrade     = upgrade;
     window.__dashOpenLanding = ()=> setView("landing");
+    window.__dashOpenHome    = (section)=>{
+      if(!currentUser){ openAuth("login"); return; }
+      if(section) setHomeSection(section);
+      setView("home");
+    };
     return ()=>{
       delete window.__dashOpenAuth;
       delete window.__dashOpenPlans;
@@ -238,6 +260,7 @@ function App(){
       delete window.__dashEnterApp;
       delete window.__dashUpgrade;
       delete window.__dashOpenLanding;
+      delete window.__dashOpenHome;
     };
     // The closures capture current view/returnView/currentUser via the
     // existing helpers, so re-run whenever any of those change.
@@ -251,10 +274,15 @@ function App(){
           history.replaceState(null, "", window.location.pathname + window.location.hash);
           if(currentUser) setView("landing"); else openAuth("signup");
         }}/>}
+      {view==="home" && <HomeView tweaks={effectiveTweaks} currentUser={currentUser}
+        section={homeSection} onSection={setHomeSection}
+        onNew={()=> setView("upload")} onOpenSaved={openSaved}
+        onClose={()=> setView("landing")}
+        onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="landing" && <Landing onOpenApp={openApp} onLoadDemo={loadDemo} tweaks={effectiveTweaks} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>}
       {view==="upload" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
+          <Topbar onClose={leaveToHome} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
           <UploadView maxRows={(currentUser && currentUser.limits && currentUser.limits.maxRows) || 5000}
             onUploaded={(info)=>{ setFileInfo(info); setView("prompt"); }}>
             <SavedDashboards owner={savedOwner} isPaid={userPlan !== "free"} onOpen={openSaved}/>
@@ -263,11 +291,11 @@ function App(){
       )}
       {view==="prompt" && (
         <div style={{minHeight:"100vh", background:"var(--bg)"}}>
-          <Topbar onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
+          <Topbar onClose={leaveToHome} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}/>
           <PromptView onGenerate={startDashboard} onBack={()=>setView("upload")} fileInfo={fileInfo}/>
         </div>
       )}
-      {view==="dashboard" && <Dashboard onClose={()=>setView("landing")} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}
+      {view==="dashboard" && <Dashboard onClose={leaveToHome} tweaks={effectiveTweaks} fileInfo={fileInfo} currentUser={currentUser} onSignIn={onSignIn} onSignUp={onSignUp} onSignOut={onSignOut} onProfile={onProfile}
         onPersist={persistDashboard}/>}
       {view==="auth" && <AuthView mode={authMode} onMode={setAuthMode}
         tweaks={effectiveTweaks}
@@ -275,7 +303,7 @@ function App(){
         onResetDone={()=>{ setResetToken(null); setAuthMode("login"); }}
         onSuccess={()=>{
           window.dashTrack && window.dashTrack(authMode === "signup" ? "cadastro" : "login");
-          setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "upload");
+          setView(returnView && returnView !== "landing" && returnView !== "shared" ? returnView : "home");
         }}
         onClose={closeSecondary}/>}
       {view==="plans" && <PlansView tweaks={effectiveTweaks} currentUser={currentUser} initialCycle={plansCycle}
@@ -313,6 +341,7 @@ function App(){
           <TweakSelect label="Fluxo" value={view} onChange={setView}
             options={[
               {value:"landing", label:"Landing"},
+              {value:"home", label:"Painel"},
               {value:"upload", label:"Upload"},
               {value:"prompt", label:"Prompt"},
               {value:"dashboard", label:"Dashboard"},
