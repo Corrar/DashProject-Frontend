@@ -46,7 +46,7 @@ function InlineNote({ kind="ok", children }){
   const ok = kind === "ok";
   return (
     <div role={ok ? "status" : "alert"} style={{marginTop:12, padding:"9px 12px", borderRadius:10, fontSize:12.5, lineHeight:1.45,
-      background: ok ? "#e7f7ef" : "#fff7f9", border: ok ? "1px solid #bfe8d2" : "1px solid #ffd2dd", color: ok ? "#0a5a30" : "#c9234a"}}>
+      background: ok ? "#e7f7ef" : "#fff7f9", border: ok ? "1px solid #bfe8d2" : "1px solid #ffd2dd", color: ok ? "#0a5a30" : "#d70015"}}>
       {children}
     </div>
   );
@@ -78,7 +78,7 @@ function AccountSection({ tweaks, currentUser, onClose }){
 
       <SettingsCard title="Perfil" sub="Como seu nome aparece no Dash.">
         <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"72px minmax(0, 1fr)", gap:20, alignItems:"start"}}>
-          <div aria-hidden="true" style={{width:72, height:72, borderRadius:"50%", background:`linear-gradient(135deg, ${accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:24}}>{initials}</div>
+          <div aria-hidden="true" style={{width:72, height:72, borderRadius:"50%", background:`linear-gradient(135deg, ${accent}, var(--violet))`, color:"white", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:24}}>{initials}</div>
           <div>
             <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"minmax(0, 1fr) minmax(0, 1fr)", gap:14}}>
               <TextField label="Nome completo" value={name} onChange={v=>{ setName(v); setNameState(null); }} placeholder="Seu nome"/>
@@ -174,18 +174,18 @@ function SessionsCard(){
   };
   return (
     <SettingsCard title="Sessões ativas" sub="Dispositivos conectados à sua conta."
-      action={others > 0 && <button className="btn btn-ghost" style={{padding:"7px 12px", fontSize:12, color:"#c9234a"}} disabled={!!busy} onClick={endOthers}>{busy === "all" ? "Encerrando…" : "Encerrar as outras"}</button>}>
+      action={others > 0 && <button className="btn btn-ghost" style={{padding:"7px 12px", fontSize:12, color:"#d70015"}} disabled={!!busy} onClick={endOthers}>{busy === "all" ? "Encerrando…" : "Encerrar as outras"}</button>}>
       {st.loading && !st.data && <div style={{fontSize:13, color:"var(--muted)"}}>Carregando…</div>}
       {st.error && <InlineNote kind="err">Não foi possível carregar as sessões. <button className="link-btn" onClick={reload}>Tentar de novo</button></InlineNote>}
       {sessions.map((s, i)=>(
         <div key={s.id} style={{display:"flex", alignItems:"center", gap:12, padding:"11px 0", borderTop: i === 0 ? "none" : "1px solid var(--line-2)", flexWrap:"wrap"}}>
-          <span style={{width:34, height:34, borderRadius:9, flexShrink:0, background: s.current ? "#e7f7ef" : "var(--line-2)", color: s.current ? "#0a8a4a" : "var(--muted)", display:"inline-flex", alignItems:"center", justifyContent:"center"}}>
+          <span style={{width:34, height:34, borderRadius:9, flexShrink:0, background: s.current ? "#e7f7ef" : "var(--line-2)", color: s.current ? "#248a3d" : "var(--muted)", display:"inline-flex", alignItems:"center", justifyContent:"center"}}>
             <Icon.Lock size={14}/>
           </span>
           <div style={{flex:"1 1 200px", minWidth:0}}>
             <div style={{fontWeight:600, fontSize:13.5, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
               {dashDeviceLabel(s.userAgent)}
-              {s.current && <span className="chip" style={{padding:"1px 8px", fontSize:10.5, background:"#e7f7ef", color:"#0a8a4a"}}>esta sessão</span>}
+              {s.current && <span className="chip" style={{padding:"1px 8px", fontSize:10.5, background:"#e7f7ef", color:"#248a3d"}}>esta sessão</span>}
             </div>
             <div style={{fontSize:12, color:"var(--muted)"}}>
               {s.ip ? <span className="mono">{s.ip}</span> : "IP desconhecido"} · último uso {dashRelTime(s.lastUsedAt)}{s.startedAt ? " · entrou em " + new Date(s.startedAt).toLocaleDateString("pt-BR") : ""}
@@ -294,24 +294,24 @@ function DataCard({ currentUser, onClose }){
             <div style={{fontSize:12.5, color:"var(--ink-2)", lineHeight:1.55, maxWidth:560}}>
               {isPaid ? "Sua assinatura é cancelada na hora, sem novas cobranças. " : ""}Links públicos deixam de abrir e o histórico de uso é apagado. Registros de cobrança ficam guardados sem vínculo com você pelo prazo da lei fiscal.
             </div>
-            <button className="btn" style={{padding:"9px 14px", background:"white", border:"1px solid #c9234a", color:"#c9234a"}} onClick={()=>setConfirm(true)}>Excluir conta…</button>
+            <button className="btn" style={{padding:"9px 14px", background:"white", border:"1px solid #d70015", color:"#d70015"}} onClick={()=>setConfirm(true)}>Excluir conta…</button>
           </div>
         ) : (
           <form onSubmit={doDelete} style={{padding:16, border:"1px solid #ffd2dd", background:"#fff7f9", borderRadius:12}}>
-            <div style={{fontWeight:700, fontSize:13.5, color:"#c9234a", marginBottom:10}}>Confirme a exclusão</div>
+            <div style={{fontWeight:700, fontSize:13.5, color:"#d70015", marginBottom:10}}>Confirme a exclusão</div>
             <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"minmax(0, 1fr) minmax(0, 1fr)", gap:14}}>
               <TextField label="Sua senha" type="password" value={pw} onChange={setPw}/>
               <TextField label="Digite EXCLUIR para confirmar" value={word} onChange={v=>setWord(v.toUpperCase())} placeholder="EXCLUIR"/>
             </div>
             {localCount > 0 && (
               <label style={{display:"flex", gap:8, alignItems:"center", fontSize:12.5, marginTop:12, cursor:"pointer"}}>
-                <input type="checkbox" checked={wipeLocal} onChange={e=>setWipeLocal(e.target.checked)} style={{accentColor:"#c9234a"}}/>
+                <input type="checkbox" checked={wipeLocal} onChange={e=>setWipeLocal(e.target.checked)} style={{accentColor:"#d70015"}}/>
                 Apagar também os {localCount} dashboards salvos neste navegador
               </label>
             )}
             <div style={{display:"flex", gap:8, marginTop:14}}>
               <button type="submit" className="btn" disabled={word !== "EXCLUIR" || !pw || del === "deleting"}
-                style={{padding:"9px 14px", background:"#c9234a", color:"white", opacity: (word !== "EXCLUIR" || !pw) ? .5 : 1}}>
+                style={{padding:"9px 14px", background:"#d70015", color:"white", opacity: (word !== "EXCLUIR" || !pw) ? .5 : 1}}>
                 {del === "deleting" ? "Excluindo…" : "Excluir minha conta"}
               </button>
               <button type="button" className="btn btn-ghost" style={{padding:"9px 14px"}} onClick={()=>{ setConfirm(false); setDel(null); setPw(""); setWord(""); }}>Cancelar</button>
@@ -326,10 +326,10 @@ function DataCard({ currentUser, onClose }){
 
 // Faturas reais (Asaas) dentro de Faturamento.
 const DASH_PAY_STATUS = {
-  CONFIRMED:["Pago","#0a8a4a","#e7f7ef"], RECEIVED:["Pago","#0a8a4a","#e7f7ef"], RECEIVED_IN_CASH:["Pago","#0a8a4a","#e7f7ef"], PAID:["Pago","#0a8a4a","#e7f7ef"],
+  CONFIRMED:["Pago","#248a3d","#e7f7ef"], RECEIVED:["Pago","#248a3d","#e7f7ef"], RECEIVED_IN_CASH:["Pago","#248a3d","#e7f7ef"], PAID:["Pago","#248a3d","#e7f7ef"],
   PENDING:["Em aberto","#9a5b00","#fff4e5"], AWAITING_RISK_ANALYSIS:["Em análise","#9a5b00","#fff4e5"],
-  OVERDUE:["Vencida","#c9234a","#fde7ee"], REFUNDED:["Estornada","#5b6478","var(--line-2)"], REFUND_REQUESTED:["Estorno pedido","#5b6478","var(--line-2)"],
-  CANCELED:["Cancelada","#5b6478","var(--line-2)"], DELETED:["Cancelada","#5b6478","var(--line-2)"],
+  OVERDUE:["Vencida","#d70015","#fde7ee"], REFUNDED:["Estornada","#6e6e73","var(--line-2)"], REFUND_REQUESTED:["Estorno pedido","#6e6e73","var(--line-2)"],
+  CANCELED:["Cancelada","#6e6e73","var(--line-2)"], DELETED:["Cancelada","#6e6e73","var(--line-2)"],
 };
 const DASH_PAY_METHOD = { CREDIT_CARD:"Cartão", PIX:"Pix", BOLETO:"Boleto", UNDEFINED:"—" };
 
@@ -342,7 +342,7 @@ function InvoiceHistory({ isPaid }){
       {st.loading && !st.data && <div style={{fontSize:13, color:"var(--muted)"}}>Carregando…</div>}
       {st.error && <InlineNote kind="err">Não foi possível carregar as faturas. <button className="link-btn" onClick={reload}>Tentar de novo</button></InlineNote>}
       {!st.loading && !st.error && items.length === 0 && (
-        <div style={{padding:"26px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", textAlign:"center", fontSize:13, color:"var(--muted)"}}>
+        <div style={{padding:"26px 20px", border:"1px dashed var(--line)", borderRadius:12, background:"#fbfbfd", textAlign:"center", fontSize:13, color:"var(--muted)"}}>
           {isPaid ? "Nenhuma fatura ainda. A primeira aparece aqui assim que o Asaas registrar o pagamento." : "Suas faturas aparecem aqui quando você assinar um plano."}
         </div>
       )}
@@ -355,7 +355,7 @@ function InvoiceHistory({ isPaid }){
               ))}
             </div>
             {items.map((it, i)=>{
-              const s = DASH_PAY_STATUS[it.status] || [it.status || "—", "#5b6478", "var(--line-2)"];
+              const s = DASH_PAY_STATUS[it.status] || [it.status || "—", "#6e6e73", "var(--line-2)"];
               return (
                 <div key={(it.id || "") + i} style={{display:"grid", gridTemplateColumns:"1fr 1.6fr .8fr .9fr .9fr auto", gap:12, alignItems:"center", padding:"11px 2px", borderTop: i === 0 ? "none" : "1px solid var(--line-2)"}}>
                   <div className="mono" style={{fontSize:12.5}}>{fmtDate(it.paidAt || it.dueDate)}</div>
@@ -404,7 +404,7 @@ function HistorySection({ tweaks, currentUser }){
         ].map(k=>(
           <div key={k.l} className="card" style={{padding:"16px 18px"}}>
             <div style={{fontSize:12, color:"var(--muted)", fontWeight:600}}>{k.l}</div>
-            <div className="ticker" style={{fontSize:26, fontWeight:800, letterSpacing:"-.02em", margin:"4px 0 2px"}}>{k.v}</div>
+            <div className="ticker" style={{fontSize:26, fontWeight:700, letterSpacing:"-.02em", margin:"4px 0 2px"}}>{k.v}</div>
             <div style={{fontSize:12, color:"var(--muted)"}}>{k.s}</div>
           </div>
         ))}
@@ -424,7 +424,7 @@ function HistorySection({ tweaks, currentUser }){
       <SettingsCard title="Mais recentes" sub="Data e hora de cada análise gerada.">
         {st.loading && !st.data && <div style={{fontSize:13, color:"var(--muted)"}}>Carregando…</div>}
         {!st.loading && recent.length === 0 && !st.error && (
-          <div style={{padding:"22px 18px", border:"1px dashed var(--line)", borderRadius:12, background:"#fafbfe", textAlign:"center", fontSize:13, color:"var(--muted)"}}>
+          <div style={{padding:"22px 18px", border:"1px dashed var(--line)", borderRadius:12, background:"#fbfbfd", textAlign:"center", fontSize:13, color:"var(--muted)"}}>
             Você ainda não gerou nenhum resumo com IA. Abra um dashboard e clique em “Gerar resumo”.
           </div>
         )}
@@ -432,7 +432,7 @@ function HistorySection({ tweaks, currentUser }){
           const d = new Date(ts);
           return (
             <div key={i} style={{display:"flex", alignItems:"center", gap:12, padding:"9px 0", borderTop: i === 0 ? "none" : "1px solid var(--line-2)"}}>
-              <span style={{width:28, height:28, borderRadius:8, background:"color-mix(in oklch, #7a5cff 14%, white)", color:"#7a5cff", display:"inline-flex", alignItems:"center", justifyContent:"center"}}><Icon.Sparkle size={13}/></span>
+              <span style={{width:28, height:28, borderRadius:8, background:"color-mix(in oklch, #5e5ce6 14%, white)", color:"#5e5ce6", display:"inline-flex", alignItems:"center", justifyContent:"center"}}><Icon.Sparkle size={13}/></span>
               <span style={{fontSize:13, flex:1}}>Análise por IA gerada</span>
               <span className="mono" style={{fontSize:12, color:"var(--muted)"}}>{d.toLocaleDateString("pt-BR")} · {d.toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
             </div>

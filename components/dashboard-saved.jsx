@@ -257,9 +257,9 @@ function SavedDashboards({ owner, isPaid, onOpen }){
               : "O salvamento neste navegador está desligado."}
           </div>
         </div>
-        <label style={{display:"inline-flex", alignItems:"center", gap:8, fontSize:12, color:"var(--ink-2)", cursor:"pointer"}}>
-          <input type="checkbox" checked={enabled} onChange={e=> DashSaved.setEnabled(e.target.checked)}/>
+        <label style={{display:"inline-flex", alignItems:"center", gap:10, fontSize:13, color:"var(--ink-2)", cursor:"pointer"}}>
           Salvar neste navegador
+          <input type="checkbox" role="switch" className="switch" checked={enabled} onChange={e=> DashSaved.setEnabled(e.target.checked)}/>
         </label>
       </div>
       {items.length > 0 && (

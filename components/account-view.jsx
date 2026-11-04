@@ -33,7 +33,7 @@ class AccountErrorBoundary extends React.Component {
     if(this.state.err){
       return (
         <div style={{padding:"32px 28px", border:"1px dashed var(--line)", borderRadius:14, background:"#fff7f9", textAlign:"center"}}>
-          <div style={{fontWeight:700, fontSize:15, marginBottom:6, color:"#c9234a"}}>Não foi possível carregar esta seção</div>
+          <div style={{fontWeight:700, fontSize:15, marginBottom:6, color:"#d70015"}}>Não foi possível carregar esta seção</div>
           <div style={{fontSize:13, color:"var(--muted)", lineHeight:1.55, marginBottom:14, maxWidth:380, margin:"0 auto 14px"}}>
             Algo deu errado ao renderizar este conteúdo. Tente trocar de aba ou recarregar a página.
           </div>
@@ -71,11 +71,11 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
   // and existing users can see what's coming. Click routes to a teaser
   // ("em breve") rather than the full WorkspaceSection preview.
   const sections = [
-    { k:"account",   n:"Conta",                i:<Icon.User size={14}/>,    d:"Perfil e segurança" },
-    { k:"workspace", n:"Workspace",            i:<Icon.Grid size={14}/>,    d:"Equipe e permissões", lockReason:"team" },
-    { k:"billing",   n:"Faturamento",          i:<Icon.Doc size={14}/>,     d:"Plano, pagamento e notas" },
-    { k:"history",   n:"Histórico de análises",i:<Icon.Refresh size={14}/>, d:"Linha do tempo da IA" },
-    { k:"referral",  n:"Indique e ganhe",      i:<Icon.Sparkle size={14}/>, d:"Em breve" },
+    { k:"account",   n:"Conta",                c:"#8e8e93", i:<Icon.User size={16} stroke={1.9}/>,    d:"Perfil e segurança" },
+    { k:"workspace", n:"Workspace",            c:"#5e5ce6", i:<Icon.Grid size={16} stroke={1.9}/>,    d:"Equipe e permissões", lockReason:"team" },
+    { k:"billing",   n:"Faturamento",          c:"#34c759", i:<Icon.Doc size={16} stroke={1.9}/>,     d:"Plano, pagamento e notas" },
+    { k:"history",   n:"Histórico de análises",c:"#ff375f", i:<Icon.Clock size={16} stroke={1.9}/>,   d:"Linha do tempo da IA" },
+    { k:"referral",  n:"Indique e ganhe",      c:"#ff9500", i:<Icon.Sparkle size={16} stroke={1.9}/>, d:"Em breve" },
   ];
   const cur = sections.find(s => s.k === section) || sections[0];
 
@@ -83,8 +83,8 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
       {/* Topbar */}
       <div style={{
-        position:"sticky", top:0, zIndex:30, backdropFilter:"blur(10px)",
-        background:"rgba(246,247,251,.85)", borderBottom:"1px solid var(--line)"
+        position:"sticky", top:0, zIndex:30, backdropFilter:"saturate(180%) blur(20px)", WebkitBackdropFilter:"saturate(180%) blur(20px)",
+        background:"rgba(245,245,247,.72)", borderBottom:"1px solid var(--line)"
       }}>
         <div style={{padding:"14px 24px", maxWidth: 1280, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
           <button onClick={onClose} style={{display:"flex", alignItems:"center", gap:10, background:"transparent", border:0, cursor:"pointer"}}>
@@ -135,27 +135,20 @@ function AccountView({ tweaks, setTweak, currentUser, section, onSection, onClos
               const on = section === s.k;
               const locked = s.lockReason;
               return (
-                <button key={s.k} onClick={()=>onSection(s.k)} style={{
-                  display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
-                  borderRadius:10, background: on ? "white" : "transparent",
-                  cursor:"pointer", textAlign:"left", boxShadow: on ? "0 2px 8px -4px rgba(15,23,42,.12)" : "none",
-                  border: on ? "1px solid var(--line)" : "1px solid transparent",
-                  transition:"all .15s"
+                <button key={s.k} onClick={()=>onSection(s.k)} aria-current={on ? "page" : undefined} className="side-item" style={{
+                  display:"flex", alignItems:"center", gap:10, padding:"7px 10px", border:0, fontFamily:"inherit",
+                  borderRadius:10, background: on ? "var(--brand)" : "transparent",
+                  cursor:"pointer", textAlign:"left", transition:"background .15s"
                 }}>
-                  <span style={{
-                    width:30, height:30, borderRadius:8, flexShrink:0,
-                    background: on ? "var(--brand-soft)" : "var(--line-2)",
-                    color: on ? "var(--brand)" : "var(--muted)",
-                    display:"inline-flex", alignItems:"center", justifyContent:"center"
-                  }}>{s.i}</span>
+                  <IconTile color={s.c} size={28}>{s.i}</IconTile>
                   <div style={{flex:1, minWidth:0}}>
-                    <div style={{fontWeight: on?700:500, fontSize:13, color: on ? "var(--ink)" : "var(--ink-2)", display:"flex", alignItems:"center", gap:6}}>
+                    <div style={{fontWeight:500, fontSize:13.5, color: on ? "white" : "var(--ink)", display:"flex", alignItems:"center", gap:6}}>
                       {s.n}
-                      {locked && <span className="chip" style={{padding:"0 6px", fontSize:9, background:"var(--ink)", color:"white"}}>{locked === "team" ? "Team" : "Pro"}</span>}
+                      {locked && <span className="chip" style={{padding:"0 6px", fontSize:9, background: on ? "rgba(255,255,255,.22)" : "var(--ink)", color:"white"}}>{locked === "team" ? "Team" : "Pro"}</span>}
                     </div>
-                    <div style={{fontSize:11, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{s.d}</div>
+                    <div style={{fontSize:11, color: on ? "rgba(255,255,255,.78)" : "var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{s.d}</div>
                   </div>
-                  {locked && <Icon.Lock size={12} color="var(--muted)"/>}
+                  {locked && <Icon.Lock size={12} color={on ? "white" : "var(--muted-2)"}/>}
                 </button>
               );
             })}
@@ -227,7 +220,7 @@ function WorkspaceComingSoon({ tweaks, currentUser }){
       <SectionHeader title="Workspace" sub="Identidade, equipe e permissões do seu workspace."/>
       <div style={{
         padding:"36px 32px", borderRadius:18,
-        background:"linear-gradient(180deg, #fafbfe, white)",
+        background:"linear-gradient(180deg, #fbfbfd, white)",
         border:"1px solid var(--line)", textAlign:"center",
         position:"relative", overflow:"hidden"
       }}>
@@ -242,7 +235,7 @@ function WorkspaceComingSoon({ tweaks, currentUser }){
         <div style={{display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px", borderRadius:99, background:"var(--ink)", color:"white", fontSize:11, fontWeight:700, marginBottom:10}}>
           <Icon.Lock size={10}/> Plano Team · em breve
         </div>
-        <h2 style={{margin:"0 0 10px", fontSize:22, fontWeight:800, letterSpacing:"-.02em"}}>
+        <h2 style={{margin:"0 0 10px", fontSize:22, fontWeight:700, letterSpacing:"-.02em"}}>
           Workspace está disponível no plano Team
         </h2>
         <p style={{margin:"0 auto 22px", fontSize:13.5, color:"var(--muted)", lineHeight:1.55, maxWidth: 460}}>
@@ -268,17 +261,17 @@ function WorkspaceComingSoon({ tweaks, currentUser }){
           className={notified ? "btn btn-ghost" : "btn btn-primary"}
           style={{padding:"11px 18px", opacity: notified ? 1 : undefined}}>
           {notified
-            ? <><Icon.Check size={13} stroke={3} color="#0a8a4a"/> Te avisaremos!</>
+            ? <><Icon.Check size={13} stroke={3} color="#248a3d"/> Te avisaremos!</>
             : <><Icon.Sparkle size={13}/> Notificar quando estiver disponível</>}
         </button>
-        {wlError && <div role="alert" style={{marginTop:10, fontSize:12.5, color:"#c9234a"}}>{wlError}</div>}
+        {wlError && <div role="alert" style={{marginTop:10, fontSize:12.5, color:"#d70015"}}>{wlError}</div>}
       </div>
     </div>
   );
 }
 
 function PlanGate({ tier="pro", title, desc, features=[], preview }){
-  const accentVar = tier === "team" ? "#7a5cff" : "var(--brand)";
+  const accentVar = tier === "team" ? "#5e5ce6" : "var(--brand)";
   const ctaLabel = tier === "team" ? "Falar com vendas" : "Experimentar Pro";
   return (
     <div className="paywall-blur" style={{position:"relative", minHeight: 580}}>
@@ -289,7 +282,7 @@ function PlanGate({ tier="pro", title, desc, features=[], preview }){
         <div style={{
           maxWidth: 520, background:"white", border:"1px solid var(--line)",
           borderRadius: 18, padding:"28px 28px 24px",
-          boxShadow:"0 40px 80px -20px rgba(15,23,42,.3)",
+          boxShadow:"0 40px 80px -20px rgba(0,0,0,.3)",
           textAlign:"center"
         }}>
           <div style={{
@@ -303,7 +296,7 @@ function PlanGate({ tier="pro", title, desc, features=[], preview }){
           <div style={{display:"inline-flex", alignItems:"center", gap:6, padding:"3px 10px", borderRadius:99, background:`color-mix(in oklch, ${accentVar} 12%, white)`, color:accentVar, fontSize:11, fontWeight:700, marginBottom:10}}>
             <Icon.Lock size={10}/> Plano {tier === "team" ? "Team" : "Pro"}
           </div>
-          <h2 style={{margin:"0 0 8px", fontSize:22, fontWeight:800, letterSpacing:"-.02em"}}>{title}</h2>
+          <h2 style={{margin:"0 0 8px", fontSize:22, fontWeight:700, letterSpacing:"-.02em"}}>{title}</h2>
           <p style={{margin:"0 0 18px", fontSize:13.5, color:"var(--muted)", lineHeight:1.55}}>{desc}</p>
           <ul style={{listStyle:"none", padding:0, margin:"0 0 22px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, textAlign:"left"}}>
             {features.map(f=>(
@@ -353,7 +346,7 @@ function SectionHeader({ title, sub, action }){
   return (
     <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:24, gap:18, flexWrap:"wrap"}}>
       <div>
-        <h1 style={{margin:"0 0 6px", fontSize:30, fontWeight:800, letterSpacing:"-.02em"}}>{title}</h1>
+        <h1 style={{margin:"0 0 6px", fontSize:30, fontWeight:700, letterSpacing:"-.02em"}}>{title}</h1>
         <div style={{fontSize:14, color:"var(--muted)"}}>{sub}</div>
       </div>
       {action}
@@ -434,9 +427,9 @@ function BillingSection({ tweaks, setTweak, currentUser }){
   const maxRows   = limits && limits.maxRows ? limits.maxRows : null;
 
   const usage = [
-    { l:"Análises da IA neste mês", v: aiUsed == null ? "—" : aiUsed, max: aiMonthly == null ? "—" : aiMonthly, pct: aiPct, c:"#7a5cff" },
+    { l:"Análises da IA neste mês", v: aiUsed == null ? "—" : aiUsed, max: aiMonthly == null ? "—" : aiMonthly, pct: aiPct, c:"#5e5ce6" },
     { l:"Linhas por base", v: maxRows ? maxRows.toLocaleString("pt-BR") : "—", max:"limite do plano", pct:100, c: tweaks.accent },
-    { l:"Exportar PDF/PNG", v: canExport ? "Incluído" : "—", max: canExport ? "no seu plano" : "só nos planos pagos", pct: canExport ? 100 : 0, c:"#0a8a4a", locked: !canExport },
+    { l:"Exportar PDF/PNG", v: canExport ? "Incluído" : "—", max: canExport ? "no seu plano" : "só nos planos pagos", pct: canExport ? 100 : 0, c:"#248a3d", locked: !canExport },
   ];
 
   return (
@@ -448,7 +441,7 @@ function BillingSection({ tweaks, setTweak, currentUser }){
         padding: 32, borderRadius: 18, marginBottom: 18,
         background: isPaid
           ? `linear-gradient(135deg, ${tweaks.accent}, var(--violet))`
-          : "linear-gradient(180deg, #fafbfe, white)",
+          : "linear-gradient(180deg, #fbfbfd, white)",
         color: isPaid ? "white" : "var(--ink)",
         border: isPaid ? "none" : "1px solid var(--line)",
         position:"relative", overflow:"hidden"
@@ -463,7 +456,7 @@ function BillingSection({ tweaks, setTweak, currentUser }){
             }}>
               <Icon.Crown size={11}/> {isPaid ? ("Plano " + planName + (yearly ? " anual" : "") + (cancelled ? " · Cancelado" : " · Ativo")) : "Plano Free"}
             </div>
-            <h2 className="ticker" style={{margin:"0 0 6px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>
+            <h2 className="ticker" style={{margin:"0 0 6px", fontSize:32, fontWeight:700, letterSpacing:"-.025em"}}>
               R$ {planPrice}<span style={{fontSize:14, fontWeight:500, opacity:.8}}>{isPaid && yearly ? "/ano" : "/mês"}</span>
             </h2>
             <div style={{fontSize:13, opacity: isPaid ? .9 : 1, color: isPaid ? "white" : "var(--muted)"}}>
@@ -498,13 +491,13 @@ function BillingSection({ tweaks, setTweak, currentUser }){
       <SettingsCard title="Uso e limites" sub="A cota de análises da IA reinicia todo dia 1º.">
         <div className="resp-collapse" style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14}}>
           {usage.map((u,i)=>(
-            <div key={i} style={{padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background: u.locked ? "#fafbfe" : "white", opacity: u.locked ? .7 : 1}}>
+            <div key={i} style={{padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background: u.locked ? "#fbfbfd" : "white", opacity: u.locked ? .7 : 1}}>
               <div style={{display:"flex", justifyContent:"space-between", marginBottom:8}}>
                 <div style={{fontSize:12, color:"var(--muted)", fontWeight:600}}>{u.l}</div>
                 {u.locked && <Icon.Lock size={12} color="var(--muted)"/>}
               </div>
               <div style={{display:"flex", alignItems:"baseline", gap:4, marginBottom:6}}>
-                <span style={{fontSize:24, fontWeight:800, letterSpacing:"-.02em", color: u.c}}>{u.v}</span>
+                <span style={{fontSize:24, fontWeight:700, letterSpacing:"-.02em", color: u.c}}>{u.v}</span>
                 <span style={{fontSize:12, color:"var(--muted)"}}>{typeof u.max === "number" ? "/ " + u.max.toLocaleString("pt-BR") : u.max}</span>
               </div>
               <div style={{height:6, background:"var(--line-2)", borderRadius:99, overflow:"hidden"}}>
@@ -519,7 +512,7 @@ function BillingSection({ tweaks, setTweak, currentUser }){
       <SettingsCard title="Método de pagamento"
         sub={isPaid ? "Pagamento processado pelo Asaas." : "Escolha cartão ou Pix ao assinar."}>
         {isPaid ? (
-          <div style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"#fafbfe"}}>
+          <div style={{display:"flex", alignItems:"center", gap:14, padding:"14px 16px", border:"1px solid var(--line)", borderRadius:12, background:"#fbfbfd"}}>
             <span style={{
               width:36, height:36, borderRadius:10, flexShrink:0, background:"var(--brand-soft)", color:"var(--brand)",
               display:"inline-flex", alignItems:"center", justifyContent:"center"
@@ -561,9 +554,9 @@ function ReferralSection({ tweaks }){
   ];
 
   const stMeta = {
-    converted: { n:"Convertido", c:"#0a8a4a", bg:"#e7f7ef" },
+    converted: { n:"Convertido", c:"#248a3d", bg:"#e7f7ef" },
     trial:     { n:"Em trial", c:"var(--brand-2)", bg:"var(--brand-soft)" },
-    signup:    { n:"Cadastrou", c:"#7a5cff", bg:"color-mix(in oklch, #7a5cff 12%, white)" },
+    signup:    { n:"Cadastrou", c:"#5e5ce6", bg:"color-mix(in oklch, #5e5ce6 12%, white)" },
     clicked:   { n:"Clicou no link", c:"var(--muted)", bg:"var(--line-2)" },
   };
 
@@ -589,7 +582,7 @@ function ReferralSection({ tweaks }){
         <div style={{display:"inline-flex", alignItems:"center", gap:7, padding:"4px 10px", borderRadius:99, background:"rgba(255,255,255,.18)", fontSize:11, fontWeight:600, marginBottom:14}}>
           <Icon.Sparkle size={11}/> Programa de indicação
         </div>
-        <h2 style={{margin:"0 0 8px", fontSize:30, fontWeight:800, letterSpacing:"-.025em", maxWidth: 480}}>
+        <h2 style={{margin:"0 0 8px", fontSize:30, fontWeight:700, letterSpacing:"-.025em", maxWidth: 480}}>
           Convide amigos. Ganhe meses do Pro.
         </h2>
         <p style={{margin:"0 0 24px", fontSize:14, color:"rgba(255,255,255,.85)", maxWidth: 460, lineHeight:1.55}}>
@@ -606,7 +599,7 @@ function ReferralSection({ tweaks }){
             borderRadius:10, fontWeight:600, fontSize:13, cursor:"pointer",
             display:"inline-flex", alignItems:"center", gap:6
           }}>
-            {copied ? <><Icon.Check size={13} stroke={3} color="#0a8a4a"/> Copiado!</> : <><Icon.Share size={13}/> Copiar link</>}
+            {copied ? <><Icon.Check size={13} stroke={3} color="#248a3d"/> Copiado!</> : <><Icon.Share size={13}/> Copiar link</>}
           </button>
         </div>
         {/* Social share ("Compartilhar") — deep links not wired yet, so gated
@@ -634,13 +627,13 @@ function ReferralSection({ tweaks }){
       <div style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:14, marginBottom:18}}>
         {[
           {l:"Cliques no link", v:42, c:"var(--muted)"},
-          {l:"Cadastros", v:8, c:"#7a5cff"},
+          {l:"Cadastros", v:8, c:"#5e5ce6"},
           {l:"Conversões", v:2, c:tweaks.accent},
-          {l:"Pro grátis ganho", v:"60 dias", c:"#0a8a4a"},
+          {l:"Pro grátis ganho", v:"60 dias", c:"#248a3d"},
         ].map((s,i)=>(
           <div key={i} style={{padding:"16px 18px", background:"white", border:"1px solid var(--line)", borderRadius:14}}>
             <div style={{fontSize:11, color:"var(--muted)", letterSpacing:".06em", textTransform:"uppercase", fontWeight:600, marginBottom:6}}>{s.l}</div>
-            <div style={{fontSize:24, fontWeight:800, letterSpacing:"-.02em", color: s.c}}>{s.v}</div>
+            <div style={{fontSize:24, fontWeight:700, letterSpacing:"-.02em", color: s.c}}>{s.v}</div>
           </div>
         ))}
       </div>
@@ -653,8 +646,8 @@ function ReferralSection({ tweaks }){
             { n:"02", i:<Icon.User size={16}/>, t:"Amigo se cadastra", d:"Ele ganha 14 dias de Pro grátis (em vez dos 7 normais)." },
             { n:"03", i:<Icon.Crown size={16}/>, t:"Vocês dois ganham", d:"Quando o trial dele converter, você ganha +30 dias do Pro." },
           ].map(s=>(
-            <div key={s.n} style={{padding:"18px 20px", background:"#fafbfe", border:"1px solid var(--line-2)", borderRadius:12, position:"relative"}}>
-              <div className="mono" style={{position:"absolute", top:18, right:20, fontSize:28, fontWeight:800, color:"var(--line)", letterSpacing:"-.03em"}}>{s.n}</div>
+            <div key={s.n} style={{padding:"18px 20px", background:"#fbfbfd", border:"1px solid var(--line-2)", borderRadius:12, position:"relative"}}>
+              <div className="mono" style={{position:"absolute", top:18, right:20, fontSize:28, fontWeight:700, color:"var(--line)", letterSpacing:"-.03em"}}>{s.n}</div>
               <div style={{
                 width:36, height:36, borderRadius:10,
                 background:`linear-gradient(135deg, ${tweaks.accent}, var(--violet))`, color:"white",
@@ -682,7 +675,7 @@ function ReferralSection({ tweaks }){
               <div style={{display:"flex", gap:10, alignItems:"center"}}>
                 <div style={{
                   width:32, height:32, borderRadius:"50%",
-                  background:`linear-gradient(135deg, ${["#ff7849","#7a5cff","#0a8a4a","#2f6bff","#ff5e93"][i%5]}, ${["#ff5e93","#2f6bff","#0a8a4a","#7a5cff","#ff7849"][i%5]})`,
+                  background:`linear-gradient(135deg, ${["#ff9500","#5e5ce6","#248a3d","#0071e3","#ff375f"][i%5]}, ${["#ff375f","#0071e3","#248a3d","#5e5ce6","#ff9500"][i%5]})`,
                   color:"white", display:"flex", alignItems:"center", justifyContent:"center",
                   fontWeight:700, fontSize:11, flexShrink:0
                 }}>{r.n.split(" ").map(x=>x[0]).slice(0,2).join("")}</div>
@@ -698,14 +691,14 @@ function ReferralSection({ tweaks }){
                 </span>
               </div>
               <div className="mono" style={{fontSize:12, color:"var(--muted)"}}>{r.date}</div>
-              <div style={{fontSize:13, fontWeight: r.st==="converted"?700:500, color: r.st==="converted"?"#0a8a4a":"var(--muted)"}}>{r.reward}</div>
+              <div style={{fontSize:13, fontWeight: r.st==="converted"?700:500, color: r.st==="converted"?"#248a3d":"var(--muted)"}}>{r.reward}</div>
             </div>
           );
         })}
       </SettingsCard>
 
       {/* Rules */}
-      <div style={{padding:"14px 18px", background:"#fafbfe", border:"1px dashed var(--line)", borderRadius:12, fontSize:12, color:"var(--muted)", lineHeight:1.55}}>
+      <div style={{padding:"14px 18px", background:"#fbfbfd", border:"1px dashed var(--line)", borderRadius:12, fontSize:12, color:"var(--muted)", lineHeight:1.55}}>
         <div style={{fontWeight:700, color:"var(--ink-2)", marginBottom:6, display:"flex", alignItems:"center", gap:6}}>
           <Icon.Idea size={13} color="var(--brand)"/> Regras do programa
         </div>

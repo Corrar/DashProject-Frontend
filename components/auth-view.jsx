@@ -24,7 +24,7 @@ function PasswordStrength({ value }){
     { k:"sym", t:"Símbolo", ok: /[^A-Za-z0-9]/.test(value) },
   ];
   const score = checks.filter(c=>c.ok).length;
-  const colors = ["#c9234a", "#ff7849", "#ffbe2e", "#0a8a4a", "#0a8a4a"];
+  const colors = ["#d70015", "#ff7849", "#ffbe2e", "#248a3d", "#248a3d"];
   const labels = ["Fraca", "Fraca", "Média", "Boa", "Forte"];
   return (
     <div style={{marginTop:6}}>
@@ -46,7 +46,7 @@ function PasswordStrength({ value }){
           <span key={c.k} style={{
             display:"inline-flex", alignItems:"center", gap:4, padding:"2px 8px",
             background: c.ok ? "#e7f7ef" : "var(--line-2)",
-            color: c.ok ? "#0a8a4a" : "var(--muted)",
+            color: c.ok ? "#248a3d" : "var(--muted)",
             borderRadius:99, fontSize:11, fontWeight:500
           }}>
             {c.ok ? <Icon.Check size={10} stroke={3}/> : <span style={{width:6, height:6, borderRadius:"50%", background:"var(--muted)"}}/>}
@@ -69,7 +69,7 @@ function AuthField({ label, error, hint, children }){
           <span style={{fontSize:12, fontWeight:600, color:"var(--ink-2)"}}>{label}</span>
         </div>
         {children}
-        {error && <div style={{marginTop:6, fontSize:11, color:"#c9234a", display:"flex", alignItems:"center", gap:5}}>
+        {error && <div style={{marginTop:6, fontSize:11, color:"#d70015", display:"flex", alignItems:"center", gap:5}}>
           <Icon.Bolt size={11}/> {error}
         </div>}
       </label>
@@ -185,7 +185,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onRese
                   <span className="dot"/>
                   {isSignup ? "Criar conta" : "Entrar na sua conta"}
                 </div>
-                <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>
+                <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:700, letterSpacing:"-.025em"}}>
                   {isSignup ? "Comece grátis." : "Bem-vindo de volta."}
                   <br/>
                   <span style={{
@@ -205,7 +205,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onRese
               {apiError && (
                 <div role="alert" style={{
                   padding:"10px 14px", borderRadius:10, background:"#fff7f9",
-                  border:"1px solid #ffd2dd", color:"#c9234a",
+                  border:"1px solid #ffd2dd", color:"#d70015",
                   fontSize:13, marginBottom:14, display:"flex", alignItems:"flex-start", gap:8
                 }}>
                   <Icon.Bolt size={14}/> <span>{apiError}</span>
@@ -261,7 +261,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onRese
                 {isSignup && (
                   <label style={{
                     display:"flex", alignItems:"flex-start", gap:10, padding:"4px 0",
-                    fontSize:12, color: errors.terms ? "#c9234a" : "var(--ink-2)", cursor:"pointer"
+                    fontSize:12, color: errors.terms ? "#d70015" : "var(--ink-2)", cursor:"pointer"
                   }}>
                     <input type="checkbox" checked={terms} onChange={e=>{ setTerms(e.target.checked); setErrors(x=>({...x, terms:""})); }}
                       style={{accentColor:"var(--brand)", marginTop:2}}/>
@@ -287,10 +287,10 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onRese
               </div>
 
               <div style={{
-                marginTop:24, padding:"12px 14px", borderRadius:10, background:"#fafbfe",
+                marginTop:24, padding:"12px 14px", borderRadius:10, background:"#fbfbfd",
                 border:"1px solid var(--line-2)", display:"flex", gap:10, alignItems:"flex-start"
               }}>
-                <Icon.Lock size={14} color="#0a8a4a"/>
+                <Icon.Lock size={14} color="#248a3d"/>
                 <div style={{fontSize:12, color:"var(--muted)", lineHeight:1.55}}>
                   Conexão criptografada. Suas planilhas são processadas no navegador — só a análise por IA, quando você a pede, envia uma amostra das linhas.
                 </div>
@@ -307,7 +307,7 @@ function AuthView({ mode, onMode, tweaks, onSuccess, onClose, resetToken, onRese
 }
 
 const inputStyle = (err)=>({
-  width:"100%", padding:"12px 14px", border: `1px solid ${err?"#c9234a":"var(--line)"}`,
+  width:"100%", padding:"12px 14px", border: `1px solid ${err?"#d70015":"var(--line)"}`,
   borderRadius:10, fontSize:14, fontFamily:"inherit", color:"var(--ink)",
   outline:"none", background:"white", transition:"border-color .15s ease, box-shadow .15s ease",
 });
@@ -338,7 +338,7 @@ function AuthSidePanel({ tweaks, mode }){
       background: `
         radial-gradient(ellipse at 0% 0%, rgba(255,255,255,.18), transparent 50%),
         radial-gradient(ellipse at 100% 100%, rgba(122,92,255,.6), transparent 50%),
-        linear-gradient(135deg, ${tweaks.accent}, var(--violet) 60%, #0b1020)
+        linear-gradient(135deg, ${tweaks.accent}, var(--violet) 60%, #1d1d1f)
       `,
       minHeight: 560,
       display:"flex", flexDirection:"column", justifyContent:"space-between"
@@ -350,7 +350,7 @@ function AuthSidePanel({ tweaks, mode }){
         }}>
           <Icon.Crown size={11}/> Pro · R$ 49,90/mês
         </div>
-        <h2 style={{margin:"0 0 12px", fontSize:32, fontWeight:800, letterSpacing:"-.025em", lineHeight:1.1}}>
+        <h2 style={{margin:"0 0 12px", fontSize:32, fontWeight:700, letterSpacing:"-.025em", lineHeight:1.1}}>
           Da planilha ao dashboard.<br/>Sem código.
         </h2>
         <p style={{margin:"0 0 28px", fontSize:14, color:"rgba(255,255,255,.85)", lineHeight:1.55, maxWidth:380}}>
@@ -368,7 +368,7 @@ function AuthSidePanel({ tweaks, mode }){
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:10}}>
             <div>
               <div className="mono" style={{fontSize:9, opacity:.7, letterSpacing:".06em"}}>RECEITA · Q3</div>
-              <div style={{fontWeight:800, fontSize:20, letterSpacing:"-.01em"}}>R$ 1,28M</div>
+              <div style={{fontWeight:700, fontSize:20, letterSpacing:"-.01em"}}>R$ 1,28M</div>
             </div>
             <span style={{padding:"3px 8px", background:"rgba(0,195,154,.25)", color:"#7af2c5", borderRadius:99, fontSize:10, fontWeight:700}}>▲ 18,4%</span>
           </div>
@@ -450,8 +450,8 @@ function ResetPasswordForm({ token, tweaks, onDone, onRestart }){
   if(st === "done"){
     return (
       <div style={{textAlign:"center", padding:"30px 20px"}}>
-        <div style={{width:56, height:56, margin:"0 auto 16px", borderRadius:16, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={26} stroke={3}/></div>
-        <h1 style={{margin:"0 0 8px", fontSize:26, fontWeight:800, letterSpacing:"-.02em"}}>Senha redefinida</h1>
+        <div style={{width:56, height:56, margin:"0 auto 16px", borderRadius:16, background:"#e7f7ef", color:"#248a3d", display:"flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={26} stroke={3}/></div>
+        <h1 style={{margin:"0 0 8px", fontSize:26, fontWeight:700, letterSpacing:"-.02em"}}>Senha redefinida</h1>
         <p style={{margin:"0 0 20px", fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Por segurança, encerramos as sessões abertas. Entre com a nova senha.</p>
         <button className="btn btn-primary" style={{justifyContent:"center", width:"100%", padding:"13px"}} onClick={onDone}>Entrar <Icon.Arrow size={14}/></button>
       </div>
@@ -461,11 +461,11 @@ function ResetPasswordForm({ token, tweaks, onDone, onRestart }){
     <>
       <div style={{marginBottom: 24}}>
         <div className="eyebrow" style={{marginBottom:14}}><span className="dot"/> Recuperar acesso</div>
-        <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:800, letterSpacing:"-.025em"}}>Defina uma nova senha.</h1>
+        <h1 style={{margin:"0 0 8px", fontSize:32, fontWeight:700, letterSpacing:"-.025em"}}>Defina uma nova senha.</h1>
         <p style={{margin:0, fontSize:14, color:"var(--muted)", lineHeight:1.55}}>Use pelo menos 8 caracteres. O link do e-mail vale por 1 hora e funciona uma vez.</p>
       </div>
       {err && (
-        <div role="alert" style={{padding:"10px 14px", borderRadius:10, background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a", fontSize:13, marginBottom:14}}>
+        <div role="alert" style={{padding:"10px 14px", borderRadius:10, background:"#fff7f9", border:"1px solid #ffd2dd", color:"#d70015", fontSize:13, marginBottom:14}}>
           {err} {/expirou|inválido/.test(err) && <button type="button" className="link-btn" onClick={onRestart}>Pedir um novo link</button>}
         </div>
       )}
@@ -484,7 +484,7 @@ function ResetPasswordForm({ token, tweaks, onDone, onRestart }){
         <AuthField label="Repita a nova senha" htmlFor="rp-pw2">
           <input id="rp-pw2" type={show ? "text" : "password"} autoComplete="new-password" value={pw2}
             onChange={e=>setPw2(e.target.value)} style={inputStyle(mismatch)}/>
-          {mismatch && <div style={{fontSize:12, color:"#c9234a", marginTop:4}}>As senhas não são iguais.</div>}
+          {mismatch && <div style={{fontSize:12, color:"#d70015", marginTop:4}}>As senhas não são iguais.</div>}
         </AuthField>
         <button type="submit" className="btn btn-primary" disabled={pw.length < 8 || pw !== pw2 || st === "saving"}
           style={{justifyContent:"center", padding:"13px", opacity: (pw.length < 8 || pw !== pw2) ? .6 : 1}}>
@@ -503,7 +503,7 @@ function SuccessCard({ mode, tweaks, name, onContinue }){
     <div style={{textAlign:"center", padding:"30px 20px"}}>
       <div style={{
         width:80, height:80, margin:"0 auto 20px", borderRadius:24,
-        background:"linear-gradient(180deg, #0a8a4a, #006b3a)",
+        background:"linear-gradient(180deg, #248a3d, #006b3a)",
         color:"white", display:"flex", alignItems:"center", justifyContent:"center",
         boxShadow:"0 20px 40px -16px rgba(10,138,74,.5)",
         animation:"successPop .4s cubic-bezier(.2,.7,.2,1)"
@@ -511,7 +511,7 @@ function SuccessCard({ mode, tweaks, name, onContinue }){
         <Icon.Check size={40} stroke={3}/>
       </div>
       <style>{`@keyframes successPop{ 0%{ transform: scale(.6); opacity:0; } 60%{ transform: scale(1.08); } }`}</style>
-      <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:800, letterSpacing:"-.02em"}}>
+      <h2 style={{margin:"0 0 8px", fontSize:24, fontWeight:700, letterSpacing:"-.02em"}}>
         Conta criada{name?`, ${name.split(" ")[0]}!`:" com sucesso!"}
       </h2>
       <p style={{margin:"0 0 20px", color:"var(--muted)", fontSize:14, lineHeight:1.55}}>

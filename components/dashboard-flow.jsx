@@ -31,7 +31,7 @@ function UploadView({ onUploaded, maxRows, children }){
 
   const formats = [
     {
-      k:"csv", ext:".csv", n:"CSV", c:"#0a8a4a",
+      k:"csv", ext:".csv", n:"CSV", c:"#248a3d",
       desc:"Valores separados por vírgula ou ponto e vírgula.",
       sample: `data,produto,regiao,valor
 2026-07-12,Mesa Ajustável,CO,2980
@@ -45,7 +45,7 @@ function UploadView({ onUploaded, maxRows, children }){
 | 2026-07-12 | Mesa Ajustável  | CO     | 2980  |`,
     },
     {
-      k:"json", ext:".json · .ndjson", n:"JSON", c:"#7a5cff",
+      k:"json", ext:".json · .ndjson", n:"JSON", c:"#5e5ce6",
       desc:"Array de objetos ou um objeto por linha.",
       sample: `[
   { "data":"2026-07-12", "produto":"Mesa", "valor":2980 },
@@ -257,7 +257,7 @@ function UploadView({ onUploaded, maxRows, children }){
       {parseError && (
         <div role="alert" style={{
           marginBottom: 14, padding:"12px 16px", borderRadius:12,
-          background:"#fff7f9", border:"1px solid #ffd2dd", color:"#c9234a",
+          background:"#fff7f9", border:"1px solid #ffd2dd", color:"#d70015",
           display:"flex", alignItems:"center", gap:10, fontSize:13
         }}>
           <Icon.Bolt size={14}/> <span>{parseError}</span>
@@ -371,7 +371,7 @@ function UploadView({ onUploaded, maxRows, children }){
         </div>
 
         {/* Direita: formatos aceitos */}
-        <div className="rv card" style={{padding: 0, overflow:"hidden", background:"#fafbfe"}}>
+        <div className="rv card" style={{padding: 0, overflow:"hidden", background:"#fbfbfd"}}>
           <div style={{padding:"16px 18px 12px", borderBottom:"1px solid var(--line)"}}>
             <div style={{fontWeight:700, fontSize:15}}>Formatos aceitos</div>
             <div style={{fontSize:12, color:"var(--muted)", marginTop:3}}>Clique para ver a estrutura esperada.</div>
@@ -426,15 +426,15 @@ function UploadView({ onUploaded, maxRows, children }){
         </div>
         <div className="card" style={{padding:20}}>
           <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:12}}>
-            <span style={{width:28, height:28, borderRadius:8, background:"#e7f7ef", color:"#0a8a4a", display:"flex", alignItems:"center", justifyContent:"center"}}>
+            <span style={{width:28, height:28, borderRadius:8, background:"#e7f7ef", color:"#248a3d", display:"flex", alignItems:"center", justifyContent:"center"}}>
               <Icon.Lock size={14}/>
             </span>
             <span style={{fontWeight:700, fontSize:14.5}}>Privado por padrão</span>
           </div>
           <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:12.5, color:"var(--ink-2)", lineHeight:1.5}}>
-            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#0a8a4a"/> <span>O arquivo é lido e processado no seu navegador.</span></div>
-            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#0a8a4a"/> <span>A análise por IA só roda quando você clica, e envia nomes de colunas, indicadores e até 20 linhas.</span></div>
-            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#0a8a4a"/> <span>O dashboard fica salvo só neste navegador, e você apaga quando quiser.</span></div>
+            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#248a3d"/> <span>O arquivo é lido e processado no seu navegador.</span></div>
+            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#248a3d"/> <span>A análise por IA só roda quando você clica, e envia nomes de colunas, indicadores e até 20 linhas.</span></div>
+            <div style={{display:"flex", gap:8}}><Icon.Check size={13} stroke={2.6} color="#248a3d"/> <span>O dashboard fica salvo só neste navegador, e você apaga quando quiser.</span></div>
           </div>
         </div>
       </div>
@@ -457,7 +457,7 @@ function ProcessingPanel({ filename, progress, step, engine }){
       <div style={{display:"flex", alignItems:"center", gap:14, marginBottom: 16}}>
         <div style={{
           width:46, height:46, borderRadius:12, flexShrink:0,
-          background: step==="done" ? "linear-gradient(180deg, #0a8a4a, #006b3a)" : "linear-gradient(180deg, var(--brand), var(--brand-2))",
+          background: step==="done" ? "linear-gradient(180deg, #248a3d, #006b3a)" : "linear-gradient(180deg, var(--brand), var(--brand-2))",
           color:"white", display:"flex", alignItems:"center", justifyContent:"center", transition:"background .3s ease"
         }}>
           {step==="done" ? <Icon.Check size={22} stroke={3}/> : <Icon.Doc size={20}/>}
@@ -482,7 +482,7 @@ function ProcessingPanel({ filename, progress, step, engine }){
               <span style={{
                 width:24, height:24, borderRadius:7, flexShrink:0,
                 background: state==="done" ? "#e7f7ef" : state==="active" ? "var(--brand-soft)" : "var(--line-2)",
-                color: state==="done" ? "#0a8a4a" : state==="active" ? "var(--brand)" : "var(--muted)",
+                color: state==="done" ? "#248a3d" : state==="active" ? "var(--brand)" : "var(--muted)",
                 display:"inline-flex", alignItems:"center", justifyContent:"center"
               }}>
                 {state==="done" ? <Icon.Check size={12} stroke={3}/> : s.i}
@@ -527,9 +527,9 @@ function PromptView({ onGenerate, onBack, fileInfo }){
         { n:"valor_total", t:"measure", ex:"R$ 4.420", nulls:0 },
       ];
   const typeMeta = {
-    date:      { c:"#7a5cff", bg:"color-mix(in oklch, #7a5cff 14%, white)", n:"data" },
-    dimension: { c:"#2f6bff", bg:"var(--brand-soft)", n:"dimensão" },
-    measure:   { c:"#0a8a4a", bg:"#e7f7ef", n:"número" },
+    date:      { c:"#5e5ce6", bg:"color-mix(in oklch, #5e5ce6 14%, white)", n:"data" },
+    dimension: { c:"#0071e3", bg:"var(--brand-soft)", n:"dimensão" },
+    measure:   { c:"#248a3d", bg:"#e7f7ef", n:"número" },
   };
   const count = (t)=> schema.filter(c=>c.t===t).length;
 
@@ -546,11 +546,11 @@ function PromptView({ onGenerate, onBack, fileInfo }){
         { id:"k2", n:"Ticket médio", d:"MÉDIA(valor_total)", conf:96 },
         { id:"k3", n:"Total de pedidos", d:"CONTAGEM(linhas)", conf:95 },
       ]},
-    { k:"trend", n:"Tendências no tempo", i:<Icon.Line size={13}/>, c:"#7a5cff",
+    { k:"trend", n:"Tendências no tempo", i:<Icon.Line size={13}/>, c:"#5e5ce6",
       items: [
         { id:"t1", n:"Evolução diária do valor", d:"valor_total por data", conf:97 },
       ]},
-    { k:"dim", n:"Quebras por dimensão", i:<Icon.Bars size={13}/>, c:"#0a8a4a",
+    { k:"dim", n:"Quebras por dimensão", i:<Icon.Bars size={13}/>, c:"#248a3d",
       items: [
         { id:"d1", n:"Vendas por região", d:"SOMA(valor_total) por regiao", conf:96 },
         { id:"d2", n:"Top produtos", d:"SOMA(valor_total) por produto", conf:95 },
@@ -566,8 +566,8 @@ function PromptView({ onGenerate, onBack, fileInfo }){
       : kind === "trend" ? "trend" : "dim";
     const meta = {
       kpi:   { k:"kpi",   n:"KPIs principais",     i:<Icon.Sparkle size={13}/>, c:"var(--brand)", hint:"até 4 no dashboard" },
-      trend: { k:"trend", n:"Tendências no tempo",  i:<Icon.Line size={13}/>,    c:"#7a5cff" },
-      dim:   { k:"dim",   n:"Quebras por dimensão", i:<Icon.Bars size={13}/>,    c:"#0a8a4a" },
+      trend: { k:"trend", n:"Tendências no tempo",  i:<Icon.Line size={13}/>,    c:"#5e5ce6" },
+      dim:   { k:"dim",   n:"Quebras por dimensão", i:<Icon.Bars size={13}/>,    c:"#248a3d" },
     };
     const buckets = { kpi:[], trend:[], dim:[] };
     realMetrics.forEach((m, idx)=>{
@@ -629,7 +629,7 @@ function PromptView({ onGenerate, onBack, fileInfo }){
       <div className="rv" style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", margin:"8px 0 18px", gap:20, flexWrap:"wrap"}}>
         <div style={{minWidth:0}}>
           <div style={{display:"inline-flex", alignItems:"center", gap:8, marginBottom:8, padding:"4px 10px 4px 4px", borderRadius:999, background:"#e7f7ef", color:"#0a5a30", fontSize:12, fontWeight:700}}>
-            <span style={{width:20, height:20, borderRadius:"50%", background:"#0a8a4a", color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={11} stroke={3}/></span>
+            <span style={{width:20, height:20, borderRadius:"50%", background:"#248a3d", color:"white", display:"inline-flex", alignItems:"center", justifyContent:"center"}}><Icon.Check size={11} stroke={3}/></span>
             Arquivo lido com sucesso
           </div>
           <h1 className="mono" style={{margin:"0 0 8px", fontSize:"clamp(20px, 2.6vw, 28px)", fontWeight:700, letterSpacing:"-.02em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"min(680px, 90vw)"}}>{fname}</h1>

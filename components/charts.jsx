@@ -77,12 +77,12 @@ function chartFmtFull(v){
 function ChartEmpty({ width, height }){
   return (
     <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      <text x={width/2} y={height/2} fontSize="12" textAnchor="middle" fill="#8c93a6">Sem dados no período</text>
+      <text x={width/2} y={height/2} fontSize="12" textAnchor="middle" fill="#86868b">Sem dados no período</text>
     </svg>
   );
 }
 
-function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, showAxis=true, animate=true, animDelay=0 }){
+function LineChart({ data, width=560, height=200, color="#0071e3", fill=true, showAxis=true, animate=true, animDelay=0 }){
   const series = React.useMemo(()=> chartDownsample(data, 200), [data]);
   const id = React.useMemo(()=> "g"+Math.random().toString(36).slice(2,8), []);
   const [wrapRef, measured] = useChartWidth(width);
@@ -135,13 +135,13 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
         const y = yAt(t);
         return (
           <g key={i}>
-            <line x1={pad.l} x2={width-pad.r} y1={y} y2={y} stroke={i === 0 ? "#e3e7f1" : "#eef0f7"} strokeDasharray={i === 0 ? "" : "3 4"}/>
-            <text x={pad.l-8} y={y+3.5} fontSize="10.5" textAnchor="end" fill="#8c93a6" fontFamily="Geist Mono, monospace">{chartFmt(t)}</text>
+            <line x1={pad.l} x2={width-pad.r} y1={y} y2={y} stroke={i === 0 ? "#e3e3e8" : "#f0f0f3"} strokeDasharray={i === 0 ? "" : "3 4"}/>
+            <text x={pad.l-8} y={y+3.5} fontSize="10.5" textAnchor="end" fill="#86868b" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{chartFmt(t)}</text>
           </g>
         );
       })}
       {showAxis && data.map((d,i) => (i % labelEvery === 0) && (
-        <text key={i} x={xAt(i)} y={height-6} fontSize="10.5" textAnchor={i === 0 && data.length > 1 ? "start" : "middle"} fill="#8c93a6" fontFamily="Geist Mono, monospace">{d.l}</text>
+        <text key={i} x={xAt(i)} y={height-6} fontSize="10.5" textAnchor={i === 0 && data.length > 1 ? "start" : "middle"} fill="#86868b" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{d.l}</text>
       ))}
       {fill && <path d={area} fill={`url(#${id})`}/>}
       {/* pathLength=1 normaliza o traço: dispensa medir o path. Estado final é
@@ -158,9 +158,9 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
           <line x1={hp[0]} x2={hp[0]} y1={pad.t} y2={pad.t + H} stroke={color} strokeOpacity=".35" strokeDasharray="3 3"/>
           <circle cx={hp[0]} cy={hp[1]} r="5" fill={color} stroke="white" strokeWidth="2"/>
           <g transform={`translate(${tipX} ${tipY})`}>
-            <rect width={tipW} height="40" rx="8" fill="#0b1020" opacity=".92"/>
-            <text x="10" y="16" fontSize="10.5" fill="#aab3c7" fontFamily="Geist Mono, monospace">{String(data[hover].l || "")}</text>
-            <text x="10" y="31" fontSize="12.5" fontWeight="700" fill="white" fontFamily="Geist, sans-serif">{tipText}</text>
+            <rect width={tipW} height="40" rx="8" fill="#1d1d1f" opacity=".92"/>
+            <text x="10" y="16" fontSize="10.5" fill="#aeaeb2" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{String(data[hover].l || "")}</text>
+            <text x="10" y="31" fontSize="12.5" fontWeight="700" fill="white" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{tipText}</text>
           </g>
         </g>
       )}
@@ -170,7 +170,7 @@ function LineChart({ data, width=560, height=200, color="#2f6bff", fill=true, sh
   );
 }
 
-function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, horizontal=false }){
+function BarChart({ data, width=560, height=200, color="#0071e3", animDelay=0, horizontal=false }){
   const [wrapRef, measured] = useChartWidth(width);
   const [hover, setHover] = React.useState(null);
   if(!data || !data.length) return <ChartEmpty width={width} height={height}/>;
@@ -199,8 +199,8 @@ function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, h
         const y = yAt(t);
         return (
           <g key={i}>
-            <line x1={pad.l} x2={width-pad.r} y1={y} y2={y} stroke={t === 0 ? "#e3e7f1" : "#eef0f7"} strokeDasharray={t === 0 ? "" : "3 4"}/>
-            <text x={pad.l-8} y={y+3.5} fontSize="10.5" textAnchor="end" fill="#8c93a6" fontFamily="Geist Mono, monospace">{chartFmt(t)}</text>
+            <line x1={pad.l} x2={width-pad.r} y1={y} y2={y} stroke={t === 0 ? "#e3e3e8" : "#f0f0f3"} strokeDasharray={t === 0 ? "" : "3 4"}/>
+            <text x={pad.l-8} y={y+3.5} fontSize="10.5" textAnchor="end" fill="#86868b" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{chartFmt(t)}</text>
           </g>
         );
       })}
@@ -222,9 +222,9 @@ function BarChart({ data, width=560, height=200, color="#2f6bff", animDelay=0, h
               opacity={hover == null || on ? 1 : .45}
               style={{transition:"opacity .15s ease", transformBox:"fill-box", transformOrigin:"50% 100%", animation:`barGrow .9s ${animDelay + i*0.06}s cubic-bezier(.2,.7,.2,1) both`}}/>
             {on && (
-              <text className="no-export" x={x + barW/2} y={Math.max(11, top - 6)} fontSize="11" fontWeight="700" textAnchor="middle" fill="#0b1020" fontFamily="Geist, sans-serif">{chartFmt(d.v)}</text>
+              <text className="no-export" x={x + barW/2} y={Math.max(11, top - 6)} fontSize="11" fontWeight="700" textAnchor="middle" fill="#1d1d1f" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{chartFmt(d.v)}</text>
             )}
-            <text x={x+barW/2} y={height-8} fontSize="10.5" textAnchor="middle" fill={on ? "#0b1020" : "#5b6478"}>{cut(d.l)}</text>
+            <text x={x+barW/2} y={height-8} fontSize="10.5" textAnchor="middle" fill={on ? "#1d1d1f" : "#6e6e73"}>{cut(d.l)}</text>
           </g>
         );
       })}
@@ -244,7 +244,7 @@ function Donut({ data, size=180, thickness=22, animDelay=0, center=null }){
   let offset = 0;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={r} stroke="#eef0f7" strokeWidth={thickness} fill="none"/>
+      <circle cx={size/2} cy={size/2} r={r} stroke="#f0f0f3" strokeWidth={thickness} fill="none"/>
       {data.map((d,i)=>{
         const frac = d.v/total;
         const dash = C*frac;
@@ -265,8 +265,8 @@ function Donut({ data, size=180, thickness=22, animDelay=0, center=null }){
       })}
       {center && (
         <g>
-          <text x={size/2} y={size/2 - 2} textAnchor="middle" fontSize={Math.round(size/8)} fontWeight="800" fill="#0b1020" fontFamily="Geist, sans-serif">{center.value}</text>
-          <text x={size/2} y={size/2 + Math.round(size/11)} textAnchor="middle" fontSize="10.5" fill="#8c93a6" fontFamily="Geist, sans-serif">{center.label}</text>
+          <text x={size/2} y={size/2 - 2} textAnchor="middle" fontSize={Math.round(size/8)} fontWeight="700" fill="#1d1d1f" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{center.value}</text>
+          <text x={size/2} y={size/2 + Math.round(size/11)} textAnchor="middle" fontSize="10.5" fill="#86868b" fontFamily="-apple-system, BlinkMacSystemFont, Geist, system-ui, sans-serif">{center.label}</text>
         </g>
       )}
     </svg>
@@ -275,7 +275,7 @@ function Donut({ data, size=180, thickness=22, animDelay=0, center=null }){
 
 // Donut + legenda (rótulo, valor e %). Sem legenda o donut não diz nada:
 // eram só fatias coloridas sem nome.
-const DONUT_PALETTE = ["#2f6bff","#7a5cff","#0a8a4a","#ff7849","#ff5e93","#94b7ff","#1b2240"];
+const DONUT_PALETTE = ["#0071e3","#5e5ce6","#248a3d","#ff9500","#ff375f","#7ab5ff","#2c2c2e"];
 function DonutLegend({ data, height=240, color, unit }){
   const items = (data || []).filter(d => d && d.v > 0);
   if(!items.length) return <ChartEmpty width={300} height={height}/>;
@@ -304,7 +304,7 @@ function DonutLegend({ data, height=240, color, unit }){
   );
 }
 
-function Sparkline({ data, color="#2f6bff", width=120, height=36, fill=true }){
+function Sparkline({ data, color="#0071e3", width=120, height=36, fill=true }){
   const id = React.useMemo(()=>"sp"+Math.random().toString(36).slice(2,8),[]);
   // Série diária longa (2 anos ≈ 730 pontos) não cabe em 160px: reduz a 80.
   const vals = chartDownsample((data || []).map(v => ({ v })), 80).map(d => d.v);

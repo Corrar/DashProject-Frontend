@@ -101,17 +101,17 @@ function ShareModal({ onClose, tweaks, buildSnapshot, defaultTitle, hasAI }){
   const label = { fontSize:10, fontWeight:700, color:"var(--muted)", letterSpacing:".08em", marginBottom:8 };
 
   return (
-    <div onClick={onClose} style={{
-      position:"fixed", inset:0, zIndex:110, background:"rgba(11,16,32,.5)", backdropFilter:"blur(6px)",
+    <div className="sheet-backdrop" onClick={onClose} style={{
+      position:"fixed", inset:0, zIndex:110, background:"rgba(0,0,0,.5)", backdropFilter:"blur(6px)",
       display:"flex", alignItems:"center", justifyContent:"center", padding:24,
     }}>
-      <div onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Compartilhar por link" style={{
+      <div className="sheet" onClick={e=>e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Compartilhar por link" style={{
         width:"min(560px, 100%)", maxHeight:"92vh", overflowY:"auto", background:"white", borderRadius:18,
-        boxShadow:"0 40px 80px -20px rgba(11,16,32,.5)", padding:24, display:"flex", flexDirection:"column", gap:18,
+        boxShadow:"0 40px 80px -20px rgba(0,0,0,.5)", padding:24, display:"flex", flexDirection:"column", gap:18,
       }}>
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12}}>
           <div>
-            <h2 style={{margin:0, fontSize:18, fontWeight:800, letterSpacing:"-.01em"}}>Compartilhar por link</h2>
+            <h2 style={{margin:0, fontSize:18, fontWeight:700, letterSpacing:"-.01em"}}>Compartilhar por link</h2>
             <div style={{fontSize:13, color:"var(--muted)", marginTop:4, lineHeight:1.5}}>
               Quem tiver o link vê este dashboard em modo leitura, sem precisar de conta.
             </div>
@@ -119,8 +119,8 @@ function ShareModal({ onClose, tweaks, buildSnapshot, defaultTitle, hasAI }){
           <button onClick={onClose} className="icon-btn" style={{width:28, height:28, flexShrink:0}} aria-label="Fechar"><Icon.X size={14}/></button>
         </div>
 
-        <div style={{padding:"12px 14px", borderRadius:12, background:"#fafbfe", border:"1px solid var(--line-2)", display:"flex", gap:10, fontSize:12.5, color:"var(--ink-2)", lineHeight:1.5}}>
-          <Icon.Lock size={14} color="#0a8a4a"/>
+        <div style={{padding:"12px 14px", borderRadius:12, background:"#fbfbfd", border:"1px solid var(--line-2)", display:"flex", gap:10, fontSize:12.5, color:"var(--ink-2)", lineHeight:1.5}}>
+          <Icon.Lock size={14} color="#248a3d"/>
           <span>Salvamos um retrato dos blocos, com os valores já calculados. As linhas do seu arquivo continuam só no seu navegador. Você pode desativar o link quando quiser.</span>
         </div>
 
@@ -148,15 +148,15 @@ function ShareModal({ onClose, tweaks, buildSnapshot, defaultTitle, hasAI }){
                 width:"100%", padding:"10px 12px", border:"1px solid var(--line)", borderRadius:10, fontSize:14, fontFamily:"inherit", color:"var(--ink)", outline:"none",
               }}/>
             </label>
-            <label style={{display:"flex", gap:10, alignItems:"flex-start", fontSize:13, cursor: hasAI ? "pointer" : "default", opacity: hasAI ? 1 : .65}}>
-              <input type="checkbox" checked={includeAI && hasAI} disabled={!hasAI} onChange={()=>setIncludeAI(v=>!v)} style={{accentColor:"var(--brand)", marginTop:2}}/>
+            <label style={{display:"flex", gap:12, alignItems:"center", justifyContent:"space-between", fontSize:14, cursor: hasAI ? "pointer" : "default", opacity: hasAI ? 1 : .65}}>
               <span>Incluir a análise da IA{!hasAI && <span style={{display:"block", fontSize:11, color:"var(--muted)"}}>gere a análise no dashboard antes</span>}</span>
+              <input type="checkbox" role="switch" className="switch" checked={includeAI && hasAI} disabled={!hasAI} onChange={()=>setIncludeAI(v=>!v)}/>
             </label>
-            <label style={{display:"flex", gap:10, alignItems:"flex-start", fontSize:13, cursor:"pointer"}}>
-              <input type="checkbox" checked={branding} onChange={()=>setBranding(v=>!v)} style={{accentColor:"var(--brand)", marginTop:2}}/>
+            <label style={{display:"flex", gap:12, alignItems:"center", justifyContent:"space-between", fontSize:14, cursor:"pointer"}}>
               <span>Mostrar "Feito com Dash" na página</span>
+              <input type="checkbox" role="switch" className="switch" checked={branding} onChange={()=>setBranding(v=>!v)}/>
             </label>
-            {error && <div role="alert" style={{fontSize:13, color:"#c9234a"}}>{error}</div>}
+            {error && <div role="alert" style={{fontSize:13, color:"#d70015"}}>{error}</div>}
             <button className="btn btn-primary" onClick={create} disabled={busy} style={{justifyContent:"center", padding:"12px", opacity: busy ? .7 : 1}}>
               <Icon.Share size={14}/> {busy ? "Criando link…" : "Criar link"}
             </button>
@@ -180,7 +180,7 @@ function ShareModal({ onClose, tweaks, buildSnapshot, defaultTitle, hasAI }){
                   <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12}} onClick={()=> copy(l.url)}>
                     {copied === l.url ? "Copiado" : "Copiar"}
                   </button>
-                  <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12, color:"#c9234a"}} onClick={()=> revoke(l.slug)}>Desativar</button>
+                  <button className="btn btn-ghost" style={{padding:"6px 10px", fontSize:12, color:"#d70015"}} onClick={()=> revoke(l.slug)}>Desativar</button>
                 </div>
               ))}
             </div>
@@ -292,7 +292,7 @@ function SharedView({ slug, tweaks, onLeave }){
 
   const d = state.data;
   const payload = (d && d.payload) || {};
-  const accent = dashSafeColor(payload.accent, "#2f6bff");
+  const accent = dashSafeColor(payload.accent, "#0071e3");
   const meta = payload.meta || {};
   const branding = payload.branding !== false;
   const blocks = (Array.isArray(payload.blocks) ? payload.blocks : [])
@@ -319,7 +319,7 @@ function SharedView({ slug, tweaks, onLeave }){
       <div style={{maxWidth:1480, margin:"0 auto", padding:"28px 24px 64px"}}>
         <div style={{marginBottom:22}}>
           <span className="chip" style={{background:"var(--brand-soft)", color:"var(--brand-2)", marginBottom:8}}><Icon.Eye size={11}/> Somente leitura</span>
-          <h1 style={{margin:"8px 0 4px", fontSize:34, fontWeight:800, letterSpacing:"-.02em"}}>{String(d.title || meta.title || "Dashboard").slice(0, 120)}</h1>
+          <h1 style={{margin:"8px 0 4px", fontSize:34, fontWeight:700, letterSpacing:"-.02em"}}>{String(d.title || meta.title || "Dashboard").slice(0, 120)}</h1>
           <div style={{fontSize:13, color:"var(--muted)"}}>
             {[meta.fileName, meta.period, typeof meta.rows === "number" ? meta.rows.toLocaleString("pt-BR") + " linhas" : null, sharedOn ? "compartilhado em " + sharedOn : null]
               .filter(Boolean).map(String).join(" · ")}
